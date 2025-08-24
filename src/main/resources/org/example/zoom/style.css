@@ -1,0 +1,63 @@
+.root-pane {
+    -fx-background-color: linear-gradient(to bottom right, #3498db, #2980b9);
+}
+
+.card {
+    -fx-background-color: white;
+    -fx-padding: 50;
+    -fx-background-radius: 20;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.25), 15,0,0,8);
+    -fx-alignment: center;
+}
+
+.title-label {
+    -fx-font-size: 28px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #2980b9;
+}
+
+.icon-label {
+    -fx-font-size: 20px;
+    -fx-text-fill: #2980b9;
+}
+
+.input-field {
+    -fx-background-color: #ecf0f1;
+    -fx-text-fill: #2c3e50;
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-padding: 12 20;
+    -fx-background-radius: 15;
+    -fx-border-radius: 15;
+    -fx-border-color: #bdc3c7;
+}
+
+.check-box {
+    -fx-text-fill: #2980b9;
+    -fx-font-size: 14px;
+}
+
+.main-button {
+    -fx-background-color: #3498db;
+    -fx-text-fill: white;
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-padding: 12 30;
+    -fx-background-radius: 15;
+}
+
+.secondary-button {
+    -fx-background-color: white;
+    -fx-text-fill: #3498db;
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-padding: 12 30;
+    -fx-background-radius: 15;
+    -fx-border-color: #3498db;
+    -fx-border-width: 2;
+}
+
+.message-label {
+    -fx-text-fill: #e74c3c;
+    -fx-font-size: 14px;
+}

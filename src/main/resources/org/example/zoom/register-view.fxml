@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.geometry.*?>
+<?import javafx.scene.image.*?>
+<?import javafx.scene.text.*?>
+
+<StackPane xmlns:fx="http://javafx.com/fxml"
+           fx:controller="org.example.zoom.RegisterController"
+           prefWidth="500" prefHeight="550"
+           stylesheets="@style.css"
+           styleClass="root-pane">
+
+    <!-- Floating Card -->
+    <VBox alignment="CENTER" spacing="25" styleClass="card">
+
+        <ImageView fitWidth="100" fitHeight="100">
+            <image>
+                <Image url="https://i.pinimg.com/736x/05/d2/05/05d205464c8843564b3c6a8873083ea8.jpg"/>
+            </image>
+        </ImageView>
+
+        <Label text="Create Account" styleClass="title-label"/>
+
+        <TextField fx:id="usernameField" promptText="Username" styleClass="input-field"/>
+        <PasswordField fx:id="passwordField" promptText="Password" styleClass="input-field"/>
+        <PasswordField fx:id="confirmPasswordField" promptText="Confirm Password" styleClass="input-field"/>
+
+        <VBox alignment="CENTER" spacing="15">
+            <Button text="Register" onAction="#onRegisterClick" styleClass="main-button"/>
+            <Button text="Back to Login" onAction="#onBackClick" styleClass="secondary-button"/>
+        </VBox>
+
+        <Label fx:id="messageLabel" styleClass="message-label"/>
+    </VBox>
+</StackPane>

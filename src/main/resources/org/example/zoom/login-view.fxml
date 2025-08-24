@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.geometry.*?>
+<?import javafx.scene.image.*?>
+<?import javafx.scene.text.*?>
+
+<StackPane xmlns:fx="http://javafx.com/fxml"
+           fx:controller="org.example.zoom.LoginController"
+           prefWidth="500" prefHeight="550"
+           stylesheets="@style.css"
+           styleClass="root-pane">
+
+    <!-- Floating Card -->
+    <VBox alignment="CENTER" spacing="25" styleClass="card">
+
+        <!-- App Logo -->
+        <ImageView fitWidth="100" fitHeight="100">
+            <image>
+                <Image url="https://i.pinimg.com/736x/05/d2/05/05d205464c8843564b3c6a8873083ea8.jpg"/>
+            </image>
+        </ImageView>
+
+        <!-- Title -->
+        <Label text="Welcome Back!" styleClass="title-label"/>
+
+        <!-- Username Field -->
+        <HBox alignment="CENTER_LEFT" spacing="15">
+            <Label text="👤" styleClass="icon-label"/>
+            <TextField fx:id="usernameField" promptText="Username" styleClass="input-field"/>
+        </HBox>
+
+        <!-- Password Field -->
+        <HBox alignment="CENTER_LEFT" spacing="15">
+            <Label text="🔒" styleClass="icon-label"/>
+            <PasswordField fx:id="passwordField" promptText="Password" styleClass="input-field"/>
+        </HBox>
+
+        <!-- Remember Me -->
+        <HBox alignment="CENTER_LEFT" spacing="5">
+            <CheckBox fx:id="rememberMe" text="Remember Me" styleClass="check-box"/>
+        </HBox>
+
+        <!-- Buttons -->
+        <VBox alignment="CENTER" spacing="15">
+            <Button text="Login" onAction="#onLoginClick" styleClass="main-button"/>
+            <Button text="Register" onAction="#onRegisterClick" styleClass="secondary-button"/>
+        </VBox>
+
+        <!-- Message Label -->
+        <Label fx:id="messageLabel" styleClass="message-label"/>
+    </VBox>
+
+</StackPane>
