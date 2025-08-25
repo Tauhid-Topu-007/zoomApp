@@ -16,14 +16,16 @@ public class DashboardController {
 
     // Main Zoom functionalities with popups
     @FXML
-    protected void onNewMeetingClick() {
-        showPopup("New Meeting", "🟢 Starting a new meeting...");
+    protected void onNewMeetingClick() throws Exception {
+        HelloApplication.setRoot("new-meeting-view.fxml");
     }
 
+
     @FXML
-    protected void onJoinClick() {
-        showPopup("Join Meeting", "🔵 Joining a meeting...");
+    protected void onJoinClick() throws Exception {
+        HelloApplication.setRoot("join-view.fxml");
     }
+
 
     @FXML
     protected void onScheduleClick() {
@@ -42,8 +44,8 @@ public class DashboardController {
     }
 
     @FXML
-    protected void onChatClick() {
-        showPopup("Chat", "💬 Opening chat...");
+    protected void onChatClick() throws Exception {
+        HelloApplication.setRoot("chat-view.fxml");
     }
 
     @FXML

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<BorderPane xmlns:fx="http://javafx.com/fxml"
+            fx:controller="org.example.zoom.ChatController"
+            prefWidth="600" prefHeight="400"
+            style="-fx-background-color: #f4f6f9;">
+
+    <!-- Title Bar -->
+    <top>
+        <Label text="Meeting Chat"
+               style="-fx-background-color: #2c3e50; -fx-text-fill: white; -fx-font-size: 20px; -fx-font-weight: bold; -fx-padding: 10;"
+               maxWidth="Infinity"/>
+    </top>
+
+    <!-- Chat Messages Area -->
+    <center>
+        <ScrollPane fitToWidth="true" style="-fx-background: white; -fx-padding: 10;">
+            <VBox fx:id="chatBox" spacing="10" prefWidth="550" alignment="TOP_LEFT"/>
+        </ScrollPane>
+    </center>
+
+    <!-- Message Input -->
+    <bottom>
+        <HBox spacing="10" alignment="CENTER_LEFT" style="-fx-padding: 10; -fx-background-color: #ecf0f1;">
+            <TextField fx:id="messageField" promptText="Type your message..."
+                       HBox.hgrow="ALWAYS"
+                       style="-fx-padding: 10; -fx-font-size: 14px; -fx-background-radius: 8;"/>
+            <Button text="Send" onAction="#onSendClick"
+                    style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-size: 14px; -fx-background-radius: 8; -fx-padding: 10 20;"/>
+            <Button text="Back" onAction="#onBackClick"
+                    style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 14px; -fx-background-radius: 8; -fx-padding: 10 20;"/>
+        </HBox>
+    </bottom>
+</BorderPane>
