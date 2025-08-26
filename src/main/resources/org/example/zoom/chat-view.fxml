@@ -31,6 +31,8 @@
                        style="-fx-padding: 10; -fx-font-size: 14px; -fx-background-radius: 8;"/>
             <Button text="Send" onAction="#onSendClick"
                     style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-size: 14px; -fx-background-radius: 8; -fx-padding: 10 20;"/>
+            <Button text="📎 File" onAction="#onFileSendClick"
+                    style="-fx-background-color: #2980b9; -fx-text-fill: white; -fx-font-size: 14px; -fx-background-radius: 8; -fx-padding: 10 20;"/>
             <Button text="Back" onAction="#onBackClick"
                     style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 14px; -fx-background-radius: 8; -fx-padding: 10 20;"/>
         </HBox>
