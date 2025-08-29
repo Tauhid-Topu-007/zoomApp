@@ -14,30 +14,28 @@ public class DashboardController {
         welcomeLabel.setText("Welcome, " + username + " 👋");
     }
 
-    // Main Zoom functionalities with popups
+    // Main Zoom functionalities
     @FXML
     protected void onNewMeetingClick() throws Exception {
         HelloApplication.setRoot("new-meeting-view.fxml");
     }
-
 
     @FXML
     protected void onJoinClick() throws Exception {
         HelloApplication.setRoot("join-view.fxml");
     }
 
-
     @FXML
-    protected void onScheduleClick() {
-        showPopup("Schedule Meeting", "📅 Scheduling a meeting...");
+    protected void onScheduleClick() throws Exception {
+        HelloApplication.setRoot("schedule-view.fxml"); // 🔹 open Schedule page
     }
 
     @FXML
-    protected void onShareScreenClick() {
-        showPopup("Share Screen", "🖥️ Sharing screen...");
+    protected void onShareScreenClick() throws Exception{
+        HelloApplication.setRoot("share-screen-view.fxml");
     }
 
-    // Additional functionalities with popups
+    // Additional functionalities
     @FXML
     protected void onContactsClick() {
         showPopup("Contacts", "👥 Opening contacts...");
@@ -63,7 +61,7 @@ public class DashboardController {
         HelloApplication.setRoot("login-view.fxml");
     }
 
-    // Helper method to show popup dialogs
+    // Helper method for simple alerts
     private void showPopup(String title, String message) {
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
         alert.setTitle(title);
