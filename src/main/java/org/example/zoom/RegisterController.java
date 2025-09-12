@@ -35,8 +35,11 @@ public class RegisterController {
             return;
         }
 
-        messageLabel.setText("✅ Account created successfully!");
-        // TODO: Save user info
+        if (Database.registerUser(username, password)) {
+            messageLabel.setText("✅ Account created successfully!");
+        } else {
+            messageLabel.setText("❌ Registration failed (username may already exist)!");
+        }
     }
 
     @FXML

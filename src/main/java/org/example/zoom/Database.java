@@ -9,8 +9,8 @@ import java.sql.SQLException;
 public class Database {
 
     private static final String URL = "jdbc:mysql://localhost:3306/zoom_app?useSSL=false&serverTimezone=UTC";
-    private static final String USER = "root";          // replace with your MySQL username
-    private static final String PASSWORD = "your_password"; // replace with your MySQL password
+    private static final String USER = "root";     // your MySQL username
+    private static final String PASSWORD = "2015"; // your MySQL password
 
     static {
         try {

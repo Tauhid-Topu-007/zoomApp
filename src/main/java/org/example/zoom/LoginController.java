@@ -22,19 +22,16 @@ public class LoginController {
         String username = usernameField.getText();
         String password = passwordField.getText();
 
-        if (username.equals("Topu") && password.equals("1234")) {
+        if (Database.authenticateUser(username, password)) {
             messageLabel.setText("✅ Login successful!");
 
             try {
-                // Load Dashboard FXML
                 FXMLLoader loader = new FXMLLoader(getClass().getResource("dashboard-view.fxml"));
                 Scene dashboardScene = new Scene(loader.load(), 900, 600);
 
-                // Pass username to dashboard (optional)
                 DashboardController controller = loader.getController();
                 controller.setUser(username);
 
-                // Switch scene
                 Stage stage = (Stage) messageLabel.getScene().getWindow();
                 stage.setScene(dashboardScene);
 
