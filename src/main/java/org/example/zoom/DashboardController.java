@@ -1,16 +1,22 @@
 package org.example.zoom;
 
 import javafx.fxml.FXML;
+import javafx.fxml.FXMLLoader;
+import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Label;
+import javafx.stage.Stage;
 
 public class DashboardController {
 
     @FXML
     private Label welcomeLabel;
 
+    private String currentUser; // store logged-in user
+
     // Called from LoginController
     public void setUser(String username) {
+        this.currentUser = username;
         welcomeLabel.setText("Welcome, " + username + " 👋");
     }
 
@@ -31,7 +37,7 @@ public class DashboardController {
     }
 
     @FXML
-    protected void onShareScreenClick() throws Exception{
+    protected void onShareScreenClick() throws Exception {
         HelloApplication.setRoot("share-screen-view.fxml");
     }
 
@@ -53,7 +59,22 @@ public class DashboardController {
 
     @FXML
     protected void onSettingsClick() {
-        showPopup("Settings", "⚙ Opening settings...");
+        try {
+            FXMLLoader loader = new FXMLLoader(getClass().getResource("settings-view.fxml"));
+            Scene scene = new Scene(loader.load(), 500, 400);
+
+            // Pass username to SettingsController
+            SettingsController controller = loader.getController();
+            controller.setUser(currentUser);
+
+            // Switch scene
+            Stage stage = (Stage) welcomeLabel.getScene().getWindow();
+            stage.setScene(scene);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            showPopup("Error", "❌ Failed to open Settings!");
+        }
     }
 
     @FXML
