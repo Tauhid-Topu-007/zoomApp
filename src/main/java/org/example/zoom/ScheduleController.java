@@ -7,42 +7,45 @@ import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
 
 import java.time.LocalDate;
-import java.time.LocalTime;
 
 public class ScheduleController {
 
     @FXML
     private TableView<Meeting> scheduleTable;
-
     @FXML
     private TableColumn<Meeting, String> titleColumn;
-
     @FXML
     private TableColumn<Meeting, String> dateColumn;
-
     @FXML
     private TableColumn<Meeting, String> timeColumn;
 
     @FXML
     private TextField meetingTitleField;
-
     @FXML
     private DatePicker meetingDatePicker;
-
     @FXML
     private TextField meetingTimeField; // Example: "14:30"
 
-    private final ObservableList<Meeting> meetings = FXCollections.observableArrayList();
+    private String currentUser; // logged-in user
+    private ObservableList<Meeting> meetings = FXCollections.observableArrayList();
+
+    // Called from DashboardController
+    public void setUser(String username) {
+        this.currentUser = username;
+        loadMeetings();
+    }
 
     @FXML
     public void initialize() {
-        // Bind table columns
         titleColumn.setCellValueFactory(new PropertyValueFactory<>("title"));
         dateColumn.setCellValueFactory(new PropertyValueFactory<>("date"));
         timeColumn.setCellValueFactory(new PropertyValueFactory<>("time"));
-
-        // Load data
         scheduleTable.setItems(meetings);
+    }
+
+    private void loadMeetings() {
+        meetings.clear();
+        meetings.addAll(Database.getMeetings(currentUser));
     }
 
     @FXML
@@ -52,10 +55,15 @@ public class ScheduleController {
         String time = meetingTimeField.getText().trim();
 
         if (!title.isEmpty() && date != null && !time.isEmpty()) {
-            meetings.add(new Meeting(title, date.toString(), time));
-            meetingTitleField.clear();
-            meetingDatePicker.setValue(null);
-            meetingTimeField.clear();
+            boolean saved = Database.saveMeeting(currentUser, title, date.toString(), time);
+            if (saved) {
+                meetings.add(new Meeting(title, date.toString(), time));
+                meetingTitleField.clear();
+                meetingDatePicker.setValue(null);
+                meetingTimeField.clear();
+            } else {
+                showAlert("❌ Failed to save meeting to database.");
+            }
         } else {
             showAlert("Please fill all fields before adding a meeting.");
         }

@@ -1,10 +1,8 @@
 package org.example.zoom;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
 
 public class Database {
 
@@ -73,6 +71,49 @@ public class Database {
             e.printStackTrace();
             return false;
         }
+    }
+
+    // Save a meeting to DB
+    public static boolean saveMeeting(String username, String title, String date, String time) {
+        String sql = "INSERT INTO meetings(username, title, date, time) VALUES (?, ?, ?, ?)";
+
+        try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, username);
+            stmt.setString(2, title);
+            stmt.setString(3, date);
+            stmt.setString(4, time);
+            stmt.executeUpdate();
+            return true;
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    // Get all meetings for a user (return as standard List)
+    public static List<ScheduleController.Meeting> getMeetings(String username) {
+        List<ScheduleController.Meeting> meetings = new ArrayList<>();
+        String sql = "SELECT title, date, time FROM meetings WHERE username = ?";
+
+        try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, username);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                String title = rs.getString("title");
+                String date = rs.getString("date");
+                String time = rs.getString("time");
+                meetings.add(new ScheduleController.Meeting(title, date, time));
+            }
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return meetings;
     }
 
 }

@@ -9,18 +9,14 @@ import javafx.stage.Stage;
 
 public class DashboardController {
 
-    @FXML
-    private Label welcomeLabel;
+    @FXML private Label welcomeLabel;
+    private String currentUser;
 
-    private String currentUser; // store logged-in user
-
-    // Called from LoginController
     public void setUser(String username) {
-        this.currentUser = username;
+        currentUser = username;
         welcomeLabel.setText("Welcome, " + username + " 👋");
     }
 
-    // Main Zoom functionalities
     @FXML
     protected void onNewMeetingClick() throws Exception {
         HelloApplication.setRoot("new-meeting-view.fxml");
@@ -33,7 +29,13 @@ public class DashboardController {
 
     @FXML
     protected void onScheduleClick() throws Exception {
-        HelloApplication.setRoot("schedule-view.fxml"); // 🔹 open Schedule page
+        FXMLLoader loader = new FXMLLoader(getClass().getResource("schedule-view.fxml"));
+        Scene scene = new Scene(loader.load(), 900, 600);
+        ScheduleController controller = loader.getController();
+        controller.setUser(currentUser);
+
+        Stage stage = (Stage) welcomeLabel.getScene().getWindow();
+        stage.setScene(scene);
     }
 
     @FXML
@@ -41,33 +43,23 @@ public class DashboardController {
         HelloApplication.setRoot("share-screen-view.fxml");
     }
 
-    // Additional functionalities
     @FXML
-    protected void onContactsClick() {
-        showPopup("Contacts", "👥 Opening contacts...");
-    }
+    protected void onContactsClick() { showPopup("Contacts", "👥 Opening contacts..."); }
 
     @FXML
-    protected void onChatClick() throws Exception {
-        HelloApplication.setRoot("chat-view.fxml");
-    }
+    protected void onChatClick() throws Exception { HelloApplication.setRoot("chat-view.fxml"); }
 
     @FXML
-    protected void onRecordingsClick() {
-        showPopup("Recordings", "🎥 Viewing recordings...");
-    }
+    protected void onRecordingsClick() { showPopup("Recordings", "🎥 Viewing recordings..."); }
 
     @FXML
     protected void onSettingsClick() {
         try {
             FXMLLoader loader = new FXMLLoader(getClass().getResource("settings-view.fxml"));
             Scene scene = new Scene(loader.load(), 500, 400);
-
-            // Pass username to SettingsController
             SettingsController controller = loader.getController();
             controller.setUser(currentUser);
 
-            // Switch scene
             Stage stage = (Stage) welcomeLabel.getScene().getWindow();
             stage.setScene(scene);
 
@@ -78,11 +70,8 @@ public class DashboardController {
     }
 
     @FXML
-    protected void onLogoutClick() throws Exception {
-        HelloApplication.setRoot("login-view.fxml");
-    }
+    protected void onLogoutClick() throws Exception { HelloApplication.setRoot("login-view.fxml"); }
 
-    // Helper method for simple alerts
     private void showPopup(String title, String message) {
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
         alert.setTitle(title);
