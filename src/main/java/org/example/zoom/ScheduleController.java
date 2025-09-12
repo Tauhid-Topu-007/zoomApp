@@ -73,6 +73,25 @@ public class ScheduleController {
     protected void onBackClick() throws Exception {
         HelloApplication.setRoot("dashboard-view.fxml");
     }
+    @FXML
+    protected void onCancelClick() {
+        Meeting selected = scheduleTable.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            showAlert("❌ Please select a meeting to cancel.");
+            return;
+        }
+
+        boolean deleted = Database.deleteMeeting(currentUser,
+                selected.getTitle(), selected.getDate(), selected.getTime());
+
+        if (deleted) {
+            meetings.remove(selected);
+            showAlert("✅ Meeting cancelled successfully.");
+        } else {
+            showAlert("❌ Failed to cancel meeting.");
+        }
+    }
+
 
     private void showAlert(String msg) {
         Alert alert = new Alert(Alert.AlertType.WARNING);

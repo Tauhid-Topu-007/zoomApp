@@ -116,4 +116,23 @@ public class Database {
         return meetings;
     }
 
+    // Delete a meeting
+    public static boolean deleteMeeting(String username, String title, String date, String time) {
+        String sql = "DELETE FROM meetings WHERE username = ? AND title = ? AND date = ? AND time = ?";
+        try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, username);
+            stmt.setString(2, title);
+            stmt.setString(3, date);
+            stmt.setString(4, time);
+            return stmt.executeUpdate() > 0;
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+
 }

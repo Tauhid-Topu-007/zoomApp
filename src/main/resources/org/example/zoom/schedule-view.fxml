@@ -42,9 +42,15 @@
                         style="-fx-background-color: #27ae60; -fx-text-fill: white;
                                -fx-font-size: 14px; -fx-background-radius: 8; -fx-padding: 10 20;"/>
             </HBox>
-            <Button text="Back to Dashboard" onAction="#onBackClick"
-                    style="-fx-background-color: #e74c3c; -fx-text-fill: white;
-                           -fx-font-size: 14px; -fx-background-radius: 8; -fx-padding: 10 20;"/>
+
+            <HBox spacing="10">
+                <Button text="Cancel Selected Meeting" onAction="#onCancelClick"
+                        style="-fx-background-color: #c0392b; -fx-text-fill: white;
+                               -fx-font-size: 14px; -fx-background-radius: 8; -fx-padding: 10 20;"/>
+                <Button text="Back to Dashboard" onAction="#onBackClick"
+                        style="-fx-background-color: #e74c3c; -fx-text-fill: white;
+                               -fx-font-size: 14px; -fx-background-radius: 8; -fx-padding: 10 20;"/>
+            </HBox>
         </VBox>
     </bottom>
 
