@@ -14,7 +14,7 @@
             <Button fx:id="audioButton" text="Mute" onAction="#toggleAudio"/>
             <Button fx:id="videoButton" text="Camera On" onAction="#toggleVideo"/>
             <Button fx:id="shareButton" text="Share Screen" onAction="#onShareScreen"/>
-            <Pane HBox.hgrow="ALWAYS"/> <!-- Spacer -->
+            <Pane HBox.hgrow="ALWAYS"/>
             <Button text="Leave" onAction="#onLeaveClick" style="-fx-background-color: red; -fx-text-fill: white;"/>
         </ToolBar>
     </top>
@@ -27,23 +27,24 @@
         </VBox>
     </left>
 
-    <!-- Center: Video Area -->
+    <!-- 🔹 Center: Video Area -->
     <center>
         <StackPane fx:id="videoArea" style="-fx-background-color: black;" BorderPane.alignment="CENTER">
-            <Label text="🎥 Meeting Video Area"
-                   style="-fx-text-fill: white; -fx-font-size: 20; -fx-font-weight: bold;"/>
+            <Label text="🎥 Meeting Video Area" style="-fx-text-fill: white; -fx-font-size: 20; -fx-font-weight: bold;"/>
         </StackPane>
     </center>
 
-
     <!-- 🔹 Right: Chat -->
     <right>
-        <VBox spacing="8" prefWidth="250" alignment="CENTER" style="-fx-background-color: #f9f9f9; -fx-padding: 10;">
+        <VBox spacing="8" prefWidth="300" alignment="CENTER" style="-fx-background-color: #f9f9f9; -fx-padding: 10;">
             <Label text="Chat" style="-fx-font-weight: bold; -fx-font-size: 14;"/>
-            <TextArea fx:id="chatArea" editable="false" wrapText="true" VBox.vgrow="ALWAYS"/>
+            <ScrollPane fx:id="chatScroll" fitToWidth="true" VBox.vgrow="ALWAYS">
+                <VBox fx:id="chatBox" spacing="5"/>
+            </ScrollPane>
             <HBox spacing="5">
                 <TextField fx:id="chatInput" promptText="Type a message..." HBox.hgrow="ALWAYS"/>
                 <Button text="Send" onAction="#onSendChat"/>
+                <Button text="Attach" onAction="#onSendFile"/>
             </HBox>
         </VBox>
     </right>

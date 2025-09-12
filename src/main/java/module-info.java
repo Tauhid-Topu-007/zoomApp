@@ -4,7 +4,8 @@ module org.example.zoom {
     requires javafx.web;
     requires java.desktop;
     requires javafx.swing;
-    requires java.sql; // ✅ Add this
+    requires java.sql;
+    requires javafx.media;
 
     requires org.controlsfx.controls;
     requires com.dlsc.formsfx;
