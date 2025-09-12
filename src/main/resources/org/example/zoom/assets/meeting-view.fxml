@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.geometry.*?>
+
+<BorderPane xmlns:fx="http://javafx.com/fxml"
+            fx:controller="org.example.zoom.MeetingController"
+            prefWidth="900" prefHeight="600">
+
+    <!-- Top bar -->
+    <top>
+        <HBox spacing="10" padding="10" alignment="CENTER_LEFT" style="-fx-background-color: #2d2d2d;">
+            <Label fx:id="meetingInfoLabel" text="Meeting in progress..." style="-fx-text-fill: white;"/>
+        </HBox>
+    </top>
+
+    <!-- Left: Participants -->
+    <left>
+        <VBox fx:id="participantsBox" spacing="10" padding="10" prefWidth="150" style="-fx-background-color: #f0f0f0;">
+            <Label text="👥 Participants" style="-fx-font-weight: bold;"/>
+        </VBox>
+    </left>
+
+    <!-- Center: Video placeholder -->
+    <center>
+        <StackPane style="-fx-background-color: black;">
+            <Label text="📹 Video Stream Here" style="-fx-text-fill: white; -fx-font-size: 20;"/>
+        </StackPane>
+    </center>
+
+    <!-- Right: Chat -->
+    <right>
+        <VBox spacing="5" padding="10" prefWidth="250" style="-fx-background-color: #f9f9f9;">
+            <Label text="💬 Chat" style="-fx-font-weight: bold;"/>
+            <TextArea fx:id="chatArea" editable="false" prefHeight="400"/>
+            <HBox spacing="5">
+                <TextField fx:id="chatInput" promptText="Type a message..."/>
+                <Button text="Send" onAction="#onSendChat"/>
+            </HBox>
+        </VBox>
+    </right>
+
+    <!-- Bottom: Controls -->
+    <bottom>
+        <HBox spacing="15" padding="10" alignment="CENTER" style="-fx-background-color: #2d2d2d;">
+            <Button fx:id="muteButton" text="Mute" onAction="#onMuteClick"/>
+            <Button fx:id="videoButton" text="Camera Off" onAction="#onVideoClick"/>
+            <Button text="Share Screen" onAction="#onShareScreenClick"/>
+            <Button text="Leave Meeting" style="-fx-background-color: red; -fx-text-fill: white;" onAction="#onLeaveClick"/>
+        </HBox>
+    </bottom>
+</BorderPane>

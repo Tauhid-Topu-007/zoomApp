@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.geometry.*?>
+
+<BorderPane xmlns:fx="http://javafx.com/fxml"
+            fx:controller="org.example.zoom.MeetingController"
+            prefWidth="1200" prefHeight="800">
+
+    <!-- 🔹 Top: Toolbar -->
+    <top>
+        <ToolBar prefHeight="40">
+            <Button fx:id="audioButton" text="Mute" onAction="#toggleAudio"/>
+            <Button fx:id="videoButton" text="Camera On" onAction="#toggleVideo"/>
+            <Button fx:id="shareButton" text="Share Screen" onAction="#onShareScreen"/>
+            <Pane HBox.hgrow="ALWAYS"/> <!-- Spacer -->
+            <Button text="Leave" onAction="#onLeaveClick" style="-fx-background-color: red; -fx-text-fill: white;"/>
+        </ToolBar>
+    </top>
+
+    <!-- 🔹 Left: Participants -->
+    <left>
+        <VBox spacing="10" prefWidth="200" alignment="TOP_CENTER" style="-fx-background-color: #f2f2f2;">
+            <Label text="Participants" style="-fx-font-weight: bold; -fx-font-size: 14;"/>
+            <ListView fx:id="participantsList" VBox.vgrow="ALWAYS"/>
+        </VBox>
+    </left>
+
+    <!-- Center: Video Area -->
+    <center>
+        <StackPane fx:id="videoArea" style="-fx-background-color: black;" BorderPane.alignment="CENTER">
+            <Label text="🎥 Meeting Video Area"
+                   style="-fx-text-fill: white; -fx-font-size: 20; -fx-font-weight: bold;"/>
+        </StackPane>
+    </center>
+
+
+    <!-- 🔹 Right: Chat -->
+    <right>
+        <VBox spacing="8" prefWidth="250" alignment="CENTER" style="-fx-background-color: #f9f9f9; -fx-padding: 10;">
+            <Label text="Chat" style="-fx-font-weight: bold; -fx-font-size: 14;"/>
+            <TextArea fx:id="chatArea" editable="false" wrapText="true" VBox.vgrow="ALWAYS"/>
+            <HBox spacing="5">
+                <TextField fx:id="chatInput" promptText="Type a message..." HBox.hgrow="ALWAYS"/>
+                <Button text="Send" onAction="#onSendChat"/>
+            </HBox>
+        </VBox>
+    </right>
+
+</BorderPane>

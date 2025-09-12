@@ -12,7 +12,7 @@ public class HelloApplication extends Application {
     @Override
     public void start(Stage stage) throws Exception {
         primaryStage = stage;
-        setRoot("login-view.fxml");
+        setRoot("login-view.fxml");   // first screen
         stage.setTitle("Zoom Project");
         stage.show();
     }
@@ -21,6 +21,17 @@ public class HelloApplication extends Application {
         FXMLLoader loader = new FXMLLoader(HelloApplication.class.getResource(fxml));
         Scene scene = new Scene(loader.load());
         primaryStage.setScene(scene);
+
+        // 🔹 Only fullscreen if it's the meeting view
+        if (fxml.equals("meeting-view.fxml")) {
+            primaryStage.setFullScreen(true);
+        } else {
+            primaryStage.setFullScreen(false);
+        }
+    }
+
+    public static Stage getPrimaryStage() {
+        return primaryStage;
     }
 
     public static void main(String[] args) {

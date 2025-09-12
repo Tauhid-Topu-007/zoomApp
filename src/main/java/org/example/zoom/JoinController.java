@@ -16,15 +16,14 @@ public class JoinController {
     private Label statusLabel;
 
     @FXML
-    protected void onJoinMeetingClick() {
+    protected void onJoinMeetingClick() throws Exception {
         String meetingId = meetingIdField.getText();
         String name = nameField.getText();
 
         if (meetingId.isEmpty() || name.isEmpty()) {
             statusLabel.setText("⚠ Please enter both Meeting ID and Name!");
         } else {
-            statusLabel.setText("✅ Joining meeting ID: " + meetingId + " as " + name);
-            // Later, you can load an actual meeting window
+            HelloApplication.setRoot("meeting-view.fxml");
         }
     }
 
