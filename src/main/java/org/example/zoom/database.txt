@@ -1,0 +1,7 @@
+CREATE TABLE contacts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50),         -- owner of contact (the logged-in user)
+    contact_name VARCHAR(100),    -- contact's name
+    contact_email VARCHAR(100),   -- optional
+    contact_phone VARCHAR(20)     -- optional
+);

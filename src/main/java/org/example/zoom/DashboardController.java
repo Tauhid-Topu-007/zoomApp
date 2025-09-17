@@ -44,7 +44,9 @@ public class DashboardController {
     }
 
     @FXML
-    protected void onContactsClick() { showPopup("Contacts", "👥 Opening contacts..."); }
+    protected void onContactsClick() throws Exception {
+        HelloApplication.setRoot("contacts-view.fxml");
+    }
 
     @FXML
     protected void onChatClick() throws Exception { HelloApplication.setRoot("chat-view.fxml"); }

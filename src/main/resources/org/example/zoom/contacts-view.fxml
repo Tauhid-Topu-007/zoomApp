@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.*?>
+
+<BorderPane xmlns:fx="http://javafx.com/fxml"
+            fx:controller="org.example.zoom.ContactController"
+            prefWidth="600" prefHeight="400">
+
+    <top>
+        <Label text="📒 Contact Manager"
+               style="-fx-font-size: 18; -fx-font-weight: bold; -fx-padding: 10;" />
+    </top>
+
+    <center>
+        <VBox spacing="8" alignment="CENTER" style="-fx-padding: 10;">
+            <ListView fx:id="contactList" prefHeight="200" prefWidth="500"/>
+        </VBox>
+    </center>
+
+    <bottom>
+        <VBox spacing="5" style="-fx-padding: 10;">
+            <HBox spacing="10">
+                <TextField fx:id="nameField" promptText="Name" />
+                <TextField fx:id="emailField" promptText="Email" />
+                <TextField fx:id="phoneField" promptText="Phone" />
+            </HBox>
+            <HBox spacing="10" alignment="CENTER">
+                <Button text="Add Contact" onAction="#onAddClick"/>
+                <Button text="Update Contact" onAction="#onUpdateClick"/>
+                <Button text="Delete Contact" onAction="#onDeleteClick"/>
+            </HBox>
+        </VBox>
+    </bottom>
+</BorderPane>
