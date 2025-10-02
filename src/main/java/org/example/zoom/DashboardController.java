@@ -60,9 +60,10 @@ public class DashboardController {
     }
 
     @FXML
-    protected void onRecordingsClick() {
-        showPopup("Recordings", "🎥 Viewing recordings...");
+    protected void onRecordingsClick() throws Exception {
+        HelloApplication.setRoot("recordings-view.fxml");
     }
+
 
     @FXML
     protected void onSettingsClick() {

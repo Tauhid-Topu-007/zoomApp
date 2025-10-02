@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.geometry.Insets?>
+
+<BorderPane xmlns:fx="http://javafx.com/fxml"
+            fx:controller="org.example.zoom.RecordingsController">
+
+    <top>
+        <Label text="🎥 My Recordings"
+               style="-fx-font-size: 18px; -fx-font-weight: bold; -fx-padding: 10;" />
+    </top>
+
+    <center>
+        <ListView fx:id="recordingsList" prefHeight="400" prefWidth="600"/>
+    </center>
+
+    <bottom>
+        <HBox spacing="10" alignment="CENTER">
+            <padding>
+                <Insets top="10" right="10" bottom="10" left="10"/>
+            </padding>
+            <Button text="▶ Play" onAction="#onPlayClick"/>
+            <Button text="⬇ Download" onAction="#onDownloadClick"/>
+            <Button text="🗑 Delete" onAction="#onDeleteClick"/>
+            <Button text="⬅ Back" onAction="#onBackClick"/>
+        </HBox>
+    </bottom>
+
+</BorderPane>
