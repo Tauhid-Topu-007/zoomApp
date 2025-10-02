@@ -6,14 +6,9 @@ import javafx.scene.control.TextField;
 
 public class JoinController {
 
-    @FXML
-    private TextField meetingIdField;
-
-    @FXML
-    private TextField nameField;
-
-    @FXML
-    private Label statusLabel;
+    @FXML private TextField meetingIdField;
+    @FXML private TextField nameField;
+    @FXML private Label statusLabel;
 
     @FXML
     protected void onJoinMeetingClick() throws Exception {
@@ -27,6 +22,7 @@ public class JoinController {
 
         String activeMeetingId = HelloApplication.getActiveMeetingId();
         if (activeMeetingId != null && activeMeetingId.equals(meetingId)) {
+            HelloApplication.addParticipant(name);  // Add participant
             HelloApplication.setRoot("meeting-view.fxml");
         } else {
             statusLabel.setText("❌ Invalid Meeting ID!");

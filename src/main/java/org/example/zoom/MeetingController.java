@@ -39,15 +39,18 @@ public class MeetingController {
 
     @FXML
     public void initialize() {
-        participantsList.getItems().addAll("Tauhid", "Alif", "Asif","Sami","Rokan");
+        // Load participants dynamically from HelloApplication
+        participantsList.getItems().clear();
+        participantsList.getItems().addAll(HelloApplication.getActiveParticipants());
 
-        // Enter key sends message
+        // Enter key sends chat
         chatInput.setOnKeyPressed(event -> {
             switch (event.getCode()) {
                 case ENTER -> onSendChat();
             }
         });
     }
+
 
     // ---------------- Video / Audio ----------------
     @FXML

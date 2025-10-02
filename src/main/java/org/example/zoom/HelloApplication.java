@@ -5,11 +5,15 @@ import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class HelloApplication extends Application {
 
     private static Stage primaryStage;
-    private static String loggedInUser;   // ✅ persist login until logout
-    private static String activeMeetingId; // ✅ store meeting ID
+    private static String loggedInUser;   // persist login until logout
+    private static String activeMeetingId; // store meeting ID
+    private static final List<String> activeParticipants = new ArrayList<>();
 
     @Override
     public void start(Stage stage) throws Exception {
@@ -19,7 +23,6 @@ public class HelloApplication extends Application {
         stage.show();
     }
 
-    // ✅ Change scene but keep loggedInUser
     public static void setRoot(String fxml) throws Exception {
         FXMLLoader loader = new FXMLLoader(HelloApplication.class.getResource(fxml));
         Scene scene = new Scene(loader.load());
@@ -29,7 +32,6 @@ public class HelloApplication extends Application {
         primaryStage.setFullScreen("meeting-view.fxml".equals(fxml));
     }
 
-    // ✅ Called after successful login
     public static void setLoggedInUser(String username) {
         loggedInUser = username;
     }
@@ -38,9 +40,10 @@ public class HelloApplication extends Application {
         return loggedInUser;
     }
 
-    // ✅ Explicit logout
     public static void logout() throws Exception {
         loggedInUser = null;
+        activeParticipants.clear();
+        activeMeetingId = null;
         setRoot("login-view.fxml");
     }
 
@@ -48,13 +51,28 @@ public class HelloApplication extends Application {
         return primaryStage;
     }
 
-    // ✅ Meeting ID storage
+    // Meeting ID storage
     public static void setActiveMeetingId(String meetingId) {
         activeMeetingId = meetingId;
     }
 
     public static String getActiveMeetingId() {
         return activeMeetingId;
+    }
+
+    // ---------------- Participants ----------------
+    public static void addParticipant(String name) {
+        if (!activeParticipants.contains(name)) {
+            activeParticipants.add(name);
+        }
+    }
+
+    public static List<String> getActiveParticipants() {
+        return new ArrayList<>(activeParticipants);
+    }
+
+    public static void clearParticipants() {
+        activeParticipants.clear();
     }
 
     public static void main(String[] args) {
