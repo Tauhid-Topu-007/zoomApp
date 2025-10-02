@@ -17,13 +17,19 @@ public class JoinController {
 
     @FXML
     protected void onJoinMeetingClick() throws Exception {
-        String meetingId = meetingIdField.getText();
-        String name = nameField.getText();
+        String meetingId = meetingIdField.getText().trim();
+        String name = nameField.getText().trim();
 
         if (meetingId.isEmpty() || name.isEmpty()) {
             statusLabel.setText("⚠ Please enter both Meeting ID and Name!");
-        } else {
+            return;
+        }
+
+        String activeMeetingId = HelloApplication.getActiveMeetingId();
+        if (activeMeetingId != null && activeMeetingId.equals(meetingId)) {
             HelloApplication.setRoot("meeting-view.fxml");
+        } else {
+            statusLabel.setText("❌ Invalid Meeting ID!");
         }
     }
 

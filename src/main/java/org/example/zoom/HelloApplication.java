@@ -8,7 +8,8 @@ import javafx.stage.Stage;
 public class HelloApplication extends Application {
 
     private static Stage primaryStage;
-    private static String loggedInUser; // ✅ persist login until logout
+    private static String loggedInUser;   // ✅ persist login until logout
+    private static String activeMeetingId; // ✅ store meeting ID
 
     @Override
     public void start(Stage stage) throws Exception {
@@ -45,6 +46,15 @@ public class HelloApplication extends Application {
 
     public static Stage getPrimaryStage() {
         return primaryStage;
+    }
+
+    // ✅ Meeting ID storage
+    public static void setActiveMeetingId(String meetingId) {
+        activeMeetingId = meetingId;
+    }
+
+    public static String getActiveMeetingId() {
+        return activeMeetingId;
     }
 
     public static void main(String[] args) {

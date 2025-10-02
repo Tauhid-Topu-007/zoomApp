@@ -21,6 +21,9 @@ public class NewMeetingController {
         // Generate unique meeting ID
         meetingId = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         meetingIdField.setText(meetingId);
+
+        // Save it globally so JoinController can verify
+        HelloApplication.setActiveMeetingId(meetingId);
     }
 
     @FXML
