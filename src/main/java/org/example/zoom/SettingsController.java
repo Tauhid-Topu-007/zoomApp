@@ -60,8 +60,8 @@ public class SettingsController {
             FXMLLoader loader = new FXMLLoader(getClass().getResource("dashboard-view.fxml"));
             Scene scene = new Scene(loader.load(), 900, 600);
 
-            DashboardController controller = loader.getController();
-            controller.setUser(username);
+            // ❌ No need to call controller.setUser(username)
+            // DashboardController automatically uses HelloApplication.getLoggedInUser()
 
             Stage stage = (Stage) messageLabel.getScene().getWindow();
             stage.setScene(scene);

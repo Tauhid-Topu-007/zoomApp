@@ -2,12 +2,9 @@ package org.example.zoom;
 
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
-import javafx.fxml.FXMLLoader;
-import javafx.scene.Scene;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
-import javafx.stage.Stage;
 
 public class LoginController {
     @FXML
@@ -26,14 +23,11 @@ public class LoginController {
             messageLabel.setText("✅ Login successful!");
 
             try {
-                FXMLLoader loader = new FXMLLoader(getClass().getResource("dashboard-view.fxml"));
-                Scene dashboardScene = new Scene(loader.load(), 900, 600);
+                // Store logged in user globally
+                HelloApplication.setLoggedInUser(username);
 
-                DashboardController controller = loader.getController();
-                controller.setUser(username);
-
-                Stage stage = (Stage) messageLabel.getScene().getWindow();
-                stage.setScene(dashboardScene);
+                // Navigate to dashboard
+                HelloApplication.setRoot("dashboard-view.fxml");
 
             } catch (Exception e) {
                 e.printStackTrace();
@@ -48,10 +42,7 @@ public class LoginController {
     @FXML
     protected void onRegisterClick(ActionEvent event) {
         try {
-            FXMLLoader loader = new FXMLLoader(getClass().getResource("register-view.fxml"));
-            Scene scene = new Scene(loader.load(), 500, 550);
-            Stage stage = (Stage) messageLabel.getScene().getWindow();
-            stage.setScene(scene);
+            HelloApplication.setRoot("register-view.fxml");
         } catch (Exception e) {
             e.printStackTrace();
         }

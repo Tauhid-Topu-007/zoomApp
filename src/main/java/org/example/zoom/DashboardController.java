@@ -9,12 +9,16 @@ import javafx.stage.Stage;
 
 public class DashboardController {
 
-    @FXML private Label welcomeLabel;
-    private String currentUser;
+    @FXML
+    private Label welcomeLabel;
 
-    public void setUser(String username) {
-        currentUser = username;
-        welcomeLabel.setText("Welcome, " + username + " 👋");
+    @FXML
+    public void initialize() {
+        // Always pull the logged-in user from HelloApplication
+        String user = HelloApplication.getLoggedInUser();
+        if (user != null) {
+            welcomeLabel.setText("Welcome, " + user + " 👋");
+        }
     }
 
     @FXML
@@ -31,8 +35,10 @@ public class DashboardController {
     protected void onScheduleClick() throws Exception {
         FXMLLoader loader = new FXMLLoader(getClass().getResource("schedule-view.fxml"));
         Scene scene = new Scene(loader.load(), 900, 600);
+
+        // Pass current user into ScheduleController
         ScheduleController controller = loader.getController();
-        controller.setUser(currentUser);
+        controller.setUser(HelloApplication.getLoggedInUser());
 
         Stage stage = (Stage) welcomeLabel.getScene().getWindow();
         stage.setScene(scene);
@@ -49,18 +55,23 @@ public class DashboardController {
     }
 
     @FXML
-    protected void onChatClick() throws Exception { HelloApplication.setRoot("chat-view.fxml"); }
+    protected void onChatClick() throws Exception {
+        HelloApplication.setRoot("chat-view.fxml");
+    }
 
     @FXML
-    protected void onRecordingsClick() { showPopup("Recordings", "🎥 Viewing recordings..."); }
+    protected void onRecordingsClick() {
+        showPopup("Recordings", "🎥 Viewing recordings...");
+    }
 
     @FXML
     protected void onSettingsClick() {
         try {
             FXMLLoader loader = new FXMLLoader(getClass().getResource("settings-view.fxml"));
             Scene scene = new Scene(loader.load(), 500, 400);
+
             SettingsController controller = loader.getController();
-            controller.setUser(currentUser);
+            controller.setUser(HelloApplication.getLoggedInUser());
 
             Stage stage = (Stage) welcomeLabel.getScene().getWindow();
             stage.setScene(scene);
@@ -72,7 +83,9 @@ public class DashboardController {
     }
 
     @FXML
-    protected void onLogoutClick() throws Exception { HelloApplication.setRoot("login-view.fxml"); }
+    protected void onLogoutClick() throws Exception {
+        HelloApplication.logout();
+    }
 
     private void showPopup(String title, String message) {
         Alert alert = new Alert(Alert.AlertType.INFORMATION);

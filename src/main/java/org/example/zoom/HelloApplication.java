@@ -8,26 +8,39 @@ import javafx.stage.Stage;
 public class HelloApplication extends Application {
 
     private static Stage primaryStage;
+    private static String loggedInUser; // ✅ persist login until logout
 
     @Override
     public void start(Stage stage) throws Exception {
         primaryStage = stage;
-        setRoot("login-view.fxml");   // first screen
+        setRoot("login-view.fxml");   // start at login
         stage.setTitle("Zoom Project");
         stage.show();
     }
 
+    // ✅ Change scene but keep loggedInUser
     public static void setRoot(String fxml) throws Exception {
         FXMLLoader loader = new FXMLLoader(HelloApplication.class.getResource(fxml));
         Scene scene = new Scene(loader.load());
         primaryStage.setScene(scene);
 
-        // 🔹 Only fullscreen if it's the meeting view
-        if (fxml.equals("meeting-view.fxml")) {
-            primaryStage.setFullScreen(true);
-        } else {
-            primaryStage.setFullScreen(false);
-        }
+        // Fullscreen only for meeting
+        primaryStage.setFullScreen("meeting-view.fxml".equals(fxml));
+    }
+
+    // ✅ Called after successful login
+    public static void setLoggedInUser(String username) {
+        loggedInUser = username;
+    }
+
+    public static String getLoggedInUser() {
+        return loggedInUser;
+    }
+
+    // ✅ Explicit logout
+    public static void logout() throws Exception {
+        loggedInUser = null;
+        setRoot("login-view.fxml");
     }
 
     public static Stage getPrimaryStage() {
