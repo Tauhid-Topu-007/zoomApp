@@ -4,21 +4,30 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 
-<AnchorPane xmlns="http://javafx.com/javafx" xmlns:fx="http://javafx.com/fxml"
+<AnchorPane xmlns="http://javafx.com/javafx"
+            xmlns:fx="http://javafx.com/fxml"
             fx:controller="org.example.zoom.SettingsController">
-    <VBox spacing="15" alignment="CENTER" prefWidth="500" prefHeight="400">
+    <VBox spacing="15" alignment="CENTER" prefWidth="500" prefHeight="500">
         <padding>
             <Insets top="30" right="30" bottom="30" left="30"/>
         </padding>
 
         <Label text="⚙ Settings" style="-fx-font-size: 24px; -fx-font-weight: bold;"/>
 
+        <!-- Change Username Section -->
+        <Label text="Change Username:" style="-fx-font-size: 16px;"/>
+        <TextField fx:id="newUsernameField" promptText="Enter new username"/>
+        <Button text="Change Username" onAction="#onChangeUsernameClick"/>
+
+        <Separator/>
+
+        <!-- Change Password Section -->
         <Label text="Change Password:" style="-fx-font-size: 16px;"/>
         <PasswordField fx:id="oldPasswordField" promptText="Enter old password"/>
         <PasswordField fx:id="newPasswordField" promptText="Enter new password"/>
         <PasswordField fx:id="confirmPasswordField" promptText="Confirm new password"/>
-
         <Button text="Change Password" onAction="#onChangePasswordClick"/>
+
         <Label fx:id="messageLabel" textFill="red"/>
 
         <Separator/>

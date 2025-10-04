@@ -78,6 +78,64 @@ public class Database {
         }
     }
 
+
+    public static boolean updateUsername(String oldUsername, String newUsername) {
+        String updateUsers = "UPDATE users SET username = ? WHERE username = ?";
+        String updateMeetings = "UPDATE meetings SET username = ? WHERE username = ?";
+        String updateContacts = "UPDATE contacts SET username = ? WHERE username = ?";
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false); // start transaction
+
+            try (PreparedStatement stmt1 = conn.prepareStatement(updateUsers);
+                 PreparedStatement stmt2 = conn.prepareStatement(updateMeetings);
+                 PreparedStatement stmt3 = conn.prepareStatement(updateContacts)) {
+
+                stmt1.setString(1, newUsername);
+                stmt1.setString(2, oldUsername);
+                stmt1.executeUpdate();
+
+                stmt2.setString(1, newUsername);
+                stmt2.setString(2, oldUsername);
+                stmt2.executeUpdate();
+
+                stmt3.setString(1, newUsername);
+                stmt3.setString(2, oldUsername);
+                stmt3.executeUpdate();
+
+                conn.commit(); // ✅ all successful
+                return true;
+
+            } catch (SQLException e) {
+                conn.rollback();
+                System.err.println("❌ updateUsername transaction error: " + e.getMessage());
+                return false;
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ updateUsername error: " + e.getMessage());
+            return false;
+        }
+    }
+
+
+    public static boolean usernameExists(String username) {
+        String sql = "SELECT username FROM users WHERE username = ?";
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, username);
+            ResultSet rs = stmt.executeQuery();
+            return rs.next();
+
+        } catch (SQLException e) {
+            System.err.println("❌ usernameExists error: " + e.getMessage());
+            return false;
+        }
+    }
+
+
+
     /* ==============================
        MEETING MANAGEMENT
      ============================== */

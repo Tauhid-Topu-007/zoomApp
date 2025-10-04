@@ -6,24 +6,45 @@ import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
+import javafx.scene.control.TextField;
 import javafx.stage.Stage;
 
 public class SettingsController {
 
     private String username; // current logged-in user
 
-    @FXML
-    private PasswordField oldPasswordField;
-    @FXML
-    private PasswordField newPasswordField;
-    @FXML
-    private PasswordField confirmPasswordField;
-    @FXML
-    private Label messageLabel;
+    @FXML private TextField newUsernameField;
+    @FXML private PasswordField oldPasswordField;
+    @FXML private PasswordField newPasswordField;
+    @FXML private PasswordField confirmPasswordField;
+    @FXML private Label messageLabel;
 
-    // called from DashboardController when loading settings
     public void setUser(String username) {
         this.username = username;
+    }
+
+    @FXML
+    protected void onChangeUsernameClick(ActionEvent event) {
+        String newUsername = newUsernameField.getText().trim();
+
+        if (newUsername.isEmpty()) {
+            messageLabel.setText("❌ Please enter a new username!");
+            return;
+        }
+
+        // Check if username already exists
+        if (Database.usernameExists(newUsername)) {
+            messageLabel.setText("⚠ Username already taken!");
+            return;
+        }
+
+        if (Database.updateUsername(username, newUsername)) {
+            messageLabel.setText("✅ Username changed successfully!");
+            HelloApplication.setLoggedInUser(newUsername); // update session
+            username = newUsername; // update local
+        } else {
+            messageLabel.setText("❌ Failed to update username!");
+        }
     }
 
     @FXML
@@ -59,9 +80,6 @@ public class SettingsController {
         try {
             FXMLLoader loader = new FXMLLoader(getClass().getResource("dashboard-view.fxml"));
             Scene scene = new Scene(loader.load(), 900, 600);
-
-            // ❌ No need to call controller.setUser(username)
-            // DashboardController automatically uses HelloApplication.getLoggedInUser()
 
             Stage stage = (Stage) messageLabel.getScene().getWindow();
             stage.setScene(scene);

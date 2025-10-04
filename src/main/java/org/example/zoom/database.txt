@@ -5,3 +5,14 @@ CREATE TABLE contacts (
     contact_email VARCHAR(100),   -- optional
     contact_phone VARCHAR(20)     -- optional
 );
+
+
+ALTER TABLE meetings
+DROP FOREIGN KEY meetings_ibfk_1;
+
+ALTER TABLE meetings
+ADD CONSTRAINT meetings_ibfk_1
+FOREIGN KEY (username)
+REFERENCES users(username)
+ON UPDATE CASCADE
+ON DELETE CASCADE;
