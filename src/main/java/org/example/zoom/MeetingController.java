@@ -1,9 +1,9 @@
 package org.example.zoom;
 
 import javafx.fxml.FXML;
+import javafx.event.ActionEvent;
 import javafx.scene.control.*;
-import javafx.scene.layout.VBox;
-import javafx.scene.layout.StackPane;
+import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import javafx.scene.image.Image;
@@ -13,24 +13,29 @@ import javafx.scene.media.MediaPlayer;
 import javafx.scene.media.MediaView;
 
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 public class MeetingController {
 
     @FXML private Button audioButton;
     @FXML private Button videoButton;
     @FXML private Button shareButton;
+    @FXML private Button recordButton;
     @FXML private ListView<String> participantsList;
     @FXML private StackPane videoArea;
-
     @FXML private VBox chatBox;
     @FXML private ScrollPane chatScroll;
     @FXML private TextField chatInput;
 
     private boolean audioMuted = false;
     private boolean videoOn = true;
+    private boolean recording = false;
+    private File currentRecordingFile;
     private Stage stage;
 
     public void setStage(Stage stage) {
@@ -39,11 +44,9 @@ public class MeetingController {
 
     @FXML
     public void initialize() {
-        // Load participants dynamically from HelloApplication
         participantsList.getItems().clear();
         participantsList.getItems().addAll(HelloApplication.getActiveParticipants());
 
-        // Enter key sends chat
         chatInput.setOnKeyPressed(event -> {
             switch (event.getCode()) {
                 case ENTER -> onSendChat();
@@ -51,8 +54,7 @@ public class MeetingController {
         });
     }
 
-
-    // ---------------- Video / Audio ----------------
+    // ---------------- Audio / Video ----------------
     @FXML
     protected void toggleAudio() {
         audioMuted = !audioMuted;
@@ -65,11 +67,51 @@ public class MeetingController {
         videoButton.setText(videoOn ? "Camera Off" : "Camera On");
     }
 
+    // ---------------- Recording ----------------
     @FXML
-    protected void onShareScreen() {
-        Label screenLabel = new Label("📺 Screen sharing started...");
-        chatBox.getChildren().add(screenLabel);
-        scrollToBottom();
+    protected void onToggleRecording() {
+        if (!recording) {
+            startRecording();
+        } else {
+            stopRecording();
+        }
+    }
+
+    private void startRecording() {
+        try {
+            String fileName = "Meeting_" + new SimpleDateFormat("yyyy-MM-dd_HHmmss").format(new Date()) + ".txt";
+            File dir = new File("recordings");
+            if (!dir.exists()) dir.mkdirs();
+
+            currentRecordingFile = new File(dir, fileName);
+            FileWriter writer = new FileWriter(currentRecordingFile);
+            writer.write("Simulated recording started...\n");
+            writer.close();
+
+            recording = true;
+            recordButton.setText("Stop Recording");
+            addChatMessage("🔴 Recording started...", "#e74c3c", "white");
+
+        } catch (IOException e) {
+            e.printStackTrace();
+            showAlert("Error", "Failed to start recording!");
+        }
+    }
+
+    private void stopRecording() {
+        try {
+            FileWriter writer = new FileWriter(currentRecordingFile, true);
+            writer.write("Recording stopped.\n");
+            writer.close();
+
+            recording = false;
+            recordButton.setText("Start Recording");
+            addChatMessage("✅ Recording saved: " + currentRecordingFile.getName(), "#2ecc71", "white");
+
+        } catch (IOException e) {
+            e.printStackTrace();
+            showAlert("Error", "Failed to stop recording!");
+        }
     }
 
     // ---------------- Chat ----------------
@@ -84,16 +126,13 @@ public class MeetingController {
 
     @FXML
     protected void onSendFile() {
-        if (stage == null) {
-            stage = (Stage) chatBox.getScene().getWindow();
-        }
+        if (stage == null) stage = (Stage) chatBox.getScene().getWindow();
 
         FileChooser fileChooser = new FileChooser();
         fileChooser.setTitle("Select File to Send");
         File file = fileChooser.showOpenDialog(stage);
 
         if (file != null) {
-            String fileName = file.getName();
             try {
                 if (isImage(file)) {
                     ImageView imgView = new ImageView(new Image(file.toURI().toString()));
@@ -112,8 +151,8 @@ public class MeetingController {
                     chatBox.getChildren().add(mediaView);
                     player.play();
 
-                } else { // PDF / text / other
-                    Hyperlink fileLink = new Hyperlink("📎 " + fileName);
+                } else {
+                    Hyperlink fileLink = new Hyperlink("📎 " + file.getName());
                     fileLink.setOnAction(e -> downloadFile(file));
                     chatBox.getChildren().add(fileLink);
                 }
@@ -127,7 +166,9 @@ public class MeetingController {
 
     private void addChatMessage(String text, String bgColor, String textColor) {
         Label messageLabel = new Label(text);
-        messageLabel.setStyle(String.format("-fx-background-color: %s; -fx-text-fill: %s; -fx-padding: 6 10; -fx-background-radius: 8;", bgColor, textColor));
+        messageLabel.setStyle(String.format(
+                "-fx-background-color: %s; -fx-text-fill: %s; -fx-padding: 6 10; -fx-background-radius: 8;",
+                bgColor, textColor));
         chatBox.getChildren().add(messageLabel);
         scrollToBottom();
     }
@@ -137,48 +178,62 @@ public class MeetingController {
         chatScroll.setVvalue(1.0);
     }
 
-    // ---------------- File Type Helpers ----------------
-    private boolean isImage(File file) {
-        String name = file.getName().toLowerCase();
-        return name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".gif");
+    // ---------------- Helpers ----------------
+    private boolean isImage(File f) {
+        String n = f.getName().toLowerCase();
+        return n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg");
     }
 
-    private boolean isAudio(File file) {
-        String name = file.getName().toLowerCase();
-        return name.endsWith(".mp3") || name.endsWith(".wav");
+    private boolean isAudio(File f) {
+        String n = f.getName().toLowerCase();
+        return n.endsWith(".mp3") || n.endsWith(".wav");
     }
 
-    private boolean isVideo(File file) {
-        String name = file.getName().toLowerCase();
-        return name.endsWith(".mp4") || name.endsWith(".mov") || name.endsWith(".m4v");
+    private boolean isVideo(File f) {
+        String n = f.getName().toLowerCase();
+        return n.endsWith(".mp4") || n.endsWith(".mov") || n.endsWith(".m4v");
     }
 
     private void downloadFile(File sourceFile) {
-        if (stage == null) {
-            stage = (Stage) chatBox.getScene().getWindow();
-        }
-
+        if (stage == null) stage = (Stage) chatBox.getScene().getWindow();
         FileChooser fileChooser = new FileChooser();
         fileChooser.setTitle("Save File As");
         fileChooser.setInitialFileName(sourceFile.getName());
-        File destinationFile = fileChooser.showSaveDialog(stage);
+        File dest = fileChooser.showSaveDialog(stage);
 
-        if (destinationFile != null) {
+        if (dest != null) {
             try {
-                Files.copy(sourceFile.toPath(), destinationFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                Alert alert = new Alert(Alert.AlertType.INFORMATION, "File downloaded successfully!");
-                alert.showAndWait();
-            } catch (IOException ex) {
-                Alert alert = new Alert(Alert.AlertType.ERROR, "Error downloading file: " + ex.getMessage());
-                alert.showAndWait();
+                Files.copy(sourceFile.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                showAlert("Download", "File downloaded successfully!");
+            } catch (IOException e) {
+                showAlert("Error", "Failed to download file!");
             }
         }
     }
 
-    // ---------------- Leave Meeting ----------------
+    private void showAlert(String title, String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    // ---------------- Navigation ----------------
+    @FXML
+    protected void onViewRecordings() throws Exception {
+        HelloApplication.setRoot("recordings-view.fxml");
+    }
+
     @FXML
     protected void onLeaveClick() throws Exception {
         HelloApplication.getPrimaryStage().setFullScreen(false);
         HelloApplication.setRoot("dashboard-view.fxml");
     }
+
+    @FXML
+    protected void onShareScreen(ActionEvent event) {
+        System.out.println("🖥 Screen sharing feature is under development.");
+    }
+
 }
