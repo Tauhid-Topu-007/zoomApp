@@ -1,7 +1,7 @@
 // server/server.js
 import { WebSocketServer } from 'ws';
 
-const PORT = 8080;
+const PORT = 8887;
 const wss = new WebSocketServer({ port: PORT });
 
 const clients = new Map();

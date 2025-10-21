@@ -68,8 +68,9 @@ public class ChatController {
         if (loggedInUser != null) setCurrentUser(loggedInUser);
 
         // ✅ Connect to real backend WebSocket server
-        webSocketClient = new SimpleWebSocketClient("ws://localhost:8080/chat", this::handleWebSocketMessage);
+        webSocketClient = new SimpleWebSocketClient("ws://localhost:8887", this::handleWebSocketMessage);
         webSocketClient.connect();
+
 
         updateConnectionStatus();
         addSystemMessage("Connecting to chat server...");
