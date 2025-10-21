@@ -55,27 +55,26 @@ public class ChatController {
             userLabel.setText("Chatting as: " + username);
         }
     }
-
+    // inside initialize() or wherever connection starts
     @FXML
     public void initialize() {
-        // Handle pressing Enter to send message
         messageField.setOnKeyPressed(event -> {
             if (event.getCode() == KeyCode.ENTER) {
                 onSendClick();
             }
         });
 
-        // Set current user if available
         String loggedInUser = HelloApplication.getLoggedInUser();
-        if (loggedInUser != null) {
-            setCurrentUser(loggedInUser);
-        }
+        if (loggedInUser != null) setCurrentUser(loggedInUser);
+
+        // ✅ Connect to real backend WebSocket server
+        webSocketClient = new SimpleWebSocketClient("ws://localhost:8080/chat", this::handleWebSocketMessage);
+        webSocketClient.connect();
 
         updateConnectionStatus();
-
-        // Add welcome message
-        addSystemMessage("Welcome to Zoom Chat! Start chatting with your team.");
+        addSystemMessage("Connecting to chat server...");
     }
+
 
     @FXML
     protected void onSendClick() {
