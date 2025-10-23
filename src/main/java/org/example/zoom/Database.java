@@ -121,6 +121,117 @@ public class Database {
     }
 
     /* ==============================
+       SERVER CONFIGURATION MANAGEMENT
+     ============================== */
+    public static boolean saveServerConfig(String username, String serverIp, String serverPort) {
+        String sql = "INSERT INTO server_config (username, server_ip, server_port, last_used) " +
+                "VALUES (?, ?, ?, CURRENT_TIMESTAMP) " +
+                "ON DUPLICATE KEY UPDATE server_ip = ?, server_port = ?, last_used = CURRENT_TIMESTAMP";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            stmt.setString(2, serverIp);
+            stmt.setString(3, serverPort);
+            stmt.setString(4, serverIp);
+            stmt.setString(5, serverPort);
+            stmt.executeUpdate();
+            return true;
+        } catch (SQLException e) {
+            System.err.println("❌ saveServerConfig error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public static ServerConfig getServerConfig(String username) {
+        String sql = "SELECT server_ip, server_port FROM server_config WHERE username = ? ORDER BY last_used DESC LIMIT 1";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                return new ServerConfig(
+                        rs.getString("server_ip"),
+                        rs.getString("server_port")
+                );
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ getServerConfig error: " + e.getMessage());
+        }
+        return null;
+    }
+
+    public static List<ServerConfig> getServerHistory(String username) {
+        List<ServerConfig> history = new ArrayList<>();
+        String sql = "SELECT server_ip, server_port, last_used FROM server_config WHERE username = ? ORDER BY last_used DESC";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                history.add(new ServerConfig(
+                        rs.getString("server_ip"),
+                        rs.getString("server_port"),
+                        rs.getTimestamp("last_used")
+                ));
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ getServerHistory error: " + e.getMessage());
+        }
+        return history;
+    }
+
+    public static boolean deleteServerConfig(String username, String serverIp, String serverPort) {
+        String sql = "DELETE FROM server_config WHERE username = ? AND server_ip = ? AND server_port = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            stmt.setString(2, serverIp);
+            stmt.setString(3, serverPort);
+            return stmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            System.err.println("❌ deleteServerConfig error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /* ==============================
+       USER PREFERENCES
+     ============================== */
+    public static boolean saveUserPreference(String username, String preferenceKey, String preferenceValue) {
+        String sql = "INSERT INTO user_preferences (username, preference_key, preference_value) " +
+                "VALUES (?, ?, ?) " +
+                "ON DUPLICATE KEY UPDATE preference_value = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            stmt.setString(2, preferenceKey);
+            stmt.setString(3, preferenceValue);
+            stmt.setString(4, preferenceValue);
+            stmt.executeUpdate();
+            return true;
+        } catch (SQLException e) {
+            System.err.println("❌ saveUserPreference error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public static String getUserPreference(String username, String preferenceKey) {
+        String sql = "SELECT preference_value FROM user_preferences WHERE username = ? AND preference_key = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            stmt.setString(2, preferenceKey);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                return rs.getString("preference_value");
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ getUserPreference error: " + e.getMessage());
+        }
+        return null;
+    }
+
+    /* ==============================
        MEETING MANAGEMENT
      ============================== */
     public static boolean saveMeeting(String username, String title, String date, String time) {
@@ -240,7 +351,7 @@ public class Database {
     }
 
     /* ==============================
-       CONTACT CLASS (POJO)
+       CLASSES (POJOs)
      ============================== */
     public static class Contact {
         private int id;
@@ -266,10 +377,92 @@ public class Database {
         }
     }
 
+    public static class ServerConfig {
+        private String serverIp;
+        private String serverPort;
+        private Timestamp lastUsed;
+
+        public ServerConfig(String serverIp, String serverPort) {
+            this.serverIp = serverIp;
+            this.serverPort = serverPort;
+        }
+
+        public ServerConfig(String serverIp, String serverPort, Timestamp lastUsed) {
+            this.serverIp = serverIp;
+            this.serverPort = serverPort;
+            this.lastUsed = lastUsed;
+        }
+
+        public String getServerIp() { return serverIp; }
+        public String getServerPort() { return serverPort; }
+        public Timestamp getLastUsed() { return lastUsed; }
+        public String getServerUrl() { return "ws://" + serverIp + ":" + serverPort; }
+
+        @Override
+        public String toString() {
+            return serverIp + ":" + serverPort + (lastUsed != null ? " (Last used: " + lastUsed + ")" : "");
+        }
+    }
+
+    /* ==============================
+       DATABASE INITIALIZATION
+     ============================== */
+    public static void initializeDatabase() {
+        // Create tables if they don't exist
+        String[] createTables = {
+                // Server config table
+                "CREATE TABLE IF NOT EXISTS server_config (" +
+                        "username VARCHAR(50) NOT NULL, " +
+                        "server_ip VARCHAR(45) NOT NULL, " +
+                        "server_port VARCHAR(10) NOT NULL, " +
+                        "last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                        "PRIMARY KEY (username, server_ip, server_port)" +
+                        ")",
+
+                // User preferences table
+                "CREATE TABLE IF NOT EXISTS user_preferences (" +
+                        "username VARCHAR(50) NOT NULL, " +
+                        "preference_key VARCHAR(50) NOT NULL, " +
+                        "preference_value TEXT, " +
+                        "PRIMARY KEY (username, preference_key)" +
+                        ")"
+        };
+
+        try (Connection conn = getConnection();
+             Statement stmt = conn.createStatement()) {
+
+            for (String sql : createTables) {
+                try {
+                    stmt.execute(sql);
+                } catch (SQLException e) {
+                    System.err.println("❌ Table creation error: " + e.getMessage());
+                }
+            }
+            System.out.println("✅ Database tables initialized successfully");
+
+        } catch (SQLException e) {
+            System.err.println("❌ Database initialization error: " + e.getMessage());
+        }
+    }
+
     /* ==============================
        TESTING
      ============================== */
     public static void main(String[] args) {
+        // Initialize database
+        initializeDatabase();
+
+        // Test server config
+        if (saveServerConfig("testuser", "192.168.1.100", "8887")) {
+            System.out.println("✅ Server config saved!");
+        }
+
+        // Get server config
+        ServerConfig config = getServerConfig("testuser");
+        if (config != null) {
+            System.out.println("📡 Server config: " + config);
+        }
+
         // Test contact save
         if (addContact("testuser", "Alice", "alice@example.com", "123456789")) {
             System.out.println("✅ Contact saved!");

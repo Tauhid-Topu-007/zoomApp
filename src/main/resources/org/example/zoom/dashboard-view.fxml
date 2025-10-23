@@ -1,71 +1,104 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<?import javafx.scene.layout.*?>
-<?import javafx.scene.control.*?>
 <?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.text.Font?>
 
-<BorderPane xmlns:fx="http://javafx.com/fxml"
-            fx:controller="org.example.zoom.DashboardController"
-            prefWidth="900" prefHeight="600"
-            style="-fx-background-color: linear-gradient(to right, #2c3e50, #3498db);">
+<VBox xmlns="http://javafx.com/javafx/11.0.1" xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="org.example.zoom.DashboardController"
+      spacing="20" alignment="TOP_CENTER"
+      style="-fx-background-color: #2c3e50; -fx-padding: 30;">
 
-    <!-- Top: Welcome Banner -->
-    <top>
-        <Label fx:id="welcomeLabel" text="Welcome!"
-               style="-fx-font-size: 24px; -fx-font-weight: bold; -fx-text-fill: white; -fx-padding: 20;"/>
-    </top>
+    <!-- Header Section -->
+    <VBox spacing="10" alignment="CENTER">
+        <Label text="Zoom Dashboard" style="-fx-text-fill: white; -fx-font-size: 32px; -fx-font-weight: bold;"/>
+        <Label fx:id="welcomeLabel" text="Welcome, User!" style="-fx-text-fill: #ecf0f1; -fx-font-size: 18px;"/>
 
-    <!-- Center: Zoom Features Grid -->
-    <center>
-        <GridPane hgap="30" vgap="30" alignment="CENTER">
-            <padding>
-                <Insets top="20" right="20" bottom="20" left="20"/>
-            </padding>
+        <!-- Connection Status -->
+        <Label fx:id="connectionInfoLabel" text="Connecting..."
+               style="-fx-text-fill: #f39c12; -fx-font-size: 12px; -fx-padding: 5; -fx-background-color: #34495e; -fx-background-radius: 5;"/>
+    </VBox>
 
-            <!-- Row 1 -->
-            <Button text="➕ New Meeting" onAction="#onNewMeetingClick"
-                    GridPane.columnIndex="0" GridPane.rowIndex="0"
-                    style="-fx-background-color: #e67e22; -fx-text-fill: white; -fx-font-size: 16px;
-                           -fx-padding: 25 40; -fx-background-radius: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 10,0,3,3);"/>
-            <Button text="🔗 Join" onAction="#onJoinClick"
-                    GridPane.columnIndex="1" GridPane.rowIndex="0"
-                    style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-size: 16px;
-                           -fx-padding: 25 40; -fx-background-radius: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 10,0,3,3);"/>
-            <Button text="📅 Schedule" onAction="#onScheduleClick"
-                    GridPane.columnIndex="2" GridPane.rowIndex="0"
-                    style="-fx-background-color: #2980b9; -fx-text-fill: white; -fx-font-size: 16px;
-                           -fx-padding: 25 40; -fx-background-radius: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 10,0,3,3);"/>
-            <Button text="🖥 Share Screen" onAction="#onShareScreenClick"
-                    GridPane.columnIndex="3" GridPane.rowIndex="0"
-                    style="-fx-background-color: #16a085; -fx-text-fill: white; -fx-font-size: 16px;
-                           -fx-padding: 25 40; -fx-background-radius: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 10,0,3,3);"/>
+    <!-- Main Grid Layout -->
+    <GridPane hgap="20" vgap="20" alignment="CENTER">
+        <columnConstraints>
+            <ColumnConstraints prefWidth="200"/>
+            <ColumnConstraints prefWidth="200"/>
+            <ColumnConstraints prefWidth="200"/>
+        </columnConstraints>
 
-            <!-- Row 2 -->
-            <Button text="👥 Contacts" onAction="#onContactsClick"
-                    GridPane.columnIndex="0" GridPane.rowIndex="1"
-                    style="-fx-background-color: #8e44ad; -fx-text-fill: white; -fx-font-size: 16px;
-                           -fx-padding: 25 40; -fx-background-radius: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 10,0,3,3);"/>
-            <Button text="💬 Chat" onAction="#onChatClick"
-                    GridPane.columnIndex="1" GridPane.rowIndex="1"
-                    style="-fx-background-color: #1abc9c; -fx-text-fill: white; -fx-font-size: 16px;
-                           -fx-padding: 25 40; -fx-background-radius: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 10,0,3,3);"/>
-            <Button text="🎥 Recordings" onAction="#onRecordingsClick"
-                    GridPane.columnIndex="2" GridPane.rowIndex="1"
-                    style="-fx-background-color: #e84393; -fx-text-fill: white; -fx-font-size: 16px;
-                           -fx-padding: 25 40; -fx-background-radius: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 10,0,3,3);"/>
-            <Button text="⚙ Settings" onAction="#onSettingsClick"
-                    GridPane.columnIndex="3" GridPane.rowIndex="1"
-                    style="-fx-background-color: #7f8c8d; -fx-text-fill: white; -fx-font-size: 16px;
-                           -fx-padding: 25 40; -fx-background-radius: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 10,0,3,3);"/>
+        <rowConstraints>
+            <RowConstraints prefHeight="150"/>
+            <RowConstraints prefHeight="150"/>
+        </rowConstraints>
 
-        </GridPane>
-    </center>
+        <!-- Row 1 -->
+        <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="0" GridPane.rowIndex="0">
+            <Label text="🎥" style="-fx-font-size: 24px;"/>
+            <Label text="New Meeting" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Button text="Start" onAction="#onNewMeetingClick"
+                    style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold;"/>
+        </VBox>
 
-    <!-- Bottom: Logout -->
-    <bottom>
-        <Button text="🚪 Logout" onAction="#onLogoutClick"
-                style="-fx-background-color: #c0392b; -fx-text-fill: white; -fx-font-size: 14px;
-                       -fx-padding: 10 20; -fx-background-radius: 8; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 5,0,2,2);"
-                BorderPane.alignment="CENTER"/>
-    </bottom>
-</BorderPane>
+        <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="1" GridPane.rowIndex="0">
+            <Label text="🔗" style="-fx-font-size: 24px;"/>
+            <Label text="Join Meeting" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Button text="Join" onAction="#onJoinClick"
+                    style="-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold;"/>
+        </VBox>
+
+        <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="2" GridPane.rowIndex="0">
+            <Label text="📅" style="-fx-font-size: 24px;"/>
+            <Label text="Schedule" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Button text="Schedule" onAction="#onScheduleClick"
+                    style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-weight: bold;"/>
+        </VBox>
+
+        <!-- Row 2 -->
+        <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="0" GridPane.rowIndex="1">
+            <Label text="💬" style="-fx-font-size: 24px;"/>
+            <Label text="Chat" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Button text="Open Chat" onAction="#onChatClick"
+                    style="-fx-background-color: #e67e22; -fx-text-fill: white; -fx-font-weight: bold;"/>
+        </VBox>
+
+        <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="1" GridPane.rowIndex="1">
+            <Label text="⚙️" style="-fx-font-size: 24px;"/>
+            <Label text="Settings" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Button text="Settings" onAction="#onSettingsClick"
+                    style="-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-font-weight: bold;"/>
+        </VBox>
+
+        <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="2" GridPane.rowIndex="1">
+            <Label text="🚪" style="-fx-font-size: 24px;"/>
+            <Label text="Logout" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Button text="Logout" onAction="#onLogoutClick"
+                    style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold;"/>
+        </VBox>
+    </GridPane>
+
+    <!-- Additional Features Row -->
+    <HBox spacing="20" alignment="CENTER">
+        <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 15; -fx-background-radius: 10;">
+            <Label text="🖥️" style="-fx-font-size: 20px;"/>
+            <Label text="Share Screen" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Button text="Share" onAction="#onShareScreenClick"
+                    style="-fx-background-color: #1abc9c; -fx-text-fill: white; -fx-font-weight: bold;"/>
+        </VBox>
+
+        <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 15; -fx-background-radius: 10;">
+            <Label text="👥" style="-fx-font-size: 20px;"/>
+            <Label text="Contacts" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Button text="Contacts" onAction="#onContactsClick"
+                    style="-fx-background-color: #f1c40f; -fx-text-fill: white; -fx-font-weight: bold;"/>
+        </VBox>
+
+        <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 15; -fx-background-radius: 10;">
+            <Label text="📹" style="-fx-font-size: 20px;"/>
+            <Label text="Recordings" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Button text="Recordings" onAction="#onRecordingsClick"
+                    style="-fx-background-color: #d35400; -fx-text-fill: white; -fx-font-weight: bold;"/>
+        </VBox>
+    </HBox>
+</VBox>

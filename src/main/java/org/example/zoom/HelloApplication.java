@@ -17,9 +17,17 @@ public class HelloApplication extends Application {
     private static final List<String> activeParticipants = new ArrayList<>();
     private static SimpleWebSocketClient webSocketClient;
 
+    // New fields for server configuration with persistence
+    private static String serverIp = "localhost";
+    private static String serverPort = "8887";
+
     @Override
     public void start(Stage stage) throws Exception {
         primaryStage = stage;
+
+        // Initialize database tables
+        Database.initializeDatabase();
+
         setRoot("login-view.fxml");
         stage.setTitle("Zoom Project");
         stage.show();
@@ -37,11 +45,17 @@ public class HelloApplication extends Application {
         Object controller = loader.getController();
         if (controller instanceof ChatController) {
             ((ChatController) controller).setStage(primaryStage);
+        } else if (controller instanceof SettingsController) {
+            ((SettingsController) controller).setStage(primaryStage);
         }
     }
 
     public static void setLoggedInUser(String username) {
         loggedInUser = username;
+
+        // Load user's saved server configuration
+        loadUserServerConfig(username);
+
         // Initialize WebSocket when user logs in
         if (username != null) {
             initializeWebSocket(username);
@@ -69,20 +83,62 @@ public class HelloApplication extends Application {
         return primaryStage;
     }
 
+    // Load user's saved server configuration from database
+    private static void loadUserServerConfig(String username) {
+        Database.ServerConfig config = Database.getServerConfig(username);
+        if (config != null) {
+            serverIp = config.getServerIp();
+            serverPort = config.getServerPort();
+            System.out.println("🎯 Loaded user server config: " + config.getServerUrl());
+        } else {
+            // Use default configuration
+            serverIp = "localhost";
+            serverPort = "8887";
+            System.out.println("🎯 Using default server config: ws://localhost:8887");
+        }
+    }
+
     // WebSocket Client Management
     private static void initializeWebSocket(String username) {
+        String url = getCurrentServerUrl();
+        initializeWebSocketWithUrl(url);
+    }
+
+    // New method to initialize with specific URL
+    private static void initializeWebSocketWithUrl(String serverUrl) {
         try {
-            // For WAN: replace "localhost" with your server's public IP
-            String serverUrl = "ws://localhost:8887";
+            System.out.println("🎯 Initializing WebSocket connection to: " + serverUrl);
 
-            // Create WebSocket client with message handler
             webSocketClient = new SimpleWebSocketClient(serverUrl, HelloApplication::handleWebSocketMessage);
-            webSocketClient.setCurrentUser(username);
-
-            System.out.println("🎯 WebSocket client initialized for: " + username);
+            if (loggedInUser != null) {
+                webSocketClient.setCurrentUser(loggedInUser);
+            }
 
         } catch (Exception e) {
             System.err.println("❌ Failed to initialize WebSocket: " + e.getMessage());
+            handleConnectionFailure(serverUrl);
+        }
+    }
+
+    // Handle connection failures gracefully
+    public static void handleConnectionFailure(String attemptedUrl) {
+        System.err.println("❌ Connection failed to: " + attemptedUrl);
+
+        // Try fallback to localhost if not already trying localhost
+        if (!attemptedUrl.contains("localhost")) {
+            System.out.println("🔄 Falling back to localhost...");
+            initializeWebSocketWithUrl("ws://localhost:8887");
+        } else {
+            // Show connection dialog to user
+            javafx.application.Platform.runLater(() -> {
+                Stage primaryStage = getPrimaryStage();
+                if (primaryStage != null && loggedInUser != null) {
+                    ServerConfigDialog dialog = ServerConfigDialog.showDialog(primaryStage);
+                    if (dialog != null && dialog.isConnected()) {
+                        System.out.println("✅ User configured new server: " + dialog.getServerUrl());
+                    }
+                }
+            });
         }
     }
 
@@ -92,6 +148,43 @@ public class HelloApplication extends Application {
 
     public static SimpleWebSocketClient getWebSocketClient() {
         return webSocketClient;
+    }
+
+    // Server configuration methods with persistence
+    public static void setServerConfig(String ip, String port) {
+        serverIp = ip;
+        serverPort = port;
+        System.out.println("🎯 Server config updated: " + ip + ":" + port);
+
+        // Save to database if user is logged in
+        if (loggedInUser != null) {
+            Database.saveServerConfig(loggedInUser, ip, port);
+        }
+    }
+
+    public static String getCurrentServerUrl() {
+        return "ws://" + serverIp + ":" + serverPort;
+    }
+
+    public static String getServerIp() {
+        return serverIp;
+    }
+
+    public static String getServerPort() {
+        return serverPort;
+    }
+
+    public static void reinitializeWebSocket(String newUrl) {
+        // Disconnect existing client
+        if (webSocketClient != null) {
+            webSocketClient.disconnect();
+            webSocketClient = null;
+        }
+
+        // Create new client
+        if (loggedInUser != null) {
+            initializeWebSocketWithUrl(newUrl);
+        }
     }
 
     // Handle incoming WebSocket messages
@@ -115,6 +208,10 @@ public class HelloApplication extends Application {
                     break;
                 case "MEETING_CREATED":
                     setActiveMeetingId(meetingId);
+                    break;
+                case "CONNECTION_STATUS":
+                    // Handle connection status updates
+                    System.out.println("🔗 Connection status: " + content);
                     break;
             }
         }
@@ -187,6 +284,14 @@ public class HelloApplication extends Application {
 
     public static String getConnectionStatus() {
         if (isWebSocketConnected()) {
+            return "🟢 Connected to " + getCurrentServerUrl().replace("ws://", "");
+        } else {
+            return "🔴 Disconnected";
+        }
+    }
+
+    public static String getConnectionStatusShort() {
+        if (isWebSocketConnected()) {
             return "🟢 Connected";
         } else {
             return "🔴 Disconnected";
@@ -218,12 +323,41 @@ public class HelloApplication extends Application {
         return String.valueOf((int) (Math.random() * 900000) + 100000);
     }
 
+    // Get server history for current user
+    public static List<Database.ServerConfig> getServerHistory() {
+        if (loggedInUser != null) {
+            return Database.getServerHistory(loggedInUser);
+        }
+        return new ArrayList<>();
+    }
+
+    // Save user preference
+    public static void saveUserPreference(String key, String value) {
+        if (loggedInUser != null) {
+            Database.saveUserPreference(loggedInUser, key, value);
+        }
+    }
+
+    // Get user preference
+    public static String getUserPreference(String key) {
+        if (loggedInUser != null) {
+            return Database.getUserPreference(loggedInUser, key);
+        }
+        return null;
+    }
+
     @Override
     public void stop() throws Exception {
         // Cleanup when application closes
         if (webSocketClient != null) {
             webSocketClient.disconnect();
         }
+
+        // Save current server config if user is logged in
+        if (loggedInUser != null) {
+            Database.saveServerConfig(loggedInUser, serverIp, serverPort);
+        }
+
         super.stop();
     }
 

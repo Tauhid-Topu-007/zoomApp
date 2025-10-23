@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.text.Font?>
+
+<AnchorPane xmlns="http://javafx.com/javafx"
+            xmlns:fx="http://javafx.com/fxml"
+            fx:controller="org.example.zoom.ServerConfigDialog"
+            style="-fx-background-color: #2c3e50;">
+
+    <VBox spacing="20" alignment="CENTER" prefWidth="400" prefHeight="300">
+        <padding>
+            <Insets top="20" right="20" bottom="20" left="20"/>
+        </padding>
+
+        <Label text="🌐 Server Configuration" style="-fx-text-fill: white; -fx-font-size: 18px; -fx-font-weight: bold;"/>
+
+        <VBox spacing="15" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" prefWidth="360">
+            <GridPane hgap="10" vgap="15">
+                <columnConstraints>
+                    <ColumnConstraints percentWidth="30"/>
+                    <ColumnConstraints percentWidth="70"/>
+                </columnConstraints>
+
+                <rowConstraints>
+                    <RowConstraints prefHeight="35"/>
+                    <RowConstraints prefHeight="35"/>
+                    <RowConstraints prefHeight="40"/>
+                </rowConstraints>
+
+                <Label text="Server IP:" style="-fx-text-fill: white;" GridPane.rowIndex="0" GridPane.columnIndex="0"/>
+                <TextField fx:id="serverIpField" promptText="e.g., 192.168.1.100 or localhost" GridPane.rowIndex="0" GridPane.columnIndex="1"/>
+
+                <Label text="Server Port:" style="-fx-text-fill: white;" GridPane.rowIndex="1" GridPane.columnIndex="0"/>
+                <TextField fx:id="serverPortField" promptText="e.g., 8887" GridPane.rowIndex="1" GridPane.columnIndex="1"/>
+
+                <Label fx:id="statusLabel" text="Enter server details and test connection"
+                       style="-fx-text-fill: #f39c12; -fx-wrap-text: true;"
+                       GridPane.rowIndex="2" GridPane.columnIndex="0" GridPane.columnSpan="2"/>
+            </GridPane>
+
+            <HBox spacing="10" alignment="CENTER">
+                <Button fx:id="testButton" text="Test Connection"
+                        onAction="#onTestConnection"
+                        style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold;"/>
+                <Button fx:id="connectButton" text="Connect"
+                        onAction="#onConnect"
+                        style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold;"/>
+                <Button fx:id="cancelButton" text="Cancel"
+                        onAction="#onCancel"
+                        style="-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-font-weight: bold;"/>
+            </HBox>
+        </VBox>
+
+        <VBox spacing="5" style="-fx-padding: 10; -fx-background-color: #34495e; -fx-background-radius: 5;">
+            <Label text="Connection Examples:" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Label text="• Local: localhost:8887" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
+            <Label text="• Network: 192.168.1.100:8887" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
+            <Label text="• Internet: your-public-ip:8887" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
+        </VBox>
+    </VBox>
+</AnchorPane>

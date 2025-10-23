@@ -1,12 +1,14 @@
 package org.example.zoom;
 
 import javafx.fxml.FXML;
+import javafx.fxml.FXMLLoader;
+import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.input.KeyCode;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
-import org.example.zoom.websocket.SimpleWebSocketClient; // Changed import
+import org.example.zoom.websocket.SimpleWebSocketClient;
 
 import java.io.File;
 import java.io.IOException;
@@ -28,17 +30,20 @@ public class ChatController {
     private Label userLabel;
 
     @FXML
+    private Label connectionInfoLabel;
+
+    @FXML
     private Button sendButton;
 
     private Stage stage;
-    private SimpleWebSocketClient webSocketClient; // Changed type
+    private SimpleWebSocketClient webSocketClient;
     private String currentUser;
 
     public void setStage(Stage stage) {
         this.stage = stage;
     }
 
-    public void setWebSocketClient(SimpleWebSocketClient client) { // Simplified method
+    public void setWebSocketClient(SimpleWebSocketClient client) {
         this.webSocketClient = client;
         updateConnectionStatus();
 
@@ -55,7 +60,7 @@ public class ChatController {
             userLabel.setText("Chatting as: " + username);
         }
     }
-    // inside initialize() or wherever connection starts
+
     @FXML
     public void initialize() {
         messageField.setOnKeyPressed(event -> {
@@ -67,15 +72,15 @@ public class ChatController {
         String loggedInUser = HelloApplication.getLoggedInUser();
         if (loggedInUser != null) setCurrentUser(loggedInUser);
 
-        // ✅ Connect to real backend WebSocket server
-        webSocketClient = new SimpleWebSocketClient("ws://localhost:8887", this::handleWebSocketMessage);
+        // ✅ Connect to real backend WebSocket server with current configuration
+        String serverUrl = HelloApplication.getCurrentServerUrl();
+        webSocketClient = new SimpleWebSocketClient(serverUrl, this::handleWebSocketMessage);
         webSocketClient.connect();
 
-
         updateConnectionStatus();
-        addSystemMessage("Connecting to chat server...");
+        updateConnectionInfo();
+        addSystemMessage("Connecting to chat server at: " + serverUrl);
     }
-
 
     @FXML
     protected void onSendClick() {
@@ -117,6 +122,31 @@ public class ChatController {
         }
     }
 
+    @FXML
+    protected void onSettingsClick() {
+        try {
+            FXMLLoader loader = new FXMLLoader(getClass().getResource("settings-view.fxml"));
+            Scene scene = new Scene(loader.load(), 600, 500);
+
+            SettingsController controller = loader.getController();
+            controller.setUser(currentUser);
+            controller.setStage(stage);
+
+            Stage settingsStage = new Stage();
+            settingsStage.setTitle("Server Settings");
+            settingsStage.setScene(scene);
+            settingsStage.initOwner(stage);
+            settingsStage.showAndWait();
+
+            // Update connection info after settings might have changed
+            updateConnectionInfo();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            showAlert("Error", "Failed to open settings!", Alert.AlertType.ERROR);
+        }
+    }
+
     private void downloadFile(File sourceFile) {
         FileChooser fileChooser = new FileChooser();
         fileChooser.setTitle("Save File As");
@@ -147,9 +177,10 @@ public class ChatController {
     @FXML
     protected void onRefreshClick() {
         updateConnectionStatus();
+        updateConnectionInfo();
         if (webSocketClient != null && !webSocketClient.isConnected()) {
             addSystemMessage("Attempting to reconnect...");
-            // You could add reconnection logic here
+            webSocketClient.connect();
         }
     }
 
@@ -191,11 +222,13 @@ public class ChatController {
 
                 case "CONNECTED":
                     updateConnectionStatus();
+                    updateConnectionInfo();
                     addSystemMessage("✅ " + content);
                     break;
 
                 case "DISCONNECTED":
                     updateConnectionStatus();
+                    updateConnectionInfo();
                     addSystemMessage("❌ " + content);
                     break;
 
@@ -210,6 +243,7 @@ public class ChatController {
         }
 
         updateConnectionStatus();
+        updateConnectionInfo();
     }
 
     private void addUserMessage(String message) {
@@ -265,6 +299,20 @@ public class ChatController {
                 statusLabel.setText("🔴 Disconnected");
                 statusLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-weight: bold;");
                 sendButton.setDisable(false); // Still allow local messaging
+            }
+        });
+    }
+
+    private void updateConnectionInfo() {
+        javafx.application.Platform.runLater(() -> {
+            String status = HelloApplication.getConnectionStatus();
+            String serverUrl = HelloApplication.getCurrentServerUrl();
+            connectionInfoLabel.setText(status + " | " + serverUrl);
+
+            if (HelloApplication.isWebSocketConnected()) {
+                connectionInfoLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-size: 12;");
+            } else {
+                connectionInfoLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-size: 12;");
             }
         });
     }

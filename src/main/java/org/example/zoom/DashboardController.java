@@ -6,12 +6,15 @@ import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Label;
 import javafx.stage.Stage;
-import org.example.zoom.websocket.SimpleWebSocketClient; // Changed import
+import org.example.zoom.websocket.SimpleWebSocketClient;
 
 public class DashboardController {
 
     @FXML
     private Label welcomeLabel;
+
+    @FXML
+    private Label connectionInfoLabel;
 
     @FXML
     public void initialize() {
@@ -22,6 +25,7 @@ public class DashboardController {
             // WebSocket is now initialized automatically in HelloApplication.setLoggedInUser()
             // So we don't need to initialize it here anymore
             checkWebSocketStatus();
+            updateConnectionInfo();
         }
     }
 
@@ -33,16 +37,30 @@ public class DashboardController {
         }
     }
 
+    private void updateConnectionInfo() {
+        String status = HelloApplication.getConnectionStatus();
+        String serverUrl = HelloApplication.getCurrentServerUrl();
+        connectionInfoLabel.setText(status + " | " + serverUrl);
+
+        if (HelloApplication.isWebSocketConnected()) {
+            connectionInfoLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-size: 12;");
+        } else {
+            connectionInfoLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-size: 12;");
+        }
+    }
+
     private void handleWebSocketMessage(String message) {
         System.out.println("📨 WebSocket message: " + message);
 
         // Handle different message types
         if (message.startsWith("CONNECTED")) {
             System.out.println("✅ " + message);
+            updateConnectionInfo();
         } else if (message.startsWith("ERROR")) {
             showPopup("Connection Error", message);
         } else if (message.startsWith("DISCONNECTED")) {
             System.out.println("❌ " + message);
+            updateConnectionInfo();
         }
         // Other message types will be handled by specific controllers
     }
@@ -126,25 +144,43 @@ public class DashboardController {
     }
 
     @FXML
+    protected void onSettingsClick() {
+        try {
+            FXMLLoader loader = new FXMLLoader(getClass().getResource("settings-view.fxml"));
+            Scene scene = new Scene(loader.load(), 600, 500);
+
+            SettingsController controller = loader.getController();
+            controller.setUser(HelloApplication.getLoggedInUser());
+            controller.setStage((Stage) welcomeLabel.getScene().getWindow());
+
+            Stage settingsStage = new Stage();
+            settingsStage.setTitle("Server Settings");
+            settingsStage.setScene(scene);
+            settingsStage.initOwner((Stage) welcomeLabel.getScene().getWindow());
+            settingsStage.showAndWait();
+
+            // Update connection info after settings might have changed
+            updateConnectionInfo();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            showPopup("Error", "❌ Failed to open Settings!");
+        }
+    }
+
+    @FXML
     protected void onRecordingsClick() throws Exception {
         HelloApplication.setRoot("recordings-view.fxml");
     }
 
     @FXML
-    protected void onSettingsClick() {
-        try {
-            FXMLLoader loader = new FXMLLoader(getClass().getResource("settings-view.fxml"));
-            Scene scene = new Scene(loader.load(), 500, 400);
+    protected void onQuickConnectClick() {
+        Stage currentStage = (Stage) welcomeLabel.getScene().getWindow();
+        ServerConfigDialog dialog = ServerConfigDialog.showDialog(currentStage);
 
-            SettingsController controller = loader.getController();
-            controller.setUser(HelloApplication.getLoggedInUser());
-
-            Stage stage = (Stage) welcomeLabel.getScene().getWindow();
-            stage.setScene(scene);
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            showPopup("Error", "❌ Failed to open Settings!");
+        if (dialog != null && dialog.isConnected()) {
+            updateConnectionInfo();
+            showPopup("Success", "Connected to: " + dialog.getServerUrl());
         }
     }
 

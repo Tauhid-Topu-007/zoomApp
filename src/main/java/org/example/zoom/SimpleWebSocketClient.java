@@ -31,7 +31,9 @@ public class SimpleWebSocketClient implements Listener {
                     .thenAccept(ws -> {
                         this.webSocket = ws;
                         this.connected = true;
-                        messageHandler.accept("SYSTEM|global|Server|✅ Connected to " + serverUrl);
+                        if (messageHandler != null) {
+                            messageHandler.accept("SYSTEM|global|Server|✅ Connected to " + serverUrl);
+                        }
 
                         // Send JOIN event to server
                         if (currentUser != null) {
@@ -39,11 +41,15 @@ public class SimpleWebSocketClient implements Listener {
                         }
                     })
                     .exceptionally(e -> {
-                        messageHandler.accept("SYSTEM|global|Server|❌ Connection failed: " + e.getMessage());
+                        if (messageHandler != null) {
+                            messageHandler.accept("SYSTEM|global|Server|❌ Connection failed: " + e.getMessage());
+                        }
                         return null;
                     });
         } catch (Exception e) {
-            messageHandler.accept("SYSTEM|global|Server|❌ Error: " + e.getMessage());
+            if (messageHandler != null) {
+                messageHandler.accept("SYSTEM|global|Server|❌ Error: " + e.getMessage());
+            }
         }
     }
 
@@ -58,7 +64,9 @@ public class SimpleWebSocketClient implements Listener {
             String message = type + "|" + meetingId + "|" + username + "|" + content;
             webSocket.sendText(message, true);
         } else {
-            messageHandler.accept("SYSTEM|global|Server|⚠️ Not connected to server");
+            if (messageHandler != null) {
+                messageHandler.accept("SYSTEM|global|Server|⚠️ Not connected to server");
+            }
         }
     }
 
@@ -66,7 +74,11 @@ public class SimpleWebSocketClient implements Listener {
     public void disconnect() {
         if (webSocket != null) {
             webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "Goodbye")
-                    .thenRun(() -> messageHandler.accept("SYSTEM|global|Server|🔴 Disconnected"));
+                    .thenRun(() -> {
+                        if (messageHandler != null) {
+                            messageHandler.accept("SYSTEM|global|Server|🔴 Disconnected");
+                        }
+                    });
         }
         connected = false;
     }
@@ -81,26 +93,34 @@ public class SimpleWebSocketClient implements Listener {
     public void onOpen(WebSocket webSocket) {
         Listener.super.onOpen(webSocket);
         connected = true;
-        messageHandler.accept("SYSTEM|global|Server|Connected to WebSocket server");
+        if (messageHandler != null) {
+            messageHandler.accept("SYSTEM|global|Server|Connected to WebSocket server");
+        }
     }
 
     @Override
     public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
-        messageHandler.accept(data.toString());
+        if (messageHandler != null) {
+            messageHandler.accept(data.toString());
+        }
         return Listener.super.onText(webSocket, data, last);
     }
 
     @Override
     public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
         connected = false;
-        messageHandler.accept("SYSTEM|global|Server|🔴 Connection closed: " + reason);
+        if (messageHandler != null) {
+            messageHandler.accept("SYSTEM|global|Server|🔴 Connection closed: " + reason);
+        }
         return Listener.super.onClose(webSocket, statusCode, reason);
     }
 
     @Override
     public void onError(WebSocket webSocket, Throwable error) {
         connected = false;
-        messageHandler.accept("SYSTEM|global|Server|⚠️ Error: " + error.getMessage());
+        if (messageHandler != null) {
+            messageHandler.accept("SYSTEM|global|Server|⚠️ Error: " + error.getMessage());
+        }
         Listener.super.onError(webSocket, error);
     }
 }

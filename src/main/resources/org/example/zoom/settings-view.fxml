@@ -3,35 +3,155 @@
 <?import javafx.geometry.Insets?>
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
+<?import javafx.scene.text.Font?>
 
-<AnchorPane xmlns="http://javafx.com/javafx"
+<ScrollPane xmlns="http://javafx.com/javafx"
             xmlns:fx="http://javafx.com/fxml"
-            fx:controller="org.example.zoom.SettingsController">
-    <VBox spacing="15" alignment="CENTER" prefWidth="500" prefHeight="500">
+            fx:controller="org.example.zoom.SettingsController"
+            fx:id="mainScrollPane"
+            style="-fx-background: transparent; -fx-background-color: #2c3e50;"
+            fitToWidth="true"
+            fitToHeight="true">
+
+    <VBox spacing="20" alignment="TOP_CENTER" prefWidth="600" minHeight="800">
         <padding>
             <Insets top="30" right="30" bottom="30" left="30"/>
         </padding>
 
-        <Label text="⚙ Settings" style="-fx-font-size: 24px; -fx-font-weight: bold;"/>
+        <!-- Header -->
+        <Label text="⚙ Settings" style="-fx-font-size: 28px; -fx-font-weight: bold; -fx-text-fill: white;"/>
 
-        <!-- Change Username Section -->
-        <Label text="Change Username:" style="-fx-font-size: 16px;"/>
-        <TextField fx:id="newUsernameField" promptText="Enter new username"/>
-        <Button text="Change Username" onAction="#onChangeUsernameClick"/>
+        <!-- Server Settings Section -->
+        <VBox spacing="15" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" prefWidth="550">
+            <Label text="🌐 Server Configuration" style="-fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: white;"/>
 
-        <Separator/>
+            <Label text="Current Status:" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Label fx:id="currentServerLabel" text="Not connected" style="-fx-text-fill: #e74c3c;"/>
 
-        <!-- Change Password Section -->
-        <Label text="Change Password:" style="-fx-font-size: 16px;"/>
-        <PasswordField fx:id="oldPasswordField" promptText="Enter old password"/>
-        <PasswordField fx:id="newPasswordField" promptText="Enter new password"/>
-        <PasswordField fx:id="confirmPasswordField" promptText="Confirm new password"/>
-        <Button text="Change Password" onAction="#onChangePasswordClick"/>
+            <Separator/>
 
-        <Label fx:id="messageLabel" textFill="red"/>
+            <GridPane hgap="10" vgap="10">
+                <columnConstraints>
+                    <ColumnConstraints percentWidth="30"/>
+                    <ColumnConstraints percentWidth="70"/>
+                </columnConstraints>
 
-        <Separator/>
+                <rowConstraints>
+                    <RowConstraints prefHeight="35"/>
+                    <RowConstraints prefHeight="35"/>
+                    <RowConstraints prefHeight="40"/>
+                </rowConstraints>
 
-        <Button text="⬅ Back to Dashboard" onAction="#onBackClick"/>
+                <Label text="Server IP:" style="-fx-text-fill: white;" GridPane.rowIndex="0" GridPane.columnIndex="0"/>
+                <TextField fx:id="serverIpField" promptText="Enter server IP (e.g., 192.168.1.100)" GridPane.rowIndex="0" GridPane.columnIndex="1"/>
+
+                <Label text="Server Port:" style="-fx-text-fill: white;" GridPane.rowIndex="1" GridPane.columnIndex="0"/>
+                <TextField fx:id="serverPortField" promptText="Enter port (e.g., 8887)" GridPane.rowIndex="1" GridPane.columnIndex="1"/>
+
+                <Label fx:id="serverMessageLabel" text="Enter server details and test connection"
+                       style="-fx-text-fill: #f39c12; -fx-wrap-text: true;"
+                       GridPane.rowIndex="2" GridPane.columnIndex="0" GridPane.columnSpan="2"/>
+            </GridPane>
+
+            <HBox spacing="10" alignment="CENTER">
+                <Button fx:id="testConnectionButton" text="Test Connection"
+                        onAction="#onTestConnectionClick"
+                        style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold;"/>
+                <Button fx:id="applyServerSettingsButton" text="Apply Settings"
+                        onAction="#onApplyServerSettingsClick"
+                        style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold;"/>
+                <Button text="Reset to Default"
+                        onAction="#onResetServerSettingsClick"
+                        style="-fx-background-color: #e67e22; -fx-text-fill: white; -fx-font-weight: bold;"/>
+            </HBox>
+
+            <VBox spacing="5" style="-fx-padding: 10; -fx-background-color: #2c3e50; -fx-background-radius: 5;">
+                <Label text="Connection Guide:" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+                <Label text="• For local testing: Use 'localhost' as IP" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
+                <Label text="• For network connection: Use the server's IP address" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
+                <Label text="• Make sure the server is running and firewall allows the port" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
+                <Label text="• Default port is 8887" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
+            </VBox>
+        </VBox>
+
+        <!-- Account Settings Section -->
+        <VBox spacing="15" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" prefWidth="550">
+            <Label text="👤 Account Settings" style="-fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: white;"/>
+
+            <!-- Change Username Section -->
+            <Label text="Change Username:" style="-fx-font-size: 14px; -fx-text-fill: white; -fx-font-weight: bold;"/>
+            <TextField fx:id="newUsernameField" promptText="Enter new username" prefWidth="400"/>
+            <Button text="Change Username" onAction="#onChangeUsernameClick"
+                    style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-weight: bold;"/>
+
+            <Separator/>
+
+            <!-- Change Password Section -->
+            <VBox spacing="10">
+                <Label text="Change Password" style="-fx-font-size: 16px; -fx-text-fill: white; -fx-font-weight: bold; -fx-padding: 0 0 10 0;"/>
+
+                <GridPane hgap="10" vgap="8">
+                    <columnConstraints>
+                        <ColumnConstraints percentWidth="40"/>
+                        <ColumnConstraints percentWidth="60"/>
+                    </columnConstraints>
+
+                    <rowConstraints>
+                        <RowConstraints prefHeight="35"/>
+                        <RowConstraints prefHeight="35"/>
+                        <RowConstraints prefHeight="35"/>
+                    </rowConstraints>
+
+                    <Label text="Current Password:" style="-fx-text-fill: white;" GridPane.rowIndex="0" GridPane.columnIndex="0"/>
+                    <PasswordField fx:id="currentPasswordField" promptText="Enter your current password" GridPane.rowIndex="0" GridPane.columnIndex="1"/>
+
+                    <Label text="New Password:" style="-fx-text-fill: white;" GridPane.rowIndex="1" GridPane.columnIndex="0"/>
+                    <PasswordField fx:id="newPasswordField" promptText="Enter new password" GridPane.rowIndex="1" GridPane.columnIndex="1"/>
+
+                    <Label text="Confirm New Password:" style="-fx-text-fill: white;" GridPane.rowIndex="2" GridPane.columnIndex="0"/>
+                    <PasswordField fx:id="confirmNewPasswordField" promptText="Confirm your new password" GridPane.rowIndex="2" GridPane.columnIndex="1"/>
+                </GridPane>
+
+                <HBox spacing="10" alignment="CENTER">
+                    <Button text="Update Password" onAction="#onChangePasswordClick"
+                            style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 150;"/>
+                    <Button text="Clear Fields" onAction="#onClearPasswordFieldsClick"
+                            style="-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 120;"/>
+                </HBox>
+
+                <VBox spacing="5" style="-fx-padding: 10; -fx-background-color: #2c3e50; -fx-background-radius: 5;">
+                    <Label text="Password Requirements:" style="-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 12px;"/>
+                    <Label text="• At least 6 characters long" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
+                    <Label text="• Different from current password" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
+                    <Label text="• New passwords must match exactly" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
+                </VBox>
+            </VBox>
+
+            <Label fx:id="accountMessageLabel" style="-fx-text-fill: red; -fx-wrap-text: true;" prefWidth="400"/>
+        </VBox>
+
+        <!-- Server History Section -->
+        <VBox spacing="15" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" prefWidth="550">
+            <Label text="📋 Server History" style="-fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: white;"/>
+
+            <VBox fx:id="serverHistoryContainer" spacing="5" style="-fx-padding: 10;">
+                <!-- Server history will be populated dynamically -->
+                <Label text="No server history available" style="-fx-text-fill: #bdc3c7; -fx-font-style: italic;"/>
+            </VBox>
+
+            <Button text="Clear Server History" onAction="#onClearServerHistoryClick"
+                    style="-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-font-weight: bold;"/>
+        </VBox>
+
+        <!-- Action Buttons -->
+        <HBox spacing="15" alignment="CENTER">
+            <Button text="🗑️ Clear Messages" onAction="#onClearMessagesClick"
+                    style="-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Button text="⬅ Back to Dashboard" onAction="#onBackClick"
+                    style="-fx-background-color: #34495e; -fx-text-fill: white; -fx-font-weight: bold; -fx-border-color: white;"/>
+        </HBox>
+
+        <!-- Extra spacing at the bottom -->
+        <Region prefHeight="20"/>
     </VBox>
-</AnchorPane>
+</ScrollPane>
