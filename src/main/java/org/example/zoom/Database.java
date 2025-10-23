@@ -250,6 +250,36 @@ public class Database {
         }
     }
 
+    // Updated to support description field in database
+    public static boolean saveMeetingWithDescription(String username, String title, String date, String time, String description) {
+        // First check if description column exists, if not, use the basic version
+        try (Connection conn = getConnection()) {
+            // Check if description column exists
+            DatabaseMetaData metaData = conn.getMetaData();
+            ResultSet columns = metaData.getColumns(null, null, "meetings", "description");
+
+            if (columns.next()) {
+                // Column exists, use the enhanced version
+                String sql = "INSERT INTO meetings(username, title, date, time, description) VALUES (?, ?, ?, ?, ?)";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, username);
+                    stmt.setString(2, title);
+                    stmt.setString(3, date);
+                    stmt.setString(4, time);
+                    stmt.setString(5, description);
+                    stmt.executeUpdate();
+                    return true;
+                }
+            } else {
+                // Column doesn't exist, use basic version
+                return saveMeeting(username, title, date, time);
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ saveMeetingWithDescription error: " + e.getMessage());
+            return false;
+        }
+    }
+
     public static List<ScheduleController.Meeting> getMeetings(String username) {
         List<ScheduleController.Meeting> meetings = new ArrayList<>();
         String sql = "SELECT title, date, time FROM meetings WHERE username = ?";
@@ -261,10 +291,52 @@ public class Database {
                 String title = rs.getString("title");
                 String date = rs.getString("date");
                 String time = rs.getString("time");
-                meetings.add(new ScheduleController.Meeting(title, date, time));
+                // FIXED: Create Meeting with empty description for database compatibility
+                meetings.add(new ScheduleController.Meeting(title, date, time, ""));
             }
         } catch (SQLException e) {
             System.err.println("❌ getMeetings error: " + e.getMessage());
+        }
+        return meetings;
+    }
+
+    // Enhanced version that tries to get description if available
+    public static List<ScheduleController.Meeting> getMeetingsWithDescription(String username) {
+        List<ScheduleController.Meeting> meetings = new ArrayList<>();
+        try (Connection conn = getConnection()) {
+            // Check if description column exists
+            DatabaseMetaData metaData = conn.getMetaData();
+            ResultSet columns = metaData.getColumns(null, null, "meetings", "description");
+
+            String sql;
+            if (columns.next()) {
+                // Column exists, include description
+                sql = "SELECT title, date, time, description FROM meetings WHERE username = ?";
+            } else {
+                // Column doesn't exist, use basic query
+                sql = "SELECT title, date, time FROM meetings WHERE username = ?";
+            }
+
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, username);
+                ResultSet rs = stmt.executeQuery();
+                while (rs.next()) {
+                    String title = rs.getString("title");
+                    String date = rs.getString("date");
+                    String time = rs.getString("time");
+                    String description = "";
+                    try {
+                        description = rs.getString("description");
+                        if (description == null) description = "";
+                    } catch (SQLException e) {
+                        // Description column doesn't exist or is null
+                        description = "";
+                    }
+                    meetings.add(new ScheduleController.Meeting(title, date, time, description));
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ getMeetingsWithDescription error: " + e.getMessage());
         }
         return meetings;
     }
@@ -431,6 +503,7 @@ public class Database {
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement()) {
 
+            // Create main tables
             for (String sql : createTables) {
                 try {
                     stmt.execute(sql);
@@ -438,10 +511,36 @@ public class Database {
                     System.err.println("❌ Table creation error: " + e.getMessage());
                 }
             }
+
+            // Add description column to meetings table if it doesn't exist
+            addDescriptionColumnToMeetings();
+
             System.out.println("✅ Database tables initialized successfully");
 
         } catch (SQLException e) {
             System.err.println("❌ Database initialization error: " + e.getMessage());
+        }
+    }
+
+    // Helper method to safely add description column to meetings table
+    private static void addDescriptionColumnToMeetings() {
+        try (Connection conn = getConnection()) {
+            // Check if description column already exists
+            DatabaseMetaData metaData = conn.getMetaData();
+            ResultSet columns = metaData.getColumns(null, null, "meetings", "description");
+
+            if (!columns.next()) {
+                // Column doesn't exist, add it
+                try (Statement stmt = conn.createStatement()) {
+                    String sql = "ALTER TABLE meetings ADD COLUMN description TEXT";
+                    stmt.execute(sql);
+                    System.out.println("✅ Added description column to meetings table");
+                }
+            } else {
+                System.out.println("✅ Description column already exists in meetings table");
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ Error adding description column: " + e.getMessage());
         }
     }
 
@@ -471,6 +570,15 @@ public class Database {
         // Fetch contacts
         List<Contact> contacts = getContacts("testuser");
         contacts.forEach(c -> System.out.println("📌 " + c));
+
+        // Test meeting with description
+        if (saveMeetingWithDescription("testuser", "Test Meeting", "2024-01-01", "14:30", "This is a test meeting description")) {
+            System.out.println("✅ Meeting with description saved!");
+        }
+
+        // Fetch meetings with description
+        List<ScheduleController.Meeting> meetings = getMeetingsWithDescription("testuser");
+        meetings.forEach(m -> System.out.println("📅 " + m.getTitle() + " - " + m.getDescription()));
     }
 
     // Get single contact by ID
