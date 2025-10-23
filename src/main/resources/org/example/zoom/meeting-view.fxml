@@ -6,54 +6,127 @@
 
 <BorderPane xmlns:fx="http://javafx.com/fxml"
             fx:controller="org.example.zoom.MeetingController"
-            prefWidth="1200" prefHeight="800">
+            prefWidth="1200" prefHeight="800"
+            style="-fx-background-color: #2c3e50;">
 
-    <!-- 🔹 Top: Toolbar -->
+    <!-- 🔹 Top: Custom Title Bar and Toolbar -->
     <top>
-        <ToolBar prefHeight="40">
-            <Button fx:id="audioButton" text="Mute" onAction="#toggleAudio"/>
-            <Button fx:id="videoButton" text="Camera On" onAction="#toggleVideo"/>
-            <Button fx:id="shareButton" text="Share Screen" onAction="#onShareScreen"/>
+        <VBox spacing="0">
+            <!-- Custom Title Bar -->
+            <HBox fx:id="titleBar" spacing="0" alignment="CENTER_LEFT"
+                  style="-fx-background-color: #34495e; -fx-padding: 5 10;"
+                  prefHeight="35">
 
-            <!-- 🔴 NEW: Recording Button -->
-            <Button fx:id="recordButton" text="Start Recording" onAction="#onToggleRecording"/>
+                <!-- Meeting Info -->
+                <HBox spacing="15" alignment="CENTER_LEFT">
+                    <Label text="🎥 Zoom Meeting"
+                           style="-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14;"/>
+                    <HBox spacing="10">
+                        <Label fx:id="meetingIdLabel" text="Meeting ID: "
+                               style="-fx-text-fill: #bdc3c7; -fx-font-size: 12;"/>
+                        <Label fx:id="hostLabel" text=""
+                               style="-fx-font-size: 12;"/>
+                        <Label fx:id="timerLabel" text="Time: 00:00"
+                               style="-fx-text-fill: #bdc3c7; -fx-font-size: 12;"/>
+                        <Label fx:id="participantsCountLabel" text="Participants: 0"
+                               style="-fx-text-fill: #bdc3c7; -fx-font-size: 12;"/>
+                    </HBox>
+                </HBox>
 
-            <Pane HBox.hgrow="ALWAYS"/>
-            <Button text="Recordings" onAction="#onViewRecordings"/>
-            <Button text="Leave" onAction="#onLeaveClick"
-                    style="-fx-background-color: red; -fx-text-fill: white;"/>
-        </ToolBar>
+                <Pane HBox.hgrow="ALWAYS"/>
+
+                <!-- Window Control Buttons -->
+                <HBox spacing="2">
+                    <Button fx:id="minimizeButton" text="🗕" onAction="#onMinimizeButton"
+                            style="-fx-background-color: transparent; -fx-text-fill: white; -fx-border-color: transparent; -fx-font-size: 12; -fx-min-width: 30; -fx-min-height: 25;"/>
+                    <Button fx:id="maximizeButton" text="🗖" onAction="#onMaximizeButton"
+                            style="-fx-background-color: transparent; -fx-text-fill: white; -fx-border-color: transparent; -fx-font-size: 12; -fx-min-width: 30; -fx-min-height: 25;"/>
+                    <Button fx:id="closeButton" text="✕" onAction="#onCloseButton"
+                            style="-fx-background-color: transparent; -fx-text-fill: white; -fx-border-color: transparent; -fx-font-size: 14; -fx-min-width: 30; -fx-min-height: 25; -fx-font-weight: bold;"/>
+                </HBox>
+            </HBox>
+
+            <!-- Enhanced Toolbar -->
+            <ToolBar prefHeight="60" style="-fx-background-color: #2c3e50; -fx-padding: 5 15;">
+                <VBox spacing="5">
+                    <HBox spacing="10" alignment="CENTER_LEFT">
+                        <Button fx:id="audioButton" text="🎤 Mute" onAction="#toggleAudio"
+                                style="-fx-background-radius: 5; -fx-pref-width: 100; -fx-background-color: #2ecc71; -fx-text-fill: white;"/>
+                        <Button fx:id="videoButton" text="📹 Stop Video" onAction="#toggleVideo"
+                                style="-fx-background-radius: 5; -fx-pref-width: 120; -fx-background-color: #2ecc71; -fx-text-fill: white;"/>
+                        <Button fx:id="shareButton" text="🖥 Share Screen" onAction="#onShareScreen"
+                                style="-fx-background-radius: 5; -fx-pref-width: 120; -fx-background-color: #3498db; -fx-text-fill: white;"/>
+                        <Button fx:id="recordButton" text="⏺ Start Recording" onAction="#onToggleRecording"
+                                style="-fx-background-radius: 5; -fx-pref-width: 140; -fx-background-color: #95a5a6; -fx-text-fill: white;"/>
+
+                        <Separator orientation="VERTICAL" style="-fx-padding: 0 10;"/>
+
+                        <Button fx:id="participantsButton" text="👥 Hide Participants" onAction="#toggleParticipantsPanel"
+                                style="-fx-background-radius: 5; -fx-pref-width: 150; -fx-background-color: #3498db; -fx-text-fill: white;"/>
+                        <Button fx:id="chatButton" text="💬 Hide Chat" onAction="#toggleChatPanel"
+                                style="-fx-background-radius: 5; -fx-pref-width: 120; -fx-background-color: #3498db; -fx-text-fill: white;"/>
+                    </HBox>
+
+                    <HBox spacing="10" alignment="CENTER_LEFT">
+                        <Button text="📋 Copy Meeting ID" onAction="#onCopyMeetingId"
+                                style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-background-radius: 5;"/>
+                        <Button text="🗑️ Clear Chat" onAction="#onClearChat"
+                                style="-fx-background-color: #e67e22; -fx-text-fill: white; -fx-background-radius: 5;"/>
+                    </HBox>
+                </VBox>
+
+                <Pane HBox.hgrow="ALWAYS"/>
+
+                <Button fx:id="leaveButton" text="🚪 Leave Meeting" onAction="#onLeaveClick"
+                        style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-background-radius: 5; -fx-pref-width: 120; -fx-font-weight: bold;"/>
+            </ToolBar>
+        </VBox>
     </top>
 
-    <!-- 🔹 Left: Participants -->
+    <!-- 🔹 Left: Participants Panel -->
     <left>
-        <VBox spacing="10" prefWidth="200" alignment="TOP_CENTER"
-              style="-fx-background-color: #f2f2f2;">
-            <Label text="Participants" style="-fx-font-weight: bold; -fx-font-size: 14;"/>
-            <ListView fx:id="participantsList" VBox.vgrow="ALWAYS"/>
+        <VBox fx:id="participantsPanel" spacing="10" prefWidth="220" alignment="TOP_CENTER"
+              style="-fx-background-color: #ecf0f1; -fx-padding: 15;">
+            <Label text="👥 Participants"
+                   style="-fx-font-weight: bold; -fx-font-size: 16; -fx-text-fill: #2c3e50;"/>
+            <Separator/>
+            <ListView fx:id="participantsList" VBox.vgrow="ALWAYS"
+                      style="-fx-background-color: white; -fx-border-color: #bdc3c7; -fx-border-radius: 5;"/>
         </VBox>
     </left>
 
     <!-- 🔹 Center: Video Area -->
     <center>
-        <StackPane fx:id="videoArea" style="-fx-background-color: black;" BorderPane.alignment="CENTER">
-            <Label text="🎥 Meeting Video Area"
-                   style="-fx-text-fill: white; -fx-font-size: 20; -fx-font-weight: bold;"/>
+        <StackPane fx:id="videoArea" style="-fx-background-color: #1a1a1a;" BorderPane.alignment="CENTER">
+            <VBox alignment="CENTER" spacing="10">
+                <Label text="🎥 Video Feed Active"
+                       style="-fx-text-fill: white; -fx-font-size: 18; -fx-font-weight: bold;"/>
+                <Label text="Your video is being shared with participants"
+                       style="-fx-text-fill: #bdc3c7; -fx-font-size: 14;"/>
+            </VBox>
         </StackPane>
     </center>
 
-    <!-- 🔹 Right: Chat -->
+    <!-- 🔹 Right: Chat Panel -->
     <right>
-        <VBox spacing="8" prefWidth="300" alignment="CENTER"
-              style="-fx-background-color: #f9f9f9; -fx-padding: 10;">
-            <Label text="Chat" style="-fx-font-weight: bold; -fx-font-size: 14;"/>
-            <ScrollPane fx:id="chatScroll" fitToWidth="true" VBox.vgrow="ALWAYS">
-                <VBox fx:id="chatBox" spacing="5"/>
+        <VBox fx:id="chatPanel" spacing="10" prefWidth="320"
+              style="-fx-background-color: #ecf0f1; -fx-padding: 15;">
+            <Label text="💬 Meeting Chat"
+                   style="-fx-font-weight: bold; -fx-font-size: 16; -fx-text-fill: #2c3e50;"/>
+            <Separator/>
+
+            <ScrollPane fx:id="chatScroll" fitToWidth="true" VBox.vgrow="ALWAYS"
+                        style="-fx-background-color: white; -fx-border-color: #bdc3c7; -fx-border-radius: 5;">
+                <VBox fx:id="chatBox" spacing="8" style="-fx-padding: 10;"/>
             </ScrollPane>
-            <HBox spacing="5">
-                <TextField fx:id="chatInput" promptText="Type a message..." HBox.hgrow="ALWAYS"/>
-                <Button text="Send" onAction="#onSendChat"/>
-                <Button text="Attach" onAction="#onSendFile"/>
+
+            <HBox spacing="8" alignment="CENTER_LEFT">
+                <TextField fx:id="chatInput" promptText="Type your message..." HBox.hgrow="ALWAYS"
+                           style="-fx-background-radius: 20; -fx-padding: 8 15;"/>
+                <Button text="📎" onAction="#onSendFile"
+                        style="-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-background-radius: 20; -fx-min-width: 40;"/>
+                <Button text="Send" onAction="#onSendChat"
+                        style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 20; -fx-min-width: 60;"/>
             </HBox>
         </VBox>
     </right>
