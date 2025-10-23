@@ -6,10 +6,11 @@ import java.util.List;
 
 public class Database {
 
+    // ✅ Updated connection info for zoom_user
     private static final String URL =
             "jdbc:mysql://localhost:3306/zoom_app?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true";
-    private static final String USER = "root";
-    private static final String PASSWORD = "2015";
+    private static final String USER = "zoom_user";      // ✅ new MySQL user
+    private static final String PASSWORD = "zoom123";    // ✅ new MySQL password
 
     static {
         try {
@@ -19,7 +20,7 @@ public class Database {
         }
     }
 
-    // central connection method
+    // Central connection method
     private static Connection getConnection() throws SQLException {
         return DriverManager.getConnection(URL, USER, PASSWORD);
     }
@@ -29,15 +30,12 @@ public class Database {
      ============================== */
     public static boolean registerUser(String username, String password) {
         String sql = "INSERT INTO users(username, password) VALUES (?, ?)";
-
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-
             stmt.setString(1, username);
             stmt.setString(2, password);
             stmt.executeUpdate();
             return true;
-
         } catch (SQLException e) {
             System.err.println("❌ registerUser error: " + e.getMessage());
             return false;
@@ -46,16 +44,12 @@ public class Database {
 
     public static boolean authenticateUser(String username, String password) {
         String sql = "SELECT * FROM users WHERE username = ? AND password = ?";
-
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-
             stmt.setString(1, username);
             stmt.setString(2, password);
-
             ResultSet rs = stmt.executeQuery();
             return rs.next();
-
         } catch (SQLException e) {
             System.err.println("❌ authenticateUser error: " + e.getMessage());
             return false;
@@ -64,20 +58,16 @@ public class Database {
 
     public static boolean updatePassword(String username, String newPassword) {
         String sql = "UPDATE users SET password = ? WHERE username = ?";
-
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-
             stmt.setString(1, newPassword);
             stmt.setString(2, username);
             return stmt.executeUpdate() > 0;
-
         } catch (SQLException e) {
             System.err.println("❌ updatePassword error: " + e.getMessage());
             return false;
         }
     }
-
 
     public static boolean updateUsername(String oldUsername, String newUsername) {
         String updateUsers = "UPDATE users SET username = ? WHERE username = ?";
@@ -103,7 +93,7 @@ public class Database {
                 stmt3.setString(2, oldUsername);
                 stmt3.executeUpdate();
 
-                conn.commit(); // ✅ all successful
+                conn.commit();
                 return true;
 
             } catch (SQLException e) {
@@ -117,41 +107,32 @@ public class Database {
         }
     }
 
-
     public static boolean usernameExists(String username) {
         String sql = "SELECT username FROM users WHERE username = ?";
-
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-
             stmt.setString(1, username);
             ResultSet rs = stmt.executeQuery();
             return rs.next();
-
         } catch (SQLException e) {
             System.err.println("❌ usernameExists error: " + e.getMessage());
             return false;
         }
     }
 
-
-
     /* ==============================
        MEETING MANAGEMENT
      ============================== */
     public static boolean saveMeeting(String username, String title, String date, String time) {
         String sql = "INSERT INTO meetings(username, title, date, time) VALUES (?, ?, ?, ?)";
-
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-
             stmt.setString(1, username);
             stmt.setString(2, title);
             stmt.setString(3, date);
             stmt.setString(4, time);
             stmt.executeUpdate();
             return true;
-
         } catch (SQLException e) {
             System.err.println("❌ saveMeeting error: " + e.getMessage());
             return false;
@@ -161,10 +142,8 @@ public class Database {
     public static List<ScheduleController.Meeting> getMeetings(String username) {
         List<ScheduleController.Meeting> meetings = new ArrayList<>();
         String sql = "SELECT title, date, time FROM meetings WHERE username = ?";
-
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-
             stmt.setString(1, username);
             ResultSet rs = stmt.executeQuery();
             while (rs.next()) {
@@ -173,7 +152,6 @@ public class Database {
                 String time = rs.getString("time");
                 meetings.add(new ScheduleController.Meeting(title, date, time));
             }
-
         } catch (SQLException e) {
             System.err.println("❌ getMeetings error: " + e.getMessage());
         }
@@ -182,16 +160,13 @@ public class Database {
 
     public static boolean deleteMeeting(String username, String title, String date, String time) {
         String sql = "DELETE FROM meetings WHERE username = ? AND title = ? AND date = ? AND time = ?";
-
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-
             stmt.setString(1, username);
             stmt.setString(2, title);
             stmt.setString(3, date);
             stmt.setString(4, time);
             return stmt.executeUpdate() > 0;
-
         } catch (SQLException e) {
             System.err.println("❌ deleteMeeting error: " + e.getMessage());
             return false;
@@ -203,17 +178,14 @@ public class Database {
      ============================== */
     public static boolean addContact(String username, String name, String email, String phone) {
         String sql = "INSERT INTO contacts(username, contact_name, contact_email, contact_phone) VALUES (?, ?, ?, ?)";
-
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-
             stmt.setString(1, username);
             stmt.setString(2, name);
             stmt.setString(3, email);
             stmt.setString(4, phone);
             stmt.executeUpdate();
             return true;
-
         } catch (SQLException e) {
             System.err.println("❌ addContact error: " + e.getMessage());
             return false;
@@ -223,13 +195,10 @@ public class Database {
     public static List<Contact> getContacts(String username) {
         List<Contact> contacts = new ArrayList<>();
         String sql = "SELECT id, contact_name, contact_email, contact_phone FROM contacts WHERE username = ?";
-
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-
             stmt.setString(1, username);
             ResultSet rs = stmt.executeQuery();
-
             while (rs.next()) {
                 int id = rs.getInt("id");
                 String name = rs.getString("contact_name");
@@ -237,7 +206,6 @@ public class Database {
                 String phone = rs.getString("contact_phone");
                 contacts.add(new Contact(id, name, email, phone));
             }
-
         } catch (SQLException e) {
             System.err.println("❌ getContacts error: " + e.getMessage());
         }
@@ -246,13 +214,10 @@ public class Database {
 
     public static boolean deleteContact(int contactId) {
         String sql = "DELETE FROM contacts WHERE id = ?";
-
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-
             stmt.setInt(1, contactId);
             return stmt.executeUpdate() > 0;
-
         } catch (SQLException e) {
             System.err.println("❌ deleteContact error: " + e.getMessage());
             return false;
@@ -261,16 +226,13 @@ public class Database {
 
     public static boolean updateContact(int contactId, String name, String email, String phone) {
         String sql = "UPDATE contacts SET contact_name=?, contact_email=?, contact_phone=? WHERE id=?";
-
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-
             stmt.setString(1, name);
             stmt.setString(2, email);
             stmt.setString(3, phone);
             stmt.setInt(4, contactId);
             return stmt.executeUpdate() > 0;
-
         } catch (SQLException e) {
             System.err.println("❌ updateContact error: " + e.getMessage());
             return false;
@@ -318,17 +280,13 @@ public class Database {
         contacts.forEach(c -> System.out.println("📌 " + c));
     }
 
-
-
     // Get single contact by ID
     public static Contact getContactById(int id) {
         String sql = "SELECT * FROM contacts WHERE id = ?";
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-
             stmt.setInt(1, id);
             ResultSet rs = stmt.executeQuery();
-
             if (rs.next()) {
                 return new Contact(
                         rs.getInt("id"),
@@ -337,11 +295,9 @@ public class Database {
                         rs.getString("contact_phone")
                 );
             }
-
         } catch (SQLException e) {
             System.err.println("❌ getContactById error: " + e.getMessage());
         }
         return null;
     }
-
 }

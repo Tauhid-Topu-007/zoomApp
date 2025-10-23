@@ -16,3 +16,47 @@ FOREIGN KEY (username)
 REFERENCES users(username)
 ON UPDATE CASCADE
 ON DELETE CASCADE;
+
+CREATE DATABASE IF NOT EXISTS zoom_app;
+USE zoom_app;
+
+-- 🧑 USERS TABLE
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    email VARCHAR(100),
+    full_name VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 🎥 MEETINGS TABLE
+CREATE TABLE meetings (
+    meeting_id INT AUTO_INCREMENT PRIMARY KEY,
+    meeting_code VARCHAR(50) UNIQUE NOT NULL,
+    topic VARCHAR(100),
+    host_username VARCHAR(50) NOT NULL,
+    start_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (host_username) REFERENCES users(username) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- 💬 CHAT MESSAGES TABLE
+CREATE TABLE chat_messages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    meeting_code VARCHAR(50) NOT NULL,
+    sender VARCHAR(50) NOT NULL,
+    message TEXT,
+    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (meeting_code) REFERENCES meetings(meeting_code) ON DELETE CASCADE,
+    FOREIGN KEY (sender) REFERENCES users(username) ON DELETE CASCADE
+);
+
+-- 🤝 CONTACTS TABLE
+CREATE TABLE contacts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user1 VARCHAR(50) NOT NULL,
+    user2 VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user1) REFERENCES users(username) ON DELETE CASCADE,
+    FOREIGN KEY (user2) REFERENCES users(username) ON DELETE CASCADE
+);
