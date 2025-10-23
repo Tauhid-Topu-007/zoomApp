@@ -63,11 +63,14 @@ public class ChatController {
 
     @FXML
     public void initialize() {
-        messageField.setOnKeyPressed(event -> {
-            if (event.getCode() == KeyCode.ENTER) {
-                onSendClick();
-            }
-        });
+        // Add null checks for all FXML elements
+        if (messageField != null) {
+            messageField.setOnKeyPressed(event -> {
+                if (event.getCode() == KeyCode.ENTER) {
+                    onSendClick();
+                }
+            });
+        }
 
         String loggedInUser = HelloApplication.getLoggedInUser();
         if (loggedInUser != null) setCurrentUser(loggedInUser);
@@ -89,6 +92,8 @@ public class ChatController {
             if (webSocketClient != null && webSocketClient.isConnected()) {
                 // Send message via WebSocket
                 webSocketClient.sendMessage("CHAT_MESSAGE", "global", currentUser, message);
+                // Also display the message locally immediately
+                addUserMessage(message);
                 messageField.clear();
             } else {
                 // Fallback: local only display
@@ -170,8 +175,10 @@ public class ChatController {
 
     @FXML
     protected void onClearClick() {
-        chatBox.getChildren().clear();
-        addSystemMessage("Chat cleared");
+        if (chatBox != null) {
+            chatBox.getChildren().clear();
+            addSystemMessage("Chat cleared");
+        }
     }
 
     @FXML
@@ -199,7 +206,13 @@ public class ChatController {
             switch (type) {
                 case "CHAT_MESSAGE":
                 case "CHAT":
-                    if (!username.equals(currentUser)) { // Don't show our own messages twice
+                    // Display the message - don't filter by current user since we want to see all messages
+                    // The server broadcasts all messages to all connected clients
+                    if (username.equals(currentUser)) {
+                        // This is our own message - we already displayed it locally when sent
+                        System.out.println("Received own message: " + content);
+                    } else {
+                        // This is a message from another user
                         addOtherUserMessage(username, content);
                     }
                     break;
@@ -247,72 +260,96 @@ public class ChatController {
     }
 
     private void addUserMessage(String message) {
-        Label messageLabel = new Label("You: " + message);
-        messageLabel.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-padding: 8 12; -fx-background-radius: 10; -fx-wrap-text: true;");
-        messageLabel.setMaxWidth(400);
-        javafx.application.Platform.runLater(() -> chatBox.getChildren().add(messageLabel));
-        scrollToBottom();
+        javafx.application.Platform.runLater(() -> {
+            if (chatBox != null) {
+                Label messageLabel = new Label("You: " + message);
+                messageLabel.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-padding: 8 12; -fx-background-radius: 10; -fx-wrap-text: true;");
+                messageLabel.setMaxWidth(600);
+                chatBox.getChildren().add(messageLabel);
+                scrollToBottom();
+            }
+        });
     }
 
     private void addOtherUserMessage(String username, String message) {
-        Label messageLabel = new Label(username + ": " + message);
-        messageLabel.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-padding: 8 12; -fx-background-radius: 10; -fx-wrap-text: true;");
-        messageLabel.setMaxWidth(400);
-        javafx.application.Platform.runLater(() -> chatBox.getChildren().add(messageLabel));
-        scrollToBottom();
+        javafx.application.Platform.runLater(() -> {
+            if (chatBox != null) {
+                Label messageLabel = new Label(username + ": " + message);
+                messageLabel.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-padding: 8 12; -fx-background-radius: 10; -fx-wrap-text: true;");
+                messageLabel.setMaxWidth(600);
+                chatBox.getChildren().add(messageLabel);
+                scrollToBottom();
+            }
+        });
     }
 
     private void addSystemMessage(String message) {
-        Label messageLabel = new Label("💬 " + message);
-        messageLabel.setStyle("-fx-background-color: #f39c12; -fx-text-fill: white; -fx-padding: 8 12; -fx-background-radius: 10; -fx-wrap-text: true;");
-        messageLabel.setMaxWidth(400);
-        javafx.application.Platform.runLater(() -> chatBox.getChildren().add(messageLabel));
-        scrollToBottom();
+        javafx.application.Platform.runLater(() -> {
+            if (chatBox != null) {
+                Label messageLabel = new Label("💬 " + message);
+                messageLabel.setStyle("-fx-background-color: #f39c12; -fx-text-fill: white; -fx-padding: 8 12; -fx-background-radius: 10; -fx-wrap-text: true;");
+                messageLabel.setMaxWidth(600);
+                chatBox.getChildren().add(messageLabel);
+                scrollToBottom();
+            }
+        });
     }
 
     private void addFileMessage(String fileName, boolean isOwnFile) {
-        Hyperlink fileLink = new Hyperlink("📎 " + fileName + (isOwnFile ? " (sent)" : " (received)"));
-        fileLink.setStyle("-fx-font-size: 14px; -fx-text-fill: #8e44ad; -fx-border-color: #8e44ad; -fx-border-width: 1; -fx-padding: 5 10; -fx-border-radius: 5;");
+        javafx.application.Platform.runLater(() -> {
+            if (chatBox != null) {
+                Hyperlink fileLink = new Hyperlink("📎 " + fileName + (isOwnFile ? " (sent)" : " (received)"));
+                fileLink.setStyle("-fx-font-size: 14px; -fx-text-fill: #8e44ad; -fx-border-color: #8e44ad; -fx-border-width: 1; -fx-padding: 5 10; -fx-border-radius: 5;");
 
-        // For demo purposes, create a temporary file when clicked
-        fileLink.setOnAction(e -> {
-            try {
-                File tempFile = File.createTempFile("zoom_chat_", "_" + fileName);
-                addSystemMessage("File placeholder created: " + tempFile.getAbsolutePath());
-                showAlert("File Info", "This is a demo. In a real app, the file would be downloaded from the server.\n\nPlaceholder: " + tempFile.getAbsolutePath(), Alert.AlertType.INFORMATION);
-            } catch (IOException ex) {
-                showAlert("Error", "Could not create file placeholder: " + ex.getMessage(), Alert.AlertType.ERROR);
+                // For demo purposes, create a temporary file when clicked
+                fileLink.setOnAction(e -> {
+                    try {
+                        File tempFile = File.createTempFile("zoom_chat_", "_" + fileName);
+                        addSystemMessage("File placeholder created: " + tempFile.getAbsolutePath());
+                        showAlert("File Info", "This is a demo. In a real app, the file would be downloaded from the server.\n\nPlaceholder: " + tempFile.getAbsolutePath(), Alert.AlertType.INFORMATION);
+                    } catch (IOException ex) {
+                        showAlert("Error", "Could not create file placeholder: " + ex.getMessage(), Alert.AlertType.ERROR);
+                    }
+                });
+
+                chatBox.getChildren().add(fileLink);
+                scrollToBottom();
             }
         });
-
-        javafx.application.Platform.runLater(() -> chatBox.getChildren().add(fileLink));
-        scrollToBottom();
     }
 
     private void updateConnectionStatus() {
         javafx.application.Platform.runLater(() -> {
-            if (webSocketClient != null && webSocketClient.isConnected()) {
-                statusLabel.setText("🟢 Connected");
-                statusLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-weight: bold;");
-                sendButton.setDisable(false);
-            } else {
-                statusLabel.setText("🔴 Disconnected");
-                statusLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-weight: bold;");
-                sendButton.setDisable(false); // Still allow local messaging
+            if (statusLabel != null) {
+                if (webSocketClient != null && webSocketClient.isConnected()) {
+                    statusLabel.setText("🟢 Connected");
+                    statusLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-weight: bold;");
+                    if (sendButton != null) {
+                        sendButton.setDisable(false);
+                    }
+                } else {
+                    statusLabel.setText("🔴 Disconnected");
+                    statusLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-weight: bold;");
+                    if (sendButton != null) {
+                        sendButton.setDisable(false); // Still allow local messaging
+                    }
+                }
             }
         });
     }
 
     private void updateConnectionInfo() {
         javafx.application.Platform.runLater(() -> {
-            String status = HelloApplication.getConnectionStatus();
-            String serverUrl = HelloApplication.getCurrentServerUrl();
-            connectionInfoLabel.setText(status + " | " + serverUrl);
+            if (connectionInfoLabel != null) {
+                String status = HelloApplication.getConnectionStatus();
+                String serverUrl = HelloApplication.getCurrentServerUrl();
+                connectionInfoLabel.setText(status + " | " + serverUrl);
 
-            if (HelloApplication.isWebSocketConnected()) {
-                connectionInfoLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-size: 12;");
-            } else {
-                connectionInfoLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-size: 12;");
+                if (HelloApplication.isWebSocketConnected()) {
+                    connectionInfoLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-size: 12;");
+                } else {
+                    connectionInfoLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-size: 12;");
+                }
             }
         });
     }
@@ -320,7 +357,7 @@ public class ChatController {
     private void scrollToBottom() {
         javafx.application.Platform.runLater(() -> {
             // Auto-scroll to bottom (VBox doesn't have built-in scrolling, so we simulate it)
-            if (chatBox.getParent() instanceof ScrollPane) {
+            if (chatBox != null && chatBox.getParent() instanceof ScrollPane) {
                 ScrollPane scrollPane = (ScrollPane) chatBox.getParent();
                 scrollPane.setVvalue(1.0);
             }
