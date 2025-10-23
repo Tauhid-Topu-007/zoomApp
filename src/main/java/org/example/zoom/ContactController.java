@@ -13,26 +13,42 @@ public class ContactController {
     @FXML private TextField emailField;
     @FXML private TextField phoneField;
     @FXML private ListView<String> contactList;
+    @FXML private Button backButton;
 
-    private String loggedInUser = "testuser"; // TODO: replace with actual logged-in user
+    private String loggedInUser;
     private ObservableList<String> contactsObservable = FXCollections.observableArrayList();
 
     private int selectedContactId = -1; // store selected contact id for editing
 
     @FXML
     public void initialize() {
+        // Get the actual logged-in user from HelloApplication
+        loggedInUser = HelloApplication.getLoggedInUser();
+        if (loggedInUser == null) {
+            showAlert(Alert.AlertType.ERROR, "No user logged in! Please log in first.");
+            return;
+        }
+
         loadContacts();
 
         // When selecting a contact from the list, populate the fields
         contactList.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
             if (newVal != null) {
-                int id = Integer.parseInt(newVal.split(" - ")[0]);
-                Database.Contact contact = Database.getContactById(id);
-                if (contact != null) {
-                    selectedContactId = id;
-                    nameField.setText(contact.getName());
-                    emailField.setText(contact.getEmail());
-                    phoneField.setText(contact.getPhone());
+                try {
+                    // Extract ID from the display string (format: "ID - Name (Phone)")
+                    String[] parts = newVal.split(" - ");
+                    if (parts.length > 0) {
+                        int id = Integer.parseInt(parts[0]);
+                        Database.Contact contact = Database.getContactById(id);
+                        if (contact != null) {
+                            selectedContactId = id;
+                            nameField.setText(contact.getName());
+                            emailField.setText(contact.getEmail());
+                            phoneField.setText(contact.getPhone());
+                        }
+                    }
+                } catch (NumberFormatException e) {
+                    System.err.println("Error parsing contact ID: " + e.getMessage());
                 }
             }
         });
@@ -40,26 +56,33 @@ public class ContactController {
 
     private void loadContacts() {
         contactsObservable.clear();
-        List<Database.Contact> contacts = Database.getContacts(loggedInUser);
-        for (Database.Contact c : contacts) {
-            contactsObservable.add(c.getId() + " - " + c.getName() + " (" + c.getPhone() + ")");
+        if (loggedInUser != null) {
+            List<Database.Contact> contacts = Database.getContacts(loggedInUser);
+            for (Database.Contact c : contacts) {
+                contactsObservable.add(c.getId() + " - " + c.getName() + " (" + c.getPhone() + ")");
+            }
         }
         contactList.setItems(contactsObservable);
     }
 
     @FXML
     protected void onAddClick() {
+        if (loggedInUser == null) {
+            showAlert(Alert.AlertType.ERROR, "No user logged in!");
+            return;
+        }
+
         String name = nameField.getText().trim();
         String email = emailField.getText().trim();
         String phone = phoneField.getText().trim();
 
         if (!name.isEmpty()) {
             if (Database.addContact(loggedInUser, name, email, phone)) {
-                showAlert(Alert.AlertType.INFORMATION, "Contact added!");
+                showAlert(Alert.AlertType.INFORMATION, "Contact added successfully!");
                 clearFields();
                 loadContacts();
             } else {
-                showAlert(Alert.AlertType.ERROR, "Failed to add contact.");
+                showAlert(Alert.AlertType.ERROR, "Failed to add contact. Please try again.");
             }
         } else {
             showAlert(Alert.AlertType.WARNING, "Name is required!");
@@ -70,16 +93,20 @@ public class ContactController {
     protected void onDeleteClick() {
         String selected = contactList.getSelectionModel().getSelectedItem();
         if (selected != null) {
-            int id = Integer.parseInt(selected.split(" - ")[0]);
-            if (Database.deleteContact(id)) {
-                showAlert(Alert.AlertType.INFORMATION, "Contact deleted!");
-                clearFields();
-                loadContacts();
-            } else {
-                showAlert(Alert.AlertType.ERROR, "Failed to delete contact.");
+            try {
+                int id = Integer.parseInt(selected.split(" - ")[0]);
+                if (Database.deleteContact(id)) {
+                    showAlert(Alert.AlertType.INFORMATION, "Contact deleted successfully!");
+                    clearFields();
+                    loadContacts();
+                } else {
+                    showAlert(Alert.AlertType.ERROR, "Failed to delete contact.");
+                }
+            } catch (NumberFormatException e) {
+                showAlert(Alert.AlertType.ERROR, "Invalid contact selection.");
             }
         } else {
-            showAlert(Alert.AlertType.WARNING, "Select a contact to delete.");
+            showAlert(Alert.AlertType.WARNING, "Please select a contact to delete.");
         }
     }
 
@@ -90,17 +117,32 @@ public class ContactController {
             String email = emailField.getText().trim();
             String phone = phoneField.getText().trim();
 
-            if (Database.updateContact(selectedContactId, name, email, phone)) {
-                showAlert(Alert.AlertType.INFORMATION, "Contact updated!");
-                clearFields();
-                loadContacts();
-                selectedContactId = -1; // reset after update
+            if (!name.isEmpty()) {
+                if (Database.updateContact(selectedContactId, name, email, phone)) {
+                    showAlert(Alert.AlertType.INFORMATION, "Contact updated successfully!");
+                    clearFields();
+                    loadContacts();
+                    selectedContactId = -1; // reset after update
+                } else {
+                    showAlert(Alert.AlertType.ERROR, "Failed to update contact.");
+                }
             } else {
-                showAlert(Alert.AlertType.ERROR, "Failed to update contact.");
+                showAlert(Alert.AlertType.WARNING, "Name is required!");
             }
         } else {
-            showAlert(Alert.AlertType.WARNING, "Select a contact to update.");
+            showAlert(Alert.AlertType.WARNING, "Please select a contact to update.");
         }
+    }
+
+    @FXML
+    protected void onClearClick() {
+        clearFields();
+        contactList.getSelectionModel().clearSelection();
+    }
+
+    @FXML
+    protected void onBackClick() throws Exception {
+        HelloApplication.setRoot("dashboard-view.fxml");
     }
 
     private void clearFields() {
@@ -111,6 +153,8 @@ public class ContactController {
     }
 
     private void showAlert(Alert.AlertType type, String msg) {
-        new Alert(type, msg).showAndWait();
+        Alert alert = new Alert(type, msg);
+        alert.setHeaderText(null);
+        alert.showAndWait();
     }
 }
