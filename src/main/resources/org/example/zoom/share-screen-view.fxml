@@ -1,44 +1,73 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
+<?import javafx.geometry.Insets?>
 <?import javafx.scene.control.*?>
-<?import javafx.scene.image.*?>
+<?import javafx.scene.image.ImageView?>
 <?import javafx.scene.layout.*?>
 
-<BorderPane xmlns:fx="http://javafx.com/fxml"
-            fx:controller="org.example.zoom.ShareScreenController"
-            style="-fx-background-color: #f4f6f9;">
-
-    <!-- Top Bar -->
+<BorderPane fx:id="rootPane" xmlns="http://javafx.com/javafx/17.0.2" xmlns:fx="http://javafx.com/fxml/1" fx:controller="org.example.zoom.ShareScreenController">
     <top>
-        <Label text="📺 Screen Sharing"
-               style="-fx-background-color: #2c3e50; -fx-text-fill: white;
-                      -fx-font-size: 18px; -fx-font-weight: bold; -fx-padding: 10;"
-               maxWidth="Infinity"/>
+        <VBox spacing="10" style="-fx-background-color: #2c3e50; -fx-padding: 15;">
+            <HBox alignment="CENTER_LEFT" spacing="10">
+                <Button text="← Back" onAction="#onBackClick" style="-fx-background-color: #34495e; -fx-text-fill: white; -fx-font-weight: bold;"/>
+                <Label text="Screen Share" style="-fx-text-fill: white; -fx-font-size: 24; -fx-font-weight: bold;"/>
+                <Region HBox.hgrow="ALWAYS"/>
+                <Label fx:id="statusLabel" text="Ready to share" style="-fx-text-fill: #2ecc71; -fx-font-weight: bold;"/>
+            </HBox>
+
+            <HBox spacing="20" alignment="CENTER_LEFT">
+                <VBox spacing="5">
+                    <Label text="Capture Region:" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+                    <ComboBox fx:id="regionComboBox" prefWidth="200"/>
+                </VBox>
+
+                <VBox spacing="5">
+                    <Label text="Quality:" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+                    <Slider fx:id="qualitySlider" prefWidth="150" showTickLabels="true" showTickMarks="true"/>
+                </VBox>
+
+                <VBox spacing="5">
+                    <Label text="Options:" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+                    <CheckBox fx:id="cursorCheckBox" text="Show Cursor" textFill="white"/>
+                </VBox>
+
+                <Region HBox.hgrow="ALWAYS"/>
+
+                <VBox spacing="5">
+                    <Label fx:id="fpsLabel" text="FPS: 0.0" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+                    <Label fx:id="resolutionLabel" text="Resolution: 0x0" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+                </VBox>
+            </HBox>
+        </VBox>
     </top>
 
-    <!-- Center: Screen View -->
     <center>
-        <StackPane style="-fx-background-color: black;">
-            <ImageView fx:id="screenView"
-                       preserveRatio="true"
-                       fitWidth="900"
-                       fitHeight="500"/>
-        </StackPane>
+        <VBox alignment="CENTER" spacing="20" style="-fx-background-color: #ecf0f1;">
+            <ImageView fx:id="screenView" fitWidth="800" fitHeight="450" preserveRatio="true"/>
+
+            <HBox spacing="15" alignment="CENTER">
+                <Button fx:id="startButton" text="Start Share" onAction="#onStartShareClick"
+                        style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14;"/>
+                <Button fx:id="stopButton" text="Stop Share" onAction="#onStopShareClick"
+                        style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14;"/>
+                <Button fx:id="pauseButton" text="Pause" onAction="#onPauseResumeClick"
+                        style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14;"/>
+                <Button text="Capture" onAction="#onCaptureScreenshotClick"
+                        style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14;"/>
+                <Button text="Copy" onAction="#onCopyToClipboardClick"
+                        style="-fx-background-color: #f39c12; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14;"/>
+                <Button text="Save" onAction="#onSaveScreenshotClick"
+                        style="-fx-background-color: #16a085; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14;"/>
+                <Button text="Settings" onAction="#onSettingsClick"
+                        style="-fx-background-color: #7f8c8d; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14;"/>
+            </HBox>
+        </VBox>
     </center>
 
-    <!-- Bottom Controls -->
     <bottom>
-        <HBox spacing="15" alignment="CENTER"
-              style="-fx-padding: 15; -fx-background-color: #ecf0f1;">
-            <Button text="Start Sharing" onAction="#onStartShareClick"
-                    style="-fx-background-color: #27ae60; -fx-text-fill: white;
-                           -fx-font-size: 14px; -fx-background-radius: 8;"/>
-            <Button text="Stop Sharing" onAction="#onStopShareClick"
-                    style="-fx-background-color: #e67e22; -fx-text-fill: white;
-                           -fx-font-size: 14px; -fx-background-radius: 8;"/>
-            <Button text="Back" onAction="#onBackClick"
-                    style="-fx-background-color: #e74c3c; -fx-text-fill: white;
-                           -fx-font-size: 14px; -fx-background-radius: 8;"/>
+        <HBox alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 10;">
+            <Label text="Screen Share - Press Start to begin capturing your screen"
+                   style="-fx-text-fill: #bdc3c7; -fx-font-style: italic;"/>
         </HBox>
     </bottom>
 </BorderPane>
