@@ -4,10 +4,13 @@ import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.Slider;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.animation.ScaleTransition;
 import javafx.util.Duration;
+
 import java.net.URL;
 import java.util.ResourceBundle;
 
@@ -26,6 +29,16 @@ public class AudioControlsController implements Initializable {
     @FXML
     private Button deafenButton;
 
+    // New FXML elements from the updated FXML file
+    @FXML
+    private ComboBox<String> microphoneComboBox;
+    @FXML
+    private ComboBox<String> speakerComboBox;
+    @FXML
+    private Slider microphoneSlider;
+    @FXML
+    private Slider speakerSlider;
+
     private boolean audioMuted = false;
     private boolean isDeafened = false;
     private boolean allMuted = false;
@@ -33,6 +46,7 @@ public class AudioControlsController implements Initializable {
     @Override
     public void initialize(URL location, ResourceBundle resources) {
         setupAudioControls();
+        setupAudioSettings(); // Initialize the new audio settings
         updateButtonStyles();
 
         // Register this controller with the main application
@@ -54,6 +68,37 @@ public class AudioControlsController implements Initializable {
         updateStatusLabel();
     }
 
+    private void setupAudioSettings() {
+        // Setup microphone selection
+        if (microphoneComboBox != null) {
+            microphoneComboBox.getItems().addAll("Default Microphone", "Built-in Microphone", "External Microphone");
+            microphoneComboBox.setValue("Default Microphone");
+            microphoneComboBox.setOnAction(e -> onMicrophoneChanged());
+        }
+
+        // Setup speaker selection
+        if (speakerComboBox != null) {
+            speakerComboBox.getItems().addAll("Default Speaker", "Built-in Speakers", "Headphones", "External Speakers");
+            speakerComboBox.setValue("Default Speaker");
+            speakerComboBox.setOnAction(e -> onSpeakerChanged());
+        }
+
+        // Setup volume sliders
+        if (microphoneSlider != null) {
+            microphoneSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
+                System.out.println("🎤 Microphone volume: " + newVal.intValue() + "%");
+                updateAudioLevels();
+            });
+        }
+
+        if (speakerSlider != null) {
+            speakerSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
+                System.out.println("🔊 Speaker volume: " + newVal.intValue() + "%");
+                updateAudioLevels();
+            });
+        }
+    }
+
     private void setupButtonHoverEffects(Button button) {
         button.setOnMouseEntered(e -> {
             ScaleTransition st = new ScaleTransition(Duration.millis(100), button);
@@ -72,16 +117,19 @@ public class AudioControlsController implements Initializable {
 
     @FXML
     protected void toggleAudio() {
-        // Use the centralized audio control from HelloApplication
+        // Use centralized audio control from HelloApplication
         HelloApplication.toggleAudio();
 
-        // Update local state to match global state
+        // Update local state
         audioMuted = HelloApplication.isAudioMuted();
         updateButtonStyles();
         updateStatusLabel();
 
-        // Visual feedback
-        animateButton(audioToggleButton);
+        if (audioMuted) {
+            addSystemMessage("You muted your audio");
+        } else {
+            addSystemMessage("You unmuted your audio");
+        }
     }
 
     @FXML
@@ -108,6 +156,57 @@ public class AudioControlsController implements Initializable {
         updateStatusLabel();
 
         animateButton(deafenButton);
+    }
+
+    @FXML
+    protected void testAudio() {
+        System.out.println("🔊 Testing audio...");
+
+        // Simulate audio test
+        animateButton(audioToggleButton);
+
+        // Show test confirmation
+        javafx.application.Platform.runLater(() -> {
+            javafx.scene.control.Alert alert = new javafx.scene.control.Alert(
+                    javafx.scene.control.Alert.AlertType.INFORMATION);
+            alert.setTitle("Audio Test");
+            alert.setHeaderText(null);
+            alert.setContentText("Audio test completed!\nYou should hear a test sound (simulated).\n\n" +
+                    "Microphone: " + (microphoneComboBox != null ? microphoneComboBox.getValue() : "Default") + "\n" +
+                    "Speaker: " + (speakerComboBox != null ? speakerComboBox.getValue() : "Default"));
+            alert.showAndWait();
+        });
+
+        addSystemMessage("Audio test performed");
+    }
+
+    private void onMicrophoneChanged() {
+        if (microphoneComboBox != null) {
+            String selectedMic = microphoneComboBox.getValue();
+            System.out.println("🎤 Microphone changed to: " + selectedMic);
+            addSystemMessage("Switched to microphone: " + selectedMic);
+        }
+    }
+
+    private void onSpeakerChanged() {
+        if (speakerComboBox != null) {
+            String selectedSpeaker = speakerComboBox.getValue();
+            System.out.println("🔊 Speaker changed to: " + selectedSpeaker);
+            addSystemMessage("Switched to speaker: " + selectedSpeaker);
+        }
+    }
+
+    private void updateAudioLevels() {
+        // Update audio levels based on slider values
+        if (microphoneSlider != null && speakerSlider != null) {
+            int micLevel = (int) microphoneSlider.getValue();
+            int speakerLevel = (int) speakerSlider.getValue();
+
+            // Update status label with volume info when not in special states
+            if (!isDeafened && !audioMuted && !allMuted) {
+                audioStatusLabel.setText("Audio: Normal 🔊 (Mic: " + micLevel + "%, Spk: " + speakerLevel + "%)");
+            }
+        }
     }
 
     public void updateButtonStyles() {
@@ -160,7 +259,14 @@ public class AudioControlsController implements Initializable {
             audioStatusLabel.setText("All Participants Muted 🔇");
             audioStatusLabel.setStyle("-fx-text-fill: #3498db; -fx-font-weight: bold;");
         } else {
-            audioStatusLabel.setText("Audio: Normal 🔊");
+            // Include volume information in normal state
+            if (microphoneSlider != null && speakerSlider != null) {
+                int micLevel = (int) microphoneSlider.getValue();
+                int speakerLevel = (int) speakerSlider.getValue();
+                audioStatusLabel.setText("Audio: Normal 🔊 (Mic: " + micLevel + "%, Spk: " + speakerLevel + "%)");
+            } else {
+                audioStatusLabel.setText("Audio: Normal 🔊");
+            }
             audioStatusLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-weight: bold;");
         }
     }
@@ -176,47 +282,11 @@ public class AudioControlsController implements Initializable {
         st.play();
     }
 
-    // Method to update UI from server messages
-    public void updateFromServer(String audioStatus) {
-        System.out.println("AudioControlsController: Received audio status - " + audioStatus);
+    private void addSystemMessage(String message) {
+        System.out.println("🔊 " + message);
 
-        // Parse audio status messages from other users
-        if (audioStatus.contains("muted their audio")) {
-            // Another user muted their audio
-            // You could update a participant list UI here
-        } else if (audioStatus.contains("unmuted their audio")) {
-            // Another user unmuted their audio
-            // You could update a participant list UI here
-        } else if (audioStatus.contains("deafened themselves")) {
-            // Another user deafened themselves
-        } else if (audioStatus.contains("undeafened themselves")) {
-            // Another user undeafened themselves
-        }
-    }
-
-    // Public methods to control audio from other parts of the application
-    public void muteAudio() {
-        if (!audioMuted) {
-            toggleAudio();
-        }
-    }
-
-    public void unmuteAudio() {
-        if (audioMuted) {
-            toggleAudio();
-        }
-    }
-
-    public boolean isAudioMuted() {
-        return audioMuted;
-    }
-
-    public boolean isDeafened() {
-        return isDeafened;
-    }
-
-    public boolean isAllMuted() {
-        return allMuted;
+        // You can also integrate this with your chat system if needed
+        // ChatController.addSystemMessage(message);
     }
 
     // Method to sync with global state
@@ -231,33 +301,24 @@ public class AudioControlsController implements Initializable {
         updateStatusLabel();
     }
 
-    @FXML
-    protected void onAdvancedAudioSettings() {
-        // Open advanced audio settings dialog
-        System.out.println("Opening advanced audio settings...");
+    // Method to update from server messages
+    public void updateFromServer(String audioStatus) {
+        System.out.println("AudioControlsController: Received audio status - " + audioStatus);
 
-        showAdvancedAudioDialog();
-    }
-
-    private void showAdvancedAudioDialog() {
-        // Create a simple dialog for audio settings
-        javafx.scene.control.Alert alert = new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.INFORMATION);
-        alert.setTitle("Advanced Audio Settings");
-        alert.setHeaderText("Audio Configuration");
-        alert.setContentText("""
-            🎚️ Advanced Audio Settings:
-            • Input Device: Default Microphone
-            • Output Device: Default Speakers
-            • Input Volume: 100%
-            • Output Volume: 80%
-            • Noise Suppression: Enabled
-            • Echo Cancellation: Enabled
-            
-            Note: These are placeholder settings.
-            In a real application, you would implement actual device selection and audio processing.
-            """);
-
-        alert.showAndWait();
+        // Parse audio status messages from other users
+        if (audioStatus.contains("muted their audio")) {
+            // Another user muted their audio
+            System.out.println("Another participant muted their audio");
+        } else if (audioStatus.contains("unmuted their audio")) {
+            // Another user unmuted their audio
+            System.out.println("Another participant unmuted their audio");
+        } else if (audioStatus.contains("deafened themselves")) {
+            // Another user deafened themselves
+            System.out.println("Another participant deafened themselves");
+        } else if (audioStatus.contains("undeafened themselves")) {
+            // Another user undeafened themselves
+            System.out.println("Another participant undeafened themselves");
+        }
     }
 
     // Method called when meeting host status changes
@@ -279,6 +340,10 @@ public class AudioControlsController implements Initializable {
             isDeafened = false;
             allMuted = false;
 
+            // Reset volume sliders to default
+            if (microphoneSlider != null) microphoneSlider.setValue(80);
+            if (speakerSlider != null) speakerSlider.setValue(80);
+
             updateButtonStyles();
             updateMuteAllButton();
             updateDeafenButton();
@@ -292,5 +357,10 @@ public class AudioControlsController implements Initializable {
 
             System.out.println("AudioControls: Left meeting - audio controls deactivated");
         }
+    }
+
+    // Cleanup method
+    public void cleanup() {
+        System.out.println("✅ Audio controls cleaned up");
     }
 }

@@ -18,6 +18,8 @@ import javafx.scene.input.MouseEvent;
 import javafx.application.Platform;
 import javafx.geometry.Rectangle2D;
 import javafx.stage.Screen;
+import javafx.fxml.FXMLLoader;
+import javafx.geometry.Pos;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -56,14 +58,28 @@ public class MeetingController {
     @FXML private VBox participantsPanel;
     @FXML private VBox chatPanel;
 
+    // Audio and Video controls containers
+    @FXML private VBox audioControlsContainer;
+    @FXML private VBox videoControlsContainer;
+
+    // Control toggle buttons
+    @FXML private Button audioControlsButton;
+    @FXML private Button videoControlsButton;
+
     private boolean audioMuted = false;
     private boolean videoOn = true;
     private boolean recording = false;
     private boolean participantsVisible = true;
     private boolean chatVisible = true;
+    private boolean audioControlsVisible = true;
+    private boolean videoControlsVisible = true;
     private File currentRecordingFile;
     private Stage stage;
     private MediaPlayer currentMediaPlayer;
+
+    // Audio and Video controllers
+    private AudioControlsController audioControlsController;
+    private VideoControlsController videoControlsController;
 
     // For window dragging
     private double xOffset = 0;
@@ -79,6 +95,49 @@ public class MeetingController {
 
     @FXML
     public void initialize() {
+        try {
+            System.out.println("🎯 Initializing Meeting Controller...");
+
+            // Load audio controls with null safety
+            if (audioControlsContainer != null) {
+                try {
+                    FXMLLoader audioLoader = new FXMLLoader(getClass().getResource("audio-controls.fxml"));
+                    VBox audioControls = audioLoader.load();
+                    audioControlsController = audioLoader.getController();
+                    audioControlsContainer.getChildren().add(audioControls);
+                    System.out.println("✅ Audio controls loaded successfully");
+                } catch (IOException e) {
+                    System.err.println("❌ Failed to load audio controls: " + e.getMessage());
+                    setupFallbackAudioControls();
+                }
+            } else {
+                System.err.println("⚠️ Audio controls container not found in FXML");
+                setupFallbackAudioControls();
+            }
+
+            // Load video controls with null safety
+            if (videoControlsContainer != null) {
+                try {
+                    FXMLLoader videoLoader = new FXMLLoader(getClass().getResource("video-controls.fxml"));
+                    VBox videoControls = videoLoader.load();
+                    videoControlsController = videoLoader.getController();
+                    videoControlsContainer.getChildren().add(videoControls);
+                    System.out.println("✅ Video controls loaded successfully");
+                } catch (IOException e) {
+                    System.err.println("❌ Failed to load video controls: " + e.getMessage());
+                    setupFallbackVideoControls();
+                }
+            } else {
+                System.err.println("⚠️ Video controls container not found in FXML");
+                setupFallbackVideoControls();
+            }
+
+        } catch (Exception e) {
+            System.err.println("❌ Critical error in meeting controller initialization: " + e.getMessage());
+            e.printStackTrace();
+            setupAllFallbackControls();
+        }
+
         updateParticipantsList();
         setupChat();
         updateMeetingInfo();
@@ -87,11 +146,146 @@ public class MeetingController {
 
         // Get the stage from the scene
         Platform.runLater(() -> {
-            Stage currentStage = (Stage) chatBox.getScene().getWindow();
+            Stage currentStage = (Stage) (chatBox != null ? chatBox.getScene().getWindow() : null);
             if (currentStage != null) {
                 setStage(currentStage);
             }
+
+            // Notify controllers about meeting state
+            if (audioControlsController != null) {
+                audioControlsController.onMeetingStateChanged(true);
+            }
+            if (videoControlsController != null) {
+                videoControlsController.onMeetingStateChanged(true);
+            }
         });
+    }
+
+    // Add these methods for fallback controls
+    private void setupFallbackAudioControls() {
+        System.out.println("🔄 Setting up fallback audio controls");
+        if (audioControlsContainer != null) {
+            // Create simple audio controls
+            HBox fallbackAudioControls = new HBox(10);
+            fallbackAudioControls.setAlignment(Pos.CENTER_LEFT);
+            fallbackAudioControls.setStyle("-fx-padding: 10; -fx-background-color: #2c3e50; -fx-border-radius: 5;");
+
+            Button muteButton = new Button("🎤 Mute");
+            muteButton.setOnAction(e -> toggleAudio());
+            muteButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white;");
+
+            Button deafenButton = new Button("🔇 Deafen");
+            deafenButton.setOnAction(e -> toggleDeafen());
+            deafenButton.setStyle("-fx-background-color: #e67e22; -fx-text-fill: white;");
+
+            fallbackAudioControls.getChildren().addAll(muteButton, deafenButton);
+            audioControlsContainer.getChildren().add(fallbackAudioControls);
+        }
+    }
+
+    private void setupFallbackVideoControls() {
+        System.out.println("🔄 Setting up fallback video controls");
+        if (videoControlsContainer != null) {
+            // Create simple video controls
+            HBox fallbackVideoControls = new HBox(10);
+            fallbackVideoControls.setAlignment(Pos.CENTER_LEFT);
+            fallbackVideoControls.setStyle("-fx-padding: 10; -fx-background-color: #2c3e50; -fx-border-radius: 5;");
+
+            Button videoToggle = new Button("📹 Stop Video");
+            videoToggle.setOnAction(e -> toggleVideo());
+            videoToggle.setStyle("-fx-background-color: #2980b9; -fx-text-fill: white;");
+
+            Button recordButton = new Button("⏺ Record");
+            recordButton.setOnAction(e -> onToggleRecording());
+            recordButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white;");
+
+            fallbackVideoControls.getChildren().addAll(videoToggle, recordButton);
+            videoControlsContainer.getChildren().add(fallbackVideoControls);
+        }
+    }
+
+    private void setupAllFallbackControls() {
+        System.out.println("🔄 Setting up all fallback controls");
+        // Ensure basic controls are visible and functional
+        if (audioButton != null) {
+            audioButton.setVisible(true);
+            audioButton.setDisable(false);
+        }
+        if (videoButton != null) {
+            videoButton.setVisible(true);
+            videoButton.setDisable(false);
+        }
+        if (recordButton != null) {
+            recordButton.setVisible(true);
+            recordButton.setDisable(!HelloApplication.isMeetingHost());
+        }
+    }
+
+    // Add these methods for toggling controls visibility
+    @FXML
+    protected void toggleAudioControls() {
+        if (audioControlsContainer != null) {
+            audioControlsVisible = !audioControlsVisible;
+            audioControlsContainer.setVisible(audioControlsVisible);
+            audioControlsContainer.setManaged(audioControlsVisible);
+            System.out.println("🔊 Audio controls " + (audioControlsVisible ? "shown" : "hidden"));
+
+            // Update button text
+            if (audioControlsButton != null) {
+                if (audioControlsVisible) {
+                    audioControlsButton.setText("🔊 Hide Audio Controls");
+                    audioControlsButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white;");
+                } else {
+                    audioControlsButton.setText("🔊 Show Audio Controls");
+                    audioControlsButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
+                }
+            }
+        }
+    }
+
+    @FXML
+    protected void toggleVideoControls() {
+        if (videoControlsContainer != null) {
+            videoControlsVisible = !videoControlsVisible;
+            videoControlsContainer.setVisible(videoControlsVisible);
+            videoControlsContainer.setManaged(videoControlsVisible);
+            System.out.println("🎥 Video controls " + (videoControlsVisible ? "shown" : "hidden"));
+
+            // Update button text
+            if (videoControlsButton != null) {
+                if (videoControlsVisible) {
+                    videoControlsButton.setText("🎥 Hide Video Controls");
+                    videoControlsButton.setStyle("-fx-background-color: #2980b9; -fx-text-fill: white;");
+                } else {
+                    videoControlsButton.setText("🎥 Show Video Controls");
+                    videoControlsButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
+                }
+            }
+        }
+    }
+
+    // Add the missing toggleDeafen method
+    @FXML
+    protected void toggleDeafen() {
+        // Use centralized deafen control from HelloApplication
+        HelloApplication.toggleDeafen();
+
+        boolean isDeafened = HelloApplication.isDeafened();
+        if (isDeafened) {
+            addSystemMessage("You deafened yourself");
+        } else {
+            addSystemMessage("You undeafened yourself");
+        }
+
+        updateButtonStyles();
+    }
+
+    private void setupFallbackControls() {
+        System.out.println("🔄 Using fallback audio/video controls");
+        // Ensure basic controls are visible
+        if (audioButton != null) audioButton.setVisible(true);
+        if (videoButton != null) videoButton.setVisible(true);
+        if (recordButton != null) recordButton.setVisible(true);
     }
 
     public void setStage(Stage stage) {
@@ -215,21 +409,41 @@ public class MeetingController {
         if (HelloApplication.isMeetingHost()) {
             hostLabel.setText("👑 Host");
             hostLabel.setStyle("-fx-text-fill: #e67e22; -fx-font-weight: bold;");
-            recordButton.setDisable(false);
+            if (recordButton != null) recordButton.setDisable(false);
+
+            // Notify controllers about host status
+            if (audioControlsController != null) {
+                audioControlsController.onHostStatusChanged(true);
+            }
+            if (videoControlsController != null) {
+                videoControlsController.onHostStatusChanged(true);
+            }
         } else {
             hostLabel.setText("👤 Participant");
             hostLabel.setStyle("-fx-text-fill: #3498db; -fx-font-weight: bold;");
-            recordButton.setDisable(true);
+            if (recordButton != null) recordButton.setDisable(true);
+
+            // Notify controllers about host status
+            if (audioControlsController != null) {
+                audioControlsController.onHostStatusChanged(false);
+            }
+            if (videoControlsController != null) {
+                videoControlsController.onHostStatusChanged(false);
+            }
         }
     }
 
     private void updateParticipantsList() {
+        if (participantsList == null) return;
+
         participantsList.getItems().clear();
         participantsList.getItems().addAll(HelloApplication.getActiveParticipants());
 
         // Update participants count
         int count = HelloApplication.getActiveParticipants().size();
-        participantsCountLabel.setText("Participants: " + count);
+        if (participantsCountLabel != null) {
+            participantsCountLabel.setText("Participants: " + count);
+        }
 
         // Add host indicator
         if (!participantsList.getItems().isEmpty() && HelloApplication.isMeetingHost()) {
@@ -241,6 +455,8 @@ public class MeetingController {
     }
 
     private void setupChat() {
+        if (chatInput == null) return;
+
         chatInput.setOnKeyPressed(event -> {
             switch (event.getCode()) {
                 case ENTER -> onSendChat();
@@ -269,67 +485,107 @@ public class MeetingController {
         int minutes = (meetingSeconds % 3600) / 60;
         int seconds = meetingSeconds % 60;
 
-        if (hours > 0) {
-            timerLabel.setText(String.format("Time: %02d:%02d:%02d", hours, minutes, seconds));
-        } else {
-            timerLabel.setText(String.format("Time: %02d:%02d", minutes, seconds));
+        if (timerLabel != null) {
+            if (hours > 0) {
+                timerLabel.setText(String.format("Time: %02d:%02d:%02d", hours, minutes, seconds));
+            } else {
+                timerLabel.setText(String.format("Time: %02d:%02d", minutes, seconds));
+            }
         }
     }
 
     private void updateButtonStyles() {
-        // Update audio button
-        if (audioMuted) {
-            audioButton.setText("🔇 Unmute");
-            audioButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-background-radius: 5;");
-        } else {
-            audioButton.setText("🎤 Mute");
-            audioButton.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-background-radius: 5;");
+        // Update audio button (fallback)
+        if (audioButton != null) {
+            if (audioMuted) {
+                audioButton.setText("🔇 Unmute");
+                audioButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-background-radius: 5;");
+            } else {
+                audioButton.setText("🎤 Mute");
+                audioButton.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-background-radius: 5;");
+            }
         }
 
-        // Update video button
-        if (videoOn) {
-            videoButton.setText("📹 Stop Video");
-            videoButton.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-background-radius: 5;");
-        } else {
-            videoButton.setText("📹 Start Video");
-            videoButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-background-radius: 5;");
+        // Update video button (fallback)
+        if (videoButton != null) {
+            if (videoOn) {
+                videoButton.setText("📹 Stop Video");
+                videoButton.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-background-radius: 5;");
+            } else {
+                videoButton.setText("📹 Start Video");
+                videoButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-background-radius: 5;");
+            }
         }
 
         // Update record button
-        if (recording) {
-            recordButton.setText("🔴 Stop Recording");
-            recordButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-background-radius: 5;");
-        } else {
-            recordButton.setText("⏺ Start Recording");
-            recordButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-background-radius: 5;");
+        if (recordButton != null) {
+            if (recording) {
+                recordButton.setText("🔴 Stop Recording");
+                recordButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-background-radius: 5;");
+            } else {
+                recordButton.setText("⏺ Start Recording");
+                recordButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-background-radius: 5;");
+            }
         }
 
         // Update panel toggle buttons
-        if (participantsVisible) {
-            participantsButton.setText("👥 Hide Participants");
-            participantsButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
-        } else {
-            participantsButton.setText("👥 Show Participants");
-            participantsButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-background-radius: 5;");
+        if (participantsButton != null) {
+            if (participantsVisible) {
+                participantsButton.setText("👥 Hide Participants");
+                participantsButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
+            } else {
+                participantsButton.setText("👥 Show Participants");
+                participantsButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-background-radius: 5;");
+            }
         }
 
-        if (chatVisible) {
-            chatButton.setText("💬 Hide Chat");
-            chatButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
-        } else {
-            chatButton.setText("💬 Show Chat");
-            chatButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-background-radius: 5;");
+        if (chatButton != null) {
+            if (chatVisible) {
+                chatButton.setText("💬 Hide Chat");
+                chatButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
+            } else {
+                chatButton.setText("💬 Show Chat");
+                chatButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-background-radius: 5;");
+            }
+        }
+
+        // Update audio controls toggle button
+        if (audioControlsButton != null) {
+            if (audioControlsVisible) {
+                audioControlsButton.setText("🔊 Hide Audio Controls");
+                audioControlsButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-background-radius: 5;");
+            } else {
+                audioControlsButton.setText("🔊 Show Audio Controls");
+                audioControlsButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-background-radius: 5;");
+            }
+        }
+
+        // Update video controls toggle button
+        if (videoControlsButton != null) {
+            if (videoControlsVisible) {
+                videoControlsButton.setText("🎥 Hide Video Controls");
+                videoControlsButton.setStyle("-fx-background-color: #2980b9; -fx-text-fill: white; -fx-background-radius: 5;");
+            } else {
+                videoControlsButton.setText("🎥 Show Video Controls");
+                videoControlsButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-background-radius: 5;");
+            }
         }
 
         // Style other buttons
-        shareButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
-        leaveButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 5;");
+        if (shareButton != null) {
+            shareButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
+        }
+        if (leaveButton != null) {
+            leaveButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 5;");
+        }
 
         // Add hover effects for window controls
         setupWindowControlHoverEffects();
     }
 
     private void setupWindowControlHoverEffects() {
+        if (minimizeButton == null || maximizeButton == null || closeButton == null) return;
+
         // Minimize button hover
         minimizeButton.setOnMouseEntered(e -> minimizeButton.setStyle("-fx-background-color: #5a6c7d; -fx-text-fill: white; -fx-border-color: transparent;"));
         minimizeButton.setOnMouseExited(e -> minimizeButton.setStyle("-fx-background-color: transparent; -fx-text-fill: white; -fx-border-color: transparent;"));
@@ -347,23 +603,31 @@ public class MeetingController {
     @FXML
     protected void toggleParticipantsPanel() {
         participantsVisible = !participantsVisible;
-        participantsPanel.setVisible(participantsVisible);
-        participantsPanel.setManaged(participantsVisible);
+        if (participantsPanel != null) {
+            participantsPanel.setVisible(participantsVisible);
+            participantsPanel.setManaged(participantsVisible);
+        }
         updateButtonStyles();
     }
 
     @FXML
     protected void toggleChatPanel() {
         chatVisible = !chatVisible;
-        chatPanel.setVisible(chatVisible);
-        chatPanel.setManaged(chatVisible);
+        if (chatPanel != null) {
+            chatPanel.setVisible(chatVisible);
+            chatPanel.setManaged(chatVisible);
+        }
         updateButtonStyles();
     }
 
-    // ---------------- Audio / Video ----------------
+    // ---------------- Audio / Video (Fallback Controls) ----------------
     @FXML
     protected void toggleAudio() {
-        audioMuted = !audioMuted;
+        // Use centralized audio control from HelloApplication
+        HelloApplication.toggleAudio();
+
+        // Update local state
+        audioMuted = HelloApplication.isAudioMuted();
         updateButtonStyles();
 
         if (audioMuted) {
@@ -375,7 +639,11 @@ public class MeetingController {
 
     @FXML
     protected void toggleVideo() {
-        videoOn = !videoOn;
+        // Use centralized video control from HelloApplication
+        HelloApplication.toggleVideo();
+
+        // Update local state
+        videoOn = HelloApplication.isVideoOn();
         updateButtonStyles();
 
         if (videoOn) {
@@ -446,6 +714,8 @@ public class MeetingController {
     // ---------------- Chat ----------------
     @FXML
     protected void onSendChat() {
+        if (chatInput == null) return;
+
         String msg = chatInput.getText().trim();
         if (!msg.isEmpty()) {
             String username = HelloApplication.getLoggedInUser();
@@ -454,7 +724,10 @@ public class MeetingController {
             addUserMessage(username + ": " + msg);
             chatInput.clear();
 
-            // Auto-reply removed - chat is now manual only
+            // Send via WebSocket if connected
+            if (HelloApplication.isWebSocketConnected() && HelloApplication.getActiveMeetingId() != null) {
+                HelloApplication.sendWebSocketMessage("CHAT", HelloApplication.getActiveMeetingId(), msg);
+            }
         }
     }
 
@@ -495,8 +768,10 @@ public class MeetingController {
 
     @FXML
     protected void onClearChat() {
-        chatBox.getChildren().clear();
-        addSystemMessage("Chat cleared");
+        if (chatBox != null) {
+            chatBox.getChildren().clear();
+            addSystemMessage("Chat cleared");
+        }
     }
 
     private void displayImage(File file) {
@@ -511,7 +786,9 @@ public class MeetingController {
                 new Label("🖼 " + file.getName()),
                 imgView
         );
-        chatBox.getChildren().add(imageContainer);
+        if (chatBox != null) {
+            chatBox.getChildren().add(imageContainer);
+        }
     }
 
     private void displayMedia(File file) {
@@ -535,7 +812,9 @@ public class MeetingController {
                     new Label(isVideo(file) ? "🎥 " + file.getName() : "🎵 " + file.getName()),
                     mediaView
             );
-            chatBox.getChildren().add(mediaContainer);
+            if (chatBox != null) {
+                chatBox.getChildren().add(mediaContainer);
+            }
 
         } catch (Exception e) {
             displayFileLink(file);
@@ -546,7 +825,9 @@ public class MeetingController {
         Hyperlink fileLink = new Hyperlink("📎 " + file.getName() + " (" + getFileSize(file) + ")");
         fileLink.setStyle("-fx-text-fill: #3498db; -fx-border-color: transparent;");
         fileLink.setOnAction(e -> downloadFile(file));
-        chatBox.getChildren().add(fileLink);
+        if (chatBox != null) {
+            chatBox.getChildren().add(fileLink);
+        }
     }
 
     private String getFileSize(File file) {
@@ -566,6 +847,8 @@ public class MeetingController {
     }
 
     private void addChatMessage(String text, String bgColor, String textColor, String additionalStyle) {
+        if (chatBox == null) return;
+
         Label messageLabel = new Label(text);
         messageLabel.setWrapText(true);
         messageLabel.setMaxWidth(280);
@@ -577,6 +860,8 @@ public class MeetingController {
     }
 
     private void scrollToBottom() {
+        if (chatScroll == null) return;
+
         chatScroll.applyCss();
         chatScroll.layout();
         chatScroll.setVvalue(1.0);
@@ -646,6 +931,17 @@ public class MeetingController {
             meetingTimer.stop();
         }
 
+        // Cleanup audio and video resources
+        cleanupAudioVideoResources();
+
+        // Notify controllers about meeting end
+        if (audioControlsController != null) {
+            audioControlsController.onMeetingStateChanged(false);
+        }
+        if (videoControlsController != null) {
+            videoControlsController.onMeetingStateChanged(false);
+        }
+
         // Leave meeting
         HelloApplication.leaveCurrentMeeting();
         if (stage != null) {
@@ -655,10 +951,87 @@ public class MeetingController {
         HelloApplication.setRoot("dashboard-view.fxml");
     }
 
+    /**
+     * Cleanup audio and video resources to release camera and microphone
+     */
+    private void cleanupAudioVideoResources() {
+        System.out.println("🧹 Cleaning up audio/video resources...");
+
+        // Cleanup audio resources
+        if (audioControlsController != null) {
+            try {
+                // Call cleanup method if it exists
+                audioControlsController.getClass().getMethod("cleanup").invoke(audioControlsController);
+                System.out.println("✅ Audio resources cleaned up");
+            } catch (Exception e) {
+                System.out.println("⚠️ Audio cleanup not implemented or failed: " + e.getMessage());
+            }
+        }
+
+        // Cleanup video resources
+        if (videoControlsController != null) {
+            try {
+                // Call cleanup method if it exists
+                videoControlsController.getClass().getMethod("cleanup").invoke(videoControlsController);
+                System.out.println("✅ Video resources cleaned up");
+            } catch (Exception e) {
+                System.out.println("⚠️ Video cleanup not implemented or failed: " + e.getMessage());
+            }
+        }
+
+        // Additional cleanup for any direct camera/microphone access
+        cleanupDirectHardwareAccess();
+    }
+
+    /**
+     * Direct hardware cleanup for camera and microphone
+     */
+    private void cleanupDirectHardwareAccess() {
+        try {
+            // Force stop any webcam access
+            Class<?> webcamClass = null;
+            try {
+                webcamClass = Class.forName("com.github.sarxos.webcam.Webcam");
+                java.lang.reflect.Method getWebcamsMethod = webcamClass.getMethod("getWebcams");
+                java.util.List<?> webcams = (java.util.List<?>) getWebcamsMethod.invoke(null);
+
+                for (Object webcam : webcams) {
+                    java.lang.reflect.Method isOpenMethod = webcam.getClass().getMethod("isOpen");
+                    java.lang.reflect.Method closeMethod = webcam.getClass().getMethod("close");
+
+                    if ((Boolean) isOpenMethod.invoke(webcam)) {
+                        closeMethod.invoke(webcam);
+                        System.out.println("📷 Camera closed: " + webcam.getClass().getMethod("getName").invoke(webcam));
+                    }
+                }
+            } catch (ClassNotFoundException e) {
+                // Webcam library not available, skip
+            }
+
+            // Audio line cleanup
+            try {
+                Class<?> audioSystemClass = Class.forName("javax.sound.sampled.AudioSystem");
+                java.lang.reflect.Method getLineMethod = audioSystemClass.getMethod("getLine",
+                        Class.forName("javax.sound.sampled.Line$Info"));
+                // Additional audio cleanup would go here
+            } catch (ClassNotFoundException e) {
+                // Audio classes not available, skip
+            }
+
+        } catch (Exception e) {
+            System.err.println("❌ Error during hardware cleanup: " + e.getMessage());
+        }
+    }
+
     @FXML
     protected void onShareScreen(ActionEvent event) {
-        addSystemMessage("🖥 Screen sharing feature is under development...");
-        showAlert("Screen Share", "Screen sharing will be available in the next update!");
+        try {
+            addSystemMessage("🖥 Opening screen share...");
+            HelloApplication.setRoot("share-screen-view.fxml");
+        } catch (Exception e) {
+            e.printStackTrace();
+            showAlert("Screen Share", "Failed to open screen sharing: " + e.getMessage());
+        }
     }
 
     @FXML
@@ -671,5 +1044,60 @@ public class MeetingController {
             clipboard.setContent(content);
             addSystemMessage("Meeting ID copied to clipboard: " + meetingId);
         }
+    }
+
+    // Method to handle WebSocket messages (for chat integration)
+    public void handleWebSocketMessage(String message) {
+        // Parse message: "TYPE|MEETING_ID|USERNAME|CONTENT"
+        String[] parts = message.split("\\|", 4);
+        if (parts.length >= 4) {
+            String type = parts[0];
+            String meetingId = parts[1];
+            String username = parts[2];
+            String content = parts[3];
+
+            if ("CHAT".equals(type) && meetingId.equals(HelloApplication.getActiveMeetingId())) {
+                // Add chat message from other user
+                Platform.runLater(() -> {
+                    addUserMessage(username + ": " + content);
+                });
+            } else if ("USER_JOINED".equals(type)) {
+                // Update participants list
+                Platform.runLater(() -> {
+                    updateParticipantsList();
+                    addSystemMessage(username + " joined the meeting");
+                });
+            } else if ("USER_LEFT".equals(type)) {
+                // Update participants list
+                Platform.runLater(() -> {
+                    updateParticipantsList();
+                    addSystemMessage(username + " left the meeting");
+                });
+            } else if ("AUDIO_STATUS".equals(type)) {
+                // Handle audio status updates from other participants
+                Platform.runLater(() -> {
+                    addSystemMessage(username + " " + content);
+                });
+            } else if ("VIDEO_STATUS".equals(type)) {
+                // Handle video status updates from other participants
+                Platform.runLater(() -> {
+                    addSystemMessage(username + " " + content);
+                });
+            }
+        }
+    }
+
+    /**
+     * Getter for audio controls controller
+     */
+    public AudioControlsController getAudioControlsController() {
+        return audioControlsController;
+    }
+
+    /**
+     * Getter for video controls controller
+     */
+    public VideoControlsController getVideoControlsController() {
+        return videoControlsController;
     }
 }

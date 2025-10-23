@@ -33,6 +33,12 @@ public class HelloApplication extends Application {
     private static boolean allMuted = false;
     private static AudioControlsController audioControlsController;
 
+    // Video controls management
+    private static boolean videoOn = false;
+    private static boolean isRecording = false;
+    private static boolean virtualBackgroundEnabled = false;
+    private static VideoControlsController videoControlsController;
+
     @Override
     public void start(Stage stage) throws Exception {
         primaryStage = stage;
@@ -61,6 +67,8 @@ public class HelloApplication extends Application {
             ((SettingsController) controller).setStage(primaryStage);
         } else if (controller instanceof AudioControlsController) {
             audioControlsController = (AudioControlsController) controller;
+        } else if (controller instanceof VideoControlsController) {
+            videoControlsController = (VideoControlsController) controller;
         }
     }
 
@@ -100,6 +108,12 @@ public class HelloApplication extends Application {
         isDeafened = false;
         allMuted = false;
         audioControlsController = null;
+
+        // Reset video state
+        videoOn = false;
+        isRecording = false;
+        virtualBackgroundEnabled = false;
+        videoControlsController = null;
 
         setRoot("login-view.fxml");
     }
@@ -249,8 +263,14 @@ public class HelloApplication extends Application {
                 case "AUDIO_STATUS":
                     handleAudioStatusMessage(username, content);
                     break;
+                case "VIDEO_STATUS":
+                    handleVideoStatusMessage(username, content);
+                    break;
                 case "AUDIO_CONTROL":
                     handleAudioControlMessage(username, content);
+                    break;
+                case "VIDEO_CONTROL":
+                    handleVideoControlMessage(username, content);
                     break;
             }
         }
@@ -274,20 +294,61 @@ public class HelloApplication extends Application {
         addSystemMessage(username + " " + status);
     }
 
+    // Handle video status messages from other users
+    private static void handleVideoStatusMessage(String username, String status) {
+        System.out.println("🎥 Video status from " + username + ": " + status);
+
+        // Update UI if video controls are active
+        if (videoControlsController != null) {
+            javafx.application.Platform.runLater(() -> {
+                videoControlsController.updateFromServer(status);
+            });
+        }
+
+        // Add system message for video status changes
+        addSystemMessage(username + " " + status);
+    }
+
     // Handle audio control messages (mute all, deafen, etc.)
     private static void handleAudioControlMessage(String username, String command) {
         System.out.println("🔊 Audio control from " + username + ": " + command);
 
-        if ("MUTE_ALL".equals(command) && isMeetingHost) {
-            // Only host can mute all participants
-            muteAllParticipants();
+        if ("MUTE_ALL".equals(command)) {
+            // Host muted all participants - update local state
+            allMuted = true;
             addSystemMessage("Host muted all participants");
-        } else if ("DEAFEN".equals(command)) {
-            // User deafened themselves
-            addSystemMessage(username + " deafened themselves");
-        } else if ("UNDEAFEN".equals(command)) {
-            // User undeafened themselves
-            addSystemMessage(username + " undeafened themselves");
+
+            // Update audio controls UI if available
+            if (audioControlsController != null) {
+                javafx.application.Platform.runLater(() -> {
+                    audioControlsController.syncWithGlobalState();
+                });
+            }
+        } else if ("UNMUTE_ALL".equals(command)) {
+            // Host unmuted all participants - update local state
+            allMuted = false;
+            addSystemMessage("Host unmuted all participants");
+
+            // Update audio controls UI if available
+            if (audioControlsController != null) {
+                javafx.application.Platform.runLater(() -> {
+                    audioControlsController.syncWithGlobalState();
+                });
+            }
+        } else if ("DEAFEN_ALL".equals(command)) {
+            // Host deafened all participants
+            addSystemMessage("Host deafened all participants");
+        }
+    }
+
+    // Handle video control messages (record, etc.)
+    private static void handleVideoControlMessage(String username, String command) {
+        System.out.println("🎥 Video control from " + username + ": " + command);
+
+        if ("START_RECORDING".equals(command)) {
+            addSystemMessage("Host started recording the meeting");
+        } else if ("STOP_RECORDING".equals(command)) {
+            addSystemMessage("Host stopped recording the meeting");
         }
     }
 
@@ -318,6 +379,18 @@ public class HelloApplication extends Application {
     public static void setMeetingHost(boolean host) {
         isMeetingHost = host;
         System.out.println("🎯 Meeting host status: " + (host ? "Host" : "Participant"));
+
+        // Notify audio and video controllers about host status change
+        if (audioControlsController != null) {
+            javafx.application.Platform.runLater(() -> {
+                audioControlsController.onHostStatusChanged(host);
+            });
+        }
+        if (videoControlsController != null) {
+            javafx.application.Platform.runLater(() -> {
+                videoControlsController.onHostStatusChanged(host);
+            });
+        }
     }
 
     public static boolean isMeetingHost() {
@@ -351,6 +424,9 @@ public class HelloApplication extends Application {
             System.out.println("🎯 New meeting created locally: " + meetingId + " by " + hostName + " (WebSocket offline)");
         }
 
+        // Notify controllers about meeting state change
+        notifyControllersMeetingStateChanged(true);
+
         return meetingId;
     }
 
@@ -374,6 +450,9 @@ public class HelloApplication extends Application {
         } else {
             System.out.println("✅ Joined meeting locally: " + meetingId + " as " + participantName + " (WebSocket offline)");
         }
+
+        // Notify controllers about meeting state change
+        notifyControllersMeetingStateChanged(true);
 
         return true;
     }
@@ -420,6 +499,20 @@ public class HelloApplication extends Application {
         // Reset meeting state
         activeMeetingId = null;
         isMeetingHost = false;
+
+        // Stop audio and video when leaving meeting
+        if (audioMuted) {
+            toggleAudio(); // Unmute when leaving
+        }
+        if (videoOn) {
+            toggleVideo(); // Stop video when leaving
+        }
+        if (isRecording) {
+            toggleRecording(); // Stop recording when leaving
+        }
+
+        // Notify controllers about meeting state change
+        notifyControllersMeetingStateChanged(false);
     }
 
     // End a meeting (host only)
@@ -435,6 +528,34 @@ public class HelloApplication extends Application {
             activeParticipants.clear();
 
             System.out.println("🔚 Meeting ended: " + meetingId);
+
+            // Stop audio and video for all participants
+            if (audioMuted) {
+                toggleAudio(); // Unmute when meeting ends
+            }
+            if (videoOn) {
+                toggleVideo(); // Stop video when meeting ends
+            }
+            if (isRecording) {
+                toggleRecording(); // Stop recording when meeting ends
+            }
+
+            // Notify controllers about meeting state change
+            notifyControllersMeetingStateChanged(false);
+        }
+    }
+
+    // Notify controllers about meeting state changes
+    private static void notifyControllersMeetingStateChanged(boolean inMeeting) {
+        if (audioControlsController != null) {
+            javafx.application.Platform.runLater(() -> {
+                audioControlsController.onMeetingStateChanged(inMeeting);
+            });
+        }
+        if (videoControlsController != null) {
+            javafx.application.Platform.runLater(() -> {
+                videoControlsController.onMeetingStateChanged(inMeeting);
+            });
         }
     }
 
@@ -576,16 +697,20 @@ public class HelloApplication extends Application {
 
         if (audioMuted) {
             addSystemMessage("You muted your audio");
-            sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "muted their audio");
+            if (isWebSocketConnected() && getActiveMeetingId() != null) {
+                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "muted their audio");
+            }
         } else {
             addSystemMessage("You unmuted your audio");
-            sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "unmuted their audio");
+            if (isWebSocketConnected() && getActiveMeetingId() != null) {
+                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "unmuted their audio");
+            }
         }
 
         // Update audio controls UI if available
         if (audioControlsController != null) {
             javafx.application.Platform.runLater(() -> {
-                audioControlsController.updateButtonStyles();
+                audioControlsController.syncWithGlobalState();
             });
         }
     }
@@ -603,16 +728,20 @@ public class HelloApplication extends Application {
 
         if (allMuted) {
             addSystemMessage("You muted all participants");
-            sendWebSocketMessage("AUDIO_CONTROL", getActiveMeetingId(), "MUTE_ALL");
+            if (isWebSocketConnected() && getActiveMeetingId() != null) {
+                sendWebSocketMessage("AUDIO_CONTROL", getActiveMeetingId(), "MUTE_ALL");
+            }
         } else {
             addSystemMessage("You unmuted all participants");
-            sendWebSocketMessage("AUDIO_CONTROL", getActiveMeetingId(), "UNMUTE_ALL");
+            if (isWebSocketConnected() && getActiveMeetingId() != null) {
+                sendWebSocketMessage("AUDIO_CONTROL", getActiveMeetingId(), "UNMUTE_ALL");
+            }
         }
 
         // Update audio controls UI if available
         if (audioControlsController != null) {
             javafx.application.Platform.runLater(() -> {
-                // This would update the mute all button state
+                audioControlsController.syncWithGlobalState();
             });
         }
     }
@@ -625,16 +754,20 @@ public class HelloApplication extends Application {
 
         if (isDeafened) {
             addSystemMessage("You deafened yourself");
-            sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "deafened themselves");
+            if (isWebSocketConnected() && getActiveMeetingId() != null) {
+                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "deafened themselves");
+            }
         } else {
             addSystemMessage("You undeafened yourself");
-            sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "undeafened themselves");
+            if (isWebSocketConnected() && getActiveMeetingId() != null) {
+                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "undeafened themselves");
+            }
         }
 
         // Update audio controls UI if available
         if (audioControlsController != null) {
             javafx.application.Platform.runLater(() -> {
-                // This would update the deafen button state
+                audioControlsController.syncWithGlobalState();
             });
         }
     }
@@ -646,7 +779,7 @@ public class HelloApplication extends Application {
         // This would be handled by the AudioControlsController
         if (audioControlsController != null) {
             javafx.application.Platform.runLater(() -> {
-                audioControlsController.updateButtonStyles();
+                audioControlsController.syncWithGlobalState();
             });
         }
     }
@@ -689,6 +822,7 @@ public class HelloApplication extends Application {
      */
     public static void setAudioControlsController(AudioControlsController controller) {
         audioControlsController = controller;
+        System.out.println("🔊 Audio controls controller registered");
     }
 
     /**
@@ -696,6 +830,145 @@ public class HelloApplication extends Application {
      */
     public static AudioControlsController getAudioControlsController() {
         return audioControlsController;
+    }
+
+    // ==================== VIDEO CONTROLS MANAGEMENT ====================
+
+    /**
+     * Toggle video on/off state
+     */
+    public static void toggleVideo() {
+        videoOn = !videoOn;
+
+        if (videoOn) {
+            addSystemMessage("You started your video");
+            if (isWebSocketConnected() && getActiveMeetingId() != null) {
+                sendWebSocketMessage("VIDEO_STATUS", getActiveMeetingId(), "started video");
+            }
+        } else {
+            addSystemMessage("You stopped your video");
+            if (isWebSocketConnected() && getActiveMeetingId() != null) {
+                sendWebSocketMessage("VIDEO_STATUS", getActiveMeetingId(), "stopped video");
+            }
+        }
+
+        // Update video controls UI if available
+        if (videoControlsController != null) {
+            javafx.application.Platform.runLater(() -> {
+                videoControlsController.syncWithGlobalState();
+            });
+        }
+    }
+
+    /**
+     * Toggle recording state
+     */
+    public static void toggleRecording() {
+        isRecording = !isRecording;
+
+        if (isRecording) {
+            addSystemMessage("You started recording");
+            if (isWebSocketConnected() && getActiveMeetingId() != null) {
+                sendWebSocketMessage("VIDEO_STATUS", getActiveMeetingId(), "started recording");
+            }
+        } else {
+            addSystemMessage("You stopped recording");
+            if (isWebSocketConnected() && getActiveMeetingId() != null) {
+                sendWebSocketMessage("VIDEO_STATUS", getActiveMeetingId(), "stopped recording");
+            }
+        }
+
+        // Update video controls UI if available
+        if (videoControlsController != null) {
+            javafx.application.Platform.runLater(() -> {
+                videoControlsController.syncWithGlobalState();
+            });
+        }
+    }
+
+    /**
+     * Get current video state
+     */
+    public static boolean isVideoOn() {
+        return videoOn;
+    }
+
+    /**
+     * Get current recording state
+     */
+    public static boolean isRecording() {
+        return isRecording;
+    }
+
+    /**
+     * Get virtual background state
+     */
+    public static boolean isVirtualBackgroundEnabled() {
+        return virtualBackgroundEnabled;
+    }
+
+    /**
+     * Set virtual background state
+     */
+    public static void setVirtualBackgroundEnabled(boolean enabled) {
+        virtualBackgroundEnabled = enabled;
+
+        if (enabled) {
+            addSystemMessage("Virtual background enabled");
+        } else {
+            addSystemMessage("Virtual background disabled");
+        }
+    }
+
+    /**
+     * Start video
+     */
+    public static void startVideo() {
+        if (!videoOn) {
+            toggleVideo();
+        }
+    }
+
+    /**
+     * Stop video
+     */
+    public static void stopVideo() {
+        if (videoOn) {
+            toggleVideo();
+        }
+    }
+
+    /**
+     * Start recording
+     */
+    public static void startRecording() {
+        if (!isRecording) {
+            toggleRecording();
+        }
+    }
+
+    /**
+     * Stop recording
+     */
+    public static void stopRecording() {
+        if (isRecording) {
+            toggleRecording();
+        }
+    }
+
+    /**
+     * Set video controls controller reference
+     */
+    public static void setVideoControlsController(VideoControlsController controller) {
+        videoControlsController = controller;
+        System.out.println("🎥 Video controls controller registered");
+    }
+
+    /**
+     * Get video controls controller
+     */
+    public static VideoControlsController getVideoControlsController() {
+        return videoControlsController;
     }
 
     /**
@@ -719,6 +992,14 @@ public class HelloApplication extends Application {
         // Cleanup when application closes
         if (webSocketClient != null) {
             webSocketClient.disconnect();
+        }
+
+        // Stop video and recording if active
+        if (videoOn) {
+            stopVideo();
+        }
+        if (isRecording) {
+            stopRecording();
         }
 
         // Save current server config if user is logged in

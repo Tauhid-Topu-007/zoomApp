@@ -1,84 +1,82 @@
-import { WebSocketServer } from 'ws';
+<?xml version="1.0" encoding="UTF-8"?>
 
-        const PORT = 8887;
-        const wss = new WebSocketServer({
-        port: PORT,
-        host: '0.0.0.0'
-        });
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.text.Font?>
 
-        const clients = new Map();
+<VBox fx:id="audioContainer" xmlns="http://javafx.com/javafx/17.0.2" xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="org.example.zoom.AudioControlsController"
+      spacing="15" style="-fx-background-color: #2c3e50; -fx-padding: 20; -fx-border-color: #34495e; -fx-border-width: 2; -fx-border-radius: 10; -fx-background-radius: 10;">
 
-        console.log(`✅ WebSocket Server started on port ${PORT}`);
+    <Label text="Audio Controls" style="-fx-text-fill: white; -fx-font-size: 18; -fx-font-weight: bold;">
+        <font>
+            <Font name="System Bold" size="18.0" />
+        </font>
+    </Label>
 
-        wss.on('connection', (ws, req) => {
-        const clientIp = req.socket.remoteAddress;
-        console.log(`🔗 New client connected from: ${clientIp}`);
+    <Label fx:id="audioStatusLabel" text="Audio: Normal 🔊" style="-fx-text-fill: #27ae60; -fx-font-weight: bold; -fx-font-size: 14;"/>
 
-        const userId = `User-${Math.floor(Math.random() * 1000)}`;
-        clients.set(ws, {
-        id: userId,
-        ip: clientIp,
-        audioMuted: false,
-        deafened: false
-        });
+    <HBox fx:id="audioControlsBox" spacing="10" alignment="CENTER">
+        <Button fx:id="audioToggleButton" text="Mute" onAction="#toggleAudio"
+                prefWidth="100" prefHeight="40"
+                style="-fx-background-radius: 5; -fx-font-weight: bold;"/>
 
-        // Send welcome message
-        ws.send(`SYSTEM|global|Server|Welcome ${userId}! You are connected from ${clientIp}`);
+        <Button fx:id="muteAllButton" text="Mute All" onAction="#toggleMuteAll"
+                prefWidth="100" prefHeight="40"
+                style="-fx-background-radius: 5; -fx-font-weight: bold;"/>
 
-        // Notify others
-        broadcast(`SYSTEM|global|Server|${userId} joined the chat from ${clientIp}`, ws);
+        <Button fx:id="deafenButton" text="Deafen" onAction="#toggleDeafen"
+                prefWidth="100" prefHeight="40"
+                style="-fx-background-radius: 5; -fx-font-weight: bold;"/>
+    </HBox>
 
-        ws.on('message', (message) => {
-        const msg = message.toString();
-        console.log(`💬 ${userId} (${clientIp}): ${msg}`);
+    <Separator style="-fx-background-color: #34495e;"/>
 
-        // Handle audio control messages
-        if (msg.startsWith('AUDIO|')) {
-        handleAudioMessage(ws, userId, msg);
-        } else {
-        broadcast(msg, ws);
-        }
-        });
+    <!-- Audio Settings -->
+    <VBox spacing="10">
+        <Label text="Audio Settings" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
 
-        ws.on('close', () => {
-        console.log(`❌ ${userId} (${clientIp}) disconnected`);
-        clients.delete(ws);
-        broadcast(`SYSTEM|global|Server|${userId} left the chat`);
-        });
+        <HBox spacing="15" alignment="CENTER_LEFT">
+            <VBox spacing="5">
+                <Label text="Microphone:" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+                <ComboBox fx:id="microphoneComboBox" prefWidth="150"/>
+            </VBox>
 
-        ws.on('error', (error) => {
-        console.error(`❌ WebSocket error for ${userId}:`, error);
-        });
-        });
+            <VBox spacing="5">
+                <Label text="Speaker:" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+                <ComboBox fx:id="speakerComboBox" prefWidth="150"/>
+            </VBox>
+        </HBox>
 
-        function handleAudioMessage(ws, userId, message) {
-        const parts = message.split('|');
-        if (parts.length >= 3) {
-        const audioStatus = parts[1];
-        const audioMessage = parts[2];
+        <VBox spacing="5">
+            <Label text="Microphone Volume:" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Slider fx:id="microphoneSlider" min="0" max="100" value="80" showTickLabels="true" showTickMarks="true"
+                    majorTickUnit="20" blockIncrement="10" prefWidth="200"/>
+        </VBox>
 
-        const userInfo = clients.get(ws);
-        if (userInfo) {
-        userInfo.audioMuted = audioStatus === 'muted';
+        <VBox spacing="5">
+            <Label text="Speaker Volume:" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Slider fx:id="speakerSlider" min="0" max="100" value="80" showTickLabels="true" showTickMarks="true"
+                    majorTickUnit="20" blockIncrement="10" prefWidth="200"/>
+        </VBox>
+    </VBox>
 
-        // Broadcast audio status to all other users
-        broadcast(`AUDIO_STATUS|${userId}|${audioStatus}|${audioMessage}`, ws);
-        console.log(`🔊 ${userId} ${audioStatus} their audio`);
-        }
-        }
-        }
+    <Separator style="-fx-background-color: #34495e;"/>
 
-        function broadcast(message, sender) {
-        for (const [client, userInfo] of clients) {
-        if (client.readyState === 1 && client !== sender) {
-        client.send(message);
-        }
-        }
-        }
+    <Button text="Audio Test" onAction="#testAudio"
+            style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 5;"
+            prefWidth="120" prefHeight="35">
+        <graphic>
+            <Label text="🔊" style="-fx-text-fill: white;"/>
+        </graphic>
+    </Button>
 
-        // Handle server errors
-        wss.on('error', (error) => {
-        console.error('❌ Server error:', error);
-        });
-
-        console.log('🔧 Server ready for audio controls integration');
+    <VBox spacing="5" style="-fx-padding: 10 0 0 0;">
+        <Label text="Quick Tips:" style="-fx-text-fill: #bdc3c7; -fx-font-weight: bold;"/>
+        <Label text="• Mute: Toggle your microphone" style="-fx-text-fill: #95a5a6; -fx-font-size: 12;"/>
+        <Label text="• Mute All: Host can mute all participants" style="-fx-text-fill: #95a5a6; -fx-font-size: 12;"/>
+        <Label text="• Deafen: Mute all incoming audio" style="-fx-text-fill: #95a5a6; -fx-font-size: 12;"/>
+        <Label text="• Green: Audio normal | Orange: Muted | Red: Deafened" style="-fx-text-fill: #95a5a6; -fx-font-size: 12;"/>
+    </VBox>
+</VBox>

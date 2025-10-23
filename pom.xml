@@ -17,6 +17,20 @@
   </properties>
 
   <dependencies>
+
+    <dependency>
+      <groupId>com.github.sarxos</groupId>
+      <artifactId>webcam-capture</artifactId>
+      <version>0.3.12</version>
+    </dependency>
+
+    <!-- JavaFX Media -->
+    <dependency>
+      <groupId>org.openjfx</groupId>
+      <artifactId>javafx-media</artifactId>
+      <version>17.0.6</version>
+    </dependency>
+
     <!-- Java-WebSocket (ONLY ONE VERSION) -->
     <dependency>
       <groupId>org.java-websocket</groupId>
