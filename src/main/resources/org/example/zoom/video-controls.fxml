@@ -18,12 +18,12 @@
 
     <Label fx:id="videoStatusLabel" text="Video: Off 🔴" style="-fx-text-fill: #7f8c8d; -fx-font-weight: bold; -fx-font-size: 14;"/>
 
-    <!-- Video Preview -->
-    <ImageView fx:id="videoPreview" fitWidth="200" fitHeight="150" preserveRatio="true">
+    <!-- Video Preview Container -->
+    <StackPane fx:id="videoPreviewContainer" style="-fx-background-color: #1a1a1a; -fx-border-color: #34495e; -fx-border-width: 1; -fx-border-radius: 5;">
         <VBox.margin>
             <Insets bottom="10.0" />
         </VBox.margin>
-    </ImageView>
+    </StackPane>
 
     <HBox fx:id="videoControlsBox" spacing="10" alignment="CENTER">
         <Button fx:id="videoToggleButton" text="Start Video" onAction="#toggleVideo"

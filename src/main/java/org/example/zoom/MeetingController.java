@@ -2,6 +2,7 @@ package org.example.zoom;
 
 import javafx.fxml.FXML;
 import javafx.event.ActionEvent;
+import javafx.scene.canvas.Canvas;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
@@ -20,7 +21,14 @@ import javafx.geometry.Rectangle2D;
 import javafx.stage.Screen;
 import javafx.fxml.FXMLLoader;
 import javafx.geometry.Pos;
+import javafx.scene.media.AudioClip;
 
+import com.github.sarxos.webcam.Webcam;
+import com.github.sarxos.webcam.WebcamPanel;
+import com.github.sarxos.webcam.WebcamResolution;
+import javax.sound.sampled.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -28,6 +36,8 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.List;
+import java.util.ArrayList;
 
 public class MeetingController {
 
@@ -66,8 +76,11 @@ public class MeetingController {
     @FXML private Button audioControlsButton;
     @FXML private Button videoControlsButton;
 
+    // Video display
+    @FXML private ImageView videoDisplay;
+
     private boolean audioMuted = false;
-    private boolean videoOn = true;
+    private boolean videoOn = false;
     private boolean recording = false;
     private boolean participantsVisible = true;
     private boolean chatVisible = true;
@@ -80,6 +93,21 @@ public class MeetingController {
     // Audio and Video controllers
     private AudioControlsController audioControlsController;
     private VideoControlsController videoControlsController;
+
+    // Real camera and microphone
+    private Webcam webcam;
+    private TargetDataLine microphone;
+    private AudioFormat audioFormat;
+    private boolean cameraAvailable = false;
+    private boolean microphoneAvailable = false;
+
+    // Camera capture thread
+    private Thread cameraThread;
+    private volatile boolean cameraRunning = false;
+
+    // Audio capture thread
+    private Thread audioThread;
+    private volatile boolean audioRunning = false;
 
     // For window dragging
     private double xOffset = 0;
@@ -97,6 +125,9 @@ public class MeetingController {
     public void initialize() {
         try {
             System.out.println("🎯 Initializing Meeting Controller...");
+
+            // Initialize hardware
+            initializeHardware();
 
             // Load audio controls with null safety
             if (audioControlsContainer != null) {
@@ -161,6 +192,278 @@ public class MeetingController {
         });
     }
 
+    /**
+     * Initialize camera and microphone hardware
+     */
+    private void initializeHardware() {
+        System.out.println("🔧 Initializing hardware...");
+
+        // Initialize camera
+        try {
+            System.out.println("📷 Looking for cameras...");
+            List<Webcam> webcams = Webcam.getWebcams();
+            System.out.println("📷 Found " + webcams.size() + " cameras");
+
+            if (!webcams.isEmpty()) {
+                webcam = webcams.get(0);
+                System.out.println("📷 Selected camera: " + webcam.getName());
+
+                // Try different resolutions
+                try {
+                    webcam.setViewSize(WebcamResolution.VGA.getSize());
+                    System.out.println("📷 Set resolution to VGA");
+                } catch (Exception e) {
+                    try {
+                        webcam.setViewSize(WebcamResolution.QVGA.getSize());
+                        System.out.println("📷 Set resolution to QVGA");
+                    } catch (Exception e2) {
+                        System.out.println("📷 Using default resolution");
+                    }
+                }
+
+                cameraAvailable = true;
+                System.out.println("✅ Camera initialized successfully: " + webcam.getName());
+            } else {
+                System.out.println("❌ No cameras found");
+                cameraAvailable = false;
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error initializing camera: " + e.getMessage());
+            cameraAvailable = false;
+        }
+
+        // Initialize microphone
+        try {
+            System.out.println("🎤 Initializing microphone...");
+            audioFormat = new AudioFormat(16000, 16, 1, true, true);
+            DataLine.Info info = new DataLine.Info(TargetDataLine.class, audioFormat);
+
+            if (!AudioSystem.isLineSupported(info)) {
+                System.out.println("❌ Microphone line not supported");
+                microphoneAvailable = false;
+                return;
+            }
+
+            microphone = (TargetDataLine) AudioSystem.getLine(info);
+            microphoneAvailable = true;
+            System.out.println("✅ Microphone initialized successfully");
+        } catch (Exception e) {
+            System.err.println("❌ Error initializing microphone: " + e.getMessage());
+            microphoneAvailable = false;
+        }
+
+        System.out.println("🔧 Hardware initialization complete - Camera: " + cameraAvailable + ", Microphone: " + microphoneAvailable);
+    }
+
+    /**
+     * Start camera capture
+     */
+    private void startCamera() {
+        if (!cameraAvailable || webcam == null) {
+            System.err.println("❌ Cannot start camera: No camera available");
+            showCameraError();
+            return;
+        }
+
+        try {
+            System.out.println("📷 Starting camera...");
+
+            if (!webcam.isOpen()) {
+                webcam.open();
+                System.out.println("📷 Camera opened successfully");
+            }
+
+            cameraRunning = true;
+            cameraThread = new Thread(() -> {
+                System.out.println("📷 Camera thread started");
+                while (cameraRunning && webcam.isOpen()) {
+                    try {
+                        java.awt.image.BufferedImage awtImage = webcam.getImage();
+                        if (awtImage != null) {
+                            Image fxImage = convertToFxImage(awtImage);
+                            if (fxImage != null) {
+                                Platform.runLater(() -> {
+                                    // Update main video display
+                                    if (videoDisplay != null) {
+                                        videoDisplay.setImage(fxImage);
+                                    }
+                                    // Update video controls preview
+                                    if (videoControlsController != null) {
+                                        videoControlsController.updateVideoPreview(fxImage);
+                                    }
+                                });
+                            }
+                        }
+                        Thread.sleep(33); // ~30 FPS
+                    } catch (Exception e) {
+                        System.err.println("❌ Camera capture error: " + e.getMessage());
+                        break;
+                    }
+                }
+                System.out.println("📷 Camera thread stopped");
+            });
+            cameraThread.setDaemon(true);
+            cameraThread.start();
+
+            System.out.println("✅ Camera started successfully");
+
+        } catch (Exception e) {
+            System.err.println("❌ Failed to start camera: " + e.getMessage());
+            e.printStackTrace();
+            showCameraError();
+        }
+    }
+
+    /**
+     * Stop camera capture
+     */
+    private void stopCamera() {
+        System.out.println("📷 Stopping camera...");
+        cameraRunning = false;
+
+        if (cameraThread != null && cameraThread.isAlive()) {
+            try {
+                cameraThread.join(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        if (webcam != null && webcam.isOpen()) {
+            webcam.close();
+            System.out.println("📷 Camera closed");
+        }
+
+        Platform.runLater(() -> {
+            if (videoDisplay != null) {
+                videoDisplay.setImage(null);
+            }
+            // Reset video controls to simulated camera
+            if (videoControlsController != null) {
+                videoControlsController.resetToSimulatedCamera();
+            }
+        });
+
+        System.out.println("✅ Camera stopped successfully");
+    }
+
+    /**
+     * Start microphone capture
+     */
+    private void startMicrophone() {
+        if (!microphoneAvailable || microphone == null) {
+            System.err.println("❌ Cannot start microphone: No microphone available");
+            return;
+        }
+
+        try {
+            System.out.println("🎤 Starting microphone...");
+            microphone.open(audioFormat);
+            microphone.start();
+
+            audioRunning = true;
+            audioThread = new Thread(() -> {
+                System.out.println("🎤 Microphone thread started");
+                byte[] buffer = new byte[4096];
+                while (audioRunning && microphone.isOpen()) {
+                    try {
+                        int bytesRead = microphone.read(buffer, 0, buffer.length);
+                        if (bytesRead > 0 && !audioMuted) {
+                            // Here you would send audio data to other participants
+                            // For now, we just capture but don't process when muted
+                            processAudioData(buffer, bytesRead);
+                        }
+                    } catch (Exception e) {
+                        System.err.println("❌ Microphone capture error: " + e.getMessage());
+                        break;
+                    }
+                }
+                System.out.println("🎤 Microphone thread stopped");
+            });
+            audioThread.setDaemon(true);
+            audioThread.start();
+
+            System.out.println("✅ Microphone started successfully");
+
+        } catch (Exception e) {
+            System.err.println("❌ Failed to start microphone: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Stop microphone capture
+     */
+    private void stopMicrophone() {
+        System.out.println("🎤 Stopping microphone...");
+        audioRunning = false;
+
+        if (audioThread != null && audioThread.isAlive()) {
+            try {
+                audioThread.join(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        if (microphone != null && microphone.isOpen()) {
+            microphone.stop();
+            microphone.close();
+            System.out.println("🎤 Microphone closed");
+        }
+
+        System.out.println("✅ Microphone stopped successfully");
+    }
+
+    /**
+     * Process captured audio data (placeholder for real audio streaming)
+     */
+    private void processAudioData(byte[] audioData, int length) {
+        // In a real application, you would:
+        // 1. Encode the audio data
+        // 2. Send it to other participants via WebSocket/RTP
+        // 3. Other participants would decode and play it
+
+        // For now, we just demonstrate that audio is being captured
+        if (System.currentTimeMillis() % 5000 < 100) { // Log every 5 seconds
+            System.out.println("🎤 Audio data captured: " + length + " bytes");
+        }
+    }
+
+    /**
+     * Convert AWT BufferedImage to JavaFX Image
+     */
+    private Image convertToFxImage(java.awt.image.BufferedImage awtImage) {
+        try {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(awtImage, "jpg", out);
+            java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(out.toByteArray());
+            return new Image(in);
+        } catch (Exception e) {
+            System.err.println("❌ Failed to convert image: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private void showCameraError() {
+        Platform.runLater(() -> {
+            if (videoDisplay != null) {
+                // Create error placeholder
+                Canvas canvas = new Canvas(320, 240);
+                javafx.scene.canvas.GraphicsContext gc = canvas.getGraphicsContext2D();
+                gc.setFill(javafx.scene.paint.Color.LIGHTGRAY);
+                gc.fillRect(0, 0, 320, 240);
+                gc.setFill(javafx.scene.paint.Color.RED);
+                gc.fillText("Camera Error", 120, 120);
+                gc.fillText("No camera available", 110, 140);
+
+                javafx.scene.image.WritableImage writableImage = new javafx.scene.image.WritableImage(320, 240);
+                canvas.snapshot(null, writableImage);
+                videoDisplay.setImage(writableImage);
+            }
+        });
+    }
+
     // Add these methods for fallback controls
     private void setupFallbackAudioControls() {
         System.out.println("🔄 Setting up fallback audio controls");
@@ -191,7 +494,7 @@ public class MeetingController {
             fallbackVideoControls.setAlignment(Pos.CENTER_LEFT);
             fallbackVideoControls.setStyle("-fx-padding: 10; -fx-background-color: #2c3e50; -fx-border-radius: 5;");
 
-            Button videoToggle = new Button("📹 Stop Video");
+            Button videoToggle = new Button("📹 Start Video");
             videoToggle.setOnAction(e -> toggleVideo());
             videoToggle.setStyle("-fx-background-color: #2980b9; -fx-text-fill: white;");
 
@@ -620,36 +923,54 @@ public class MeetingController {
         updateButtonStyles();
     }
 
-    // ---------------- Audio / Video (Fallback Controls) ----------------
+    // ---------------- REAL Audio / Video Controls ----------------
     @FXML
     protected void toggleAudio() {
-        // Use centralized audio control from HelloApplication
-        HelloApplication.toggleAudio();
+        if (audioMuted) {
+            // Unmute - start capturing audio
+            audioMuted = false;
+            startMicrophone();
+            addSystemMessage("You unmuted your audio");
+            System.out.println("🎤 Audio UNMUTED - microphone started");
+        } else {
+            // Mute - stop capturing audio
+            audioMuted = true;
+            stopMicrophone();
+            addSystemMessage("You muted your audio");
+            System.out.println("🎤 Audio MUTED - microphone stopped");
+        }
 
-        // Update local state
-        audioMuted = HelloApplication.isAudioMuted();
         updateButtonStyles();
 
-        if (audioMuted) {
-            addSystemMessage("You muted your audio");
-        } else {
-            addSystemMessage("You unmuted your audio");
+        // Send status via WebSocket
+        if (HelloApplication.getActiveMeetingId() != null) {
+            String status = audioMuted ? "muted their audio" : "unmuted their audio";
+            HelloApplication.sendWebSocketMessage("AUDIO_STATUS", HelloApplication.getActiveMeetingId(), status);
         }
     }
 
     @FXML
     protected void toggleVideo() {
-        // Use centralized video control from HelloApplication
-        HelloApplication.toggleVideo();
+        if (!videoOn) {
+            // Start video - turn on camera
+            videoOn = true;
+            startCamera();
+            addSystemMessage("You started your video");
+            System.out.println("📷 Video STARTED - camera activated");
+        } else {
+            // Stop video - turn off camera
+            videoOn = false;
+            stopCamera();
+            addSystemMessage("You stopped your video");
+            System.out.println("📷 Video STOPPED - camera deactivated");
+        }
 
-        // Update local state
-        videoOn = HelloApplication.isVideoOn();
         updateButtonStyles();
 
-        if (videoOn) {
-            addSystemMessage("You started your video");
-        } else {
-            addSystemMessage("You stopped your video");
+        // Send status via WebSocket
+        if (HelloApplication.getActiveMeetingId() != null) {
+            String status = videoOn ? "started video" : "stopped video";
+            HelloApplication.sendWebSocketMessage("VIDEO_STATUS", HelloApplication.getActiveMeetingId(), status);
         }
     }
 
@@ -956,6 +1277,10 @@ public class MeetingController {
      */
     private void cleanupAudioVideoResources() {
         System.out.println("🧹 Cleaning up audio/video resources...");
+
+        // Stop camera and microphone
+        stopCamera();
+        stopMicrophone();
 
         // Cleanup audio resources
         if (audioControlsController != null) {

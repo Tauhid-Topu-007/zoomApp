@@ -8,6 +8,7 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.CheckBox;
 import javafx.scene.layout.VBox;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.StackPane;
 import javafx.scene.image.ImageView;
 import javafx.scene.image.Image;
 import javafx.animation.ScaleTransition;
@@ -20,6 +21,7 @@ import javafx.animation.Timeline;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
+import javafx.application.Platform;
 
 import java.net.URL;
 import java.util.ResourceBundle;
@@ -47,7 +49,11 @@ public class VideoControlsController implements Initializable {
     @FXML
     private CheckBox virtualBackgroundCheckBox;
     @FXML
-    private ImageView videoPreview;
+    private StackPane videoPreviewContainer; // Changed from ImageView to StackPane
+
+    // Separate ImageView for real camera feed
+    private ImageView realCameraPreview;
+    private ImageView simulatedCameraPreview;
 
     private boolean videoOn = false;
     private boolean isRecording = false;
@@ -59,8 +65,12 @@ public class VideoControlsController implements Initializable {
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
-        currentVideoFrame = new SimpleObjectProperty<>();
-        setupVideoPreviewBinding();
+        // Create ImageViews
+        realCameraPreview = new ImageView();
+        simulatedCameraPreview = new ImageView();
+
+        // Setup the preview container
+        setupVideoPreview();
         setupVideoControls();
         updateButtonStyles();
 
@@ -71,12 +81,26 @@ public class VideoControlsController implements Initializable {
         HelloApplication.setVideoControlsController(this);
     }
 
-    private void setupVideoPreviewBinding() {
-        // Bind the video preview to the current video frame
-        if (videoPreview != null) {
-            videoPreview.imageProperty().bind(currentVideoFrame);
+    private void setupVideoPreview() {
+        if (videoPreviewContainer != null) {
+            // Configure ImageViews
+            realCameraPreview.setFitWidth(200);
+            realCameraPreview.setFitHeight(150);
+            realCameraPreview.setPreserveRatio(true);
+            realCameraPreview.setVisible(false); // Hidden by default
+
+            simulatedCameraPreview.setFitWidth(200);
+            simulatedCameraPreview.setFitHeight(150);
+            simulatedCameraPreview.setPreserveRatio(true);
+
+            // Add both ImageViews to container
+            videoPreviewContainer.getChildren().addAll(realCameraPreview, simulatedCameraPreview);
+
+            // Bind simulated camera to the property
+            currentVideoFrame = new SimpleObjectProperty<>();
+            simulatedCameraPreview.imageProperty().bind(currentVideoFrame);
         } else {
-            System.err.println("❌ Video preview ImageView is null");
+            System.err.println("❌ Video preview container is null");
         }
     }
 
@@ -509,5 +533,43 @@ public class VideoControlsController implements Initializable {
     public void cleanup() {
         stopCameraSimulation();
         System.out.println("✅ Video controls cleaned up");
+    }
+
+    /**
+     * Update video preview with real camera feed
+     */
+    public void updateVideoPreview(Image image) {
+        if (realCameraPreview != null && image != null) {
+            Platform.runLater(() -> {
+                realCameraPreview.setImage(image);
+                // Show real camera and hide simulated one
+                realCameraPreview.setVisible(true);
+                if (simulatedCameraPreview != null) {
+                    simulatedCameraPreview.setVisible(false);
+                }
+            });
+        }
+    }
+
+    /**
+     * Get the real camera preview ImageView
+     */
+    public ImageView getRealCameraPreview() {
+        return realCameraPreview;
+    }
+
+    /**
+     * Reset to simulated camera
+     */
+    public void resetToSimulatedCamera() {
+        Platform.runLater(() -> {
+            if (realCameraPreview != null) {
+                realCameraPreview.setVisible(false);
+                realCameraPreview.setImage(null);
+            }
+            if (simulatedCameraPreview != null) {
+                simulatedCameraPreview.setVisible(true);
+            }
+        });
     }
 }
