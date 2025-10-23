@@ -1,0 +1,84 @@
+import { WebSocketServer } from 'ws';
+
+        const PORT = 8887;
+        const wss = new WebSocketServer({
+        port: PORT,
+        host: '0.0.0.0'
+        });
+
+        const clients = new Map();
+
+        console.log(`✅ WebSocket Server started on port ${PORT}`);
+
+        wss.on('connection', (ws, req) => {
+        const clientIp = req.socket.remoteAddress;
+        console.log(`🔗 New client connected from: ${clientIp}`);
+
+        const userId = `User-${Math.floor(Math.random() * 1000)}`;
+        clients.set(ws, {
+        id: userId,
+        ip: clientIp,
+        audioMuted: false,
+        deafened: false
+        });
+
+        // Send welcome message
+        ws.send(`SYSTEM|global|Server|Welcome ${userId}! You are connected from ${clientIp}`);
+
+        // Notify others
+        broadcast(`SYSTEM|global|Server|${userId} joined the chat from ${clientIp}`, ws);
+
+        ws.on('message', (message) => {
+        const msg = message.toString();
+        console.log(`💬 ${userId} (${clientIp}): ${msg}`);
+
+        // Handle audio control messages
+        if (msg.startsWith('AUDIO|')) {
+        handleAudioMessage(ws, userId, msg);
+        } else {
+        broadcast(msg, ws);
+        }
+        });
+
+        ws.on('close', () => {
+        console.log(`❌ ${userId} (${clientIp}) disconnected`);
+        clients.delete(ws);
+        broadcast(`SYSTEM|global|Server|${userId} left the chat`);
+        });
+
+        ws.on('error', (error) => {
+        console.error(`❌ WebSocket error for ${userId}:`, error);
+        });
+        });
+
+        function handleAudioMessage(ws, userId, message) {
+        const parts = message.split('|');
+        if (parts.length >= 3) {
+        const audioStatus = parts[1];
+        const audioMessage = parts[2];
+
+        const userInfo = clients.get(ws);
+        if (userInfo) {
+        userInfo.audioMuted = audioStatus === 'muted';
+
+        // Broadcast audio status to all other users
+        broadcast(`AUDIO_STATUS|${userId}|${audioStatus}|${audioMessage}`, ws);
+        console.log(`🔊 ${userId} ${audioStatus} their audio`);
+        }
+        }
+        }
+
+        function broadcast(message, sender) {
+        for (const [client, userInfo] of clients) {
+        if (client.readyState === 1 && client !== sender) {
+        client.send(message);
+        }
+        }
+        }
+
+        // Handle server errors
+        wss.on('error', (error) => {
+        console.error('❌ Server error:', error);
+        });
+
+        console.log('🔧 Server ready for audio controls integration');

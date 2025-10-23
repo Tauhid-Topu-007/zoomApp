@@ -27,6 +27,12 @@ public class HelloApplication extends Application {
     private static final Map<String, MeetingInfo> activeMeetings = new HashMap<>();
     private static boolean isMeetingHost = false;
 
+    // Audio controls management
+    private static boolean audioMuted = false;
+    private static boolean isDeafened = false;
+    private static boolean allMuted = false;
+    private static AudioControlsController audioControlsController;
+
     @Override
     public void start(Stage stage) throws Exception {
         primaryStage = stage;
@@ -53,6 +59,8 @@ public class HelloApplication extends Application {
             ((ChatController) controller).setStage(primaryStage);
         } else if (controller instanceof SettingsController) {
             ((SettingsController) controller).setStage(primaryStage);
+        } else if (controller instanceof AudioControlsController) {
+            audioControlsController = (AudioControlsController) controller;
         }
     }
 
@@ -86,6 +94,13 @@ public class HelloApplication extends Application {
         activeParticipants.clear();
         activeMeetingId = null;
         isMeetingHost = false;
+
+        // Reset audio state
+        audioMuted = false;
+        isDeafened = false;
+        allMuted = false;
+        audioControlsController = null;
+
         setRoot("login-view.fxml");
     }
 
@@ -231,11 +246,49 @@ public class HelloApplication extends Application {
                     // Handle connection status updates
                     System.out.println("🔗 Connection status: " + content);
                     break;
+                case "AUDIO_STATUS":
+                    handleAudioStatusMessage(username, content);
+                    break;
+                case "AUDIO_CONTROL":
+                    handleAudioControlMessage(username, content);
+                    break;
             }
         }
 
         // Forward message to current controller if it's a ChatController
         forwardMessageToCurrentController(message);
+    }
+
+    // Handle audio status messages from other users
+    private static void handleAudioStatusMessage(String username, String status) {
+        System.out.println("🔊 Audio status from " + username + ": " + status);
+
+        // Update UI if audio controls are active
+        if (audioControlsController != null) {
+            javafx.application.Platform.runLater(() -> {
+                audioControlsController.updateFromServer(status);
+            });
+        }
+
+        // Add system message for audio status changes
+        addSystemMessage(username + " " + status);
+    }
+
+    // Handle audio control messages (mute all, deafen, etc.)
+    private static void handleAudioControlMessage(String username, String command) {
+        System.out.println("🔊 Audio control from " + username + ": " + command);
+
+        if ("MUTE_ALL".equals(command) && isMeetingHost) {
+            // Only host can mute all participants
+            muteAllParticipants();
+            addSystemMessage("Host muted all participants");
+        } else if ("DEAFEN".equals(command)) {
+            // User deafened themselves
+            addSystemMessage(username + " deafened themselves");
+        } else if ("UNDEAFEN".equals(command)) {
+            // User undeafened themselves
+            addSystemMessage(username + " undeafened themselves");
+        }
     }
 
     private static void forwardMessageToCurrentController(String message) {
@@ -510,6 +563,152 @@ public class HelloApplication extends Application {
             return Database.getUserPreference(loggedInUser, key);
         }
         return null;
+    }
+
+    // ==================== AUDIO CONTROLS MANAGEMENT ====================
+
+    /**
+     * Toggle audio mute/unmute state
+     */
+    public static void toggleAudio() {
+        audioMuted = !audioMuted;
+        updateAudioButtonStyles();
+
+        if (audioMuted) {
+            addSystemMessage("You muted your audio");
+            sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "muted their audio");
+        } else {
+            addSystemMessage("You unmuted your audio");
+            sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "unmuted their audio");
+        }
+
+        // Update audio controls UI if available
+        if (audioControlsController != null) {
+            javafx.application.Platform.runLater(() -> {
+                audioControlsController.updateButtonStyles();
+            });
+        }
+    }
+
+    /**
+     * Mute all participants (host only)
+     */
+    public static void muteAllParticipants() {
+        if (!isMeetingHost) {
+            addSystemMessage("Only the host can mute all participants");
+            return;
+        }
+
+        allMuted = !allMuted;
+
+        if (allMuted) {
+            addSystemMessage("You muted all participants");
+            sendWebSocketMessage("AUDIO_CONTROL", getActiveMeetingId(), "MUTE_ALL");
+        } else {
+            addSystemMessage("You unmuted all participants");
+            sendWebSocketMessage("AUDIO_CONTROL", getActiveMeetingId(), "UNMUTE_ALL");
+        }
+
+        // Update audio controls UI if available
+        if (audioControlsController != null) {
+            javafx.application.Platform.runLater(() -> {
+                // This would update the mute all button state
+            });
+        }
+    }
+
+    /**
+     * Toggle deafen state
+     */
+    public static void toggleDeafen() {
+        isDeafened = !isDeafened;
+
+        if (isDeafened) {
+            addSystemMessage("You deafened yourself");
+            sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "deafened themselves");
+        } else {
+            addSystemMessage("You undeafened yourself");
+            sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "undeafened themselves");
+        }
+
+        // Update audio controls UI if available
+        if (audioControlsController != null) {
+            javafx.application.Platform.runLater(() -> {
+                // This would update the deafen button state
+            });
+        }
+    }
+
+    /**
+     * Update audio button styles based on current state
+     */
+    private static void updateAudioButtonStyles() {
+        // This would be handled by the AudioControlsController
+        if (audioControlsController != null) {
+            javafx.application.Platform.runLater(() -> {
+                audioControlsController.updateButtonStyles();
+            });
+        }
+    }
+
+    /**
+     * Get current audio state
+     */
+    public static boolean isAudioMuted() {
+        return audioMuted;
+    }
+
+    public static boolean isDeafened() {
+        return isDeafened;
+    }
+
+    public static boolean isAllMuted() {
+        return allMuted;
+    }
+
+    /**
+     * Force mute audio
+     */
+    public static void muteAudio() {
+        if (!audioMuted) {
+            toggleAudio();
+        }
+    }
+
+    /**
+     * Force unmute audio
+     */
+    public static void unmuteAudio() {
+        if (audioMuted) {
+            toggleAudio();
+        }
+    }
+
+    /**
+     * Set audio controls controller reference
+     */
+    public static void setAudioControlsController(AudioControlsController controller) {
+        audioControlsController = controller;
+    }
+
+    /**
+     * Get audio controls controller
+     */
+    public static AudioControlsController getAudioControlsController() {
+        return audioControlsController;
+    }
+
+    /**
+     * Add system message to chat/log
+     */
+    public static void addSystemMessage(String message) {
+        System.out.println("🔊 System: " + message);
+
+        // In a real application, you would add this to your chat system
+        // For now, we'll just log it and you can integrate with your existing messaging system
+
+        // If you have a main chat controller, you could forward this message
+        // ChatController.addSystemMessage(message);
     }
 
     @Override
