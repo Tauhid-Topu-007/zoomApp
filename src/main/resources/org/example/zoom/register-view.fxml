@@ -8,30 +8,76 @@
 
 <StackPane xmlns:fx="http://javafx.com/fxml"
            fx:controller="org.example.zoom.RegisterController"
-           prefWidth="500" prefHeight="550"
-           stylesheets="@style.css"
-           styleClass="root-pane">
+           prefWidth="500" prefHeight="600"
+           style="-fx-background-color: linear-gradient(to bottom right, #667eea, #764ba2);">
 
     <!-- Floating Card -->
-    <VBox alignment="CENTER" spacing="25" styleClass="card">
+    <VBox alignment="CENTER" spacing="25"
+          style="-fx-background-color: white; -fx-padding: 40; -fx-background-radius: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 20,0,0,5);"
+          maxWidth="400">
 
-        <ImageView fitWidth="100" fitHeight="100">
+        <!-- Logo/Image -->
+        <ImageView fitWidth="80" fitHeight="80" preserveRatio="true">
             <image>
-                <Image url="https://i.pinimg.com/736x/05/d2/05/05d205464c8843564b3c6a8873083ea8.jpg"/>
+                <Image url="@../images/zoom-logo.png"/>
             </image>
         </ImageView>
 
-        <Label text="Create Account" styleClass="title-label"/>
+        <!-- Title -->
+        <Label text="Create Account"
+               style="-fx-font-size: 28px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;"/>
 
-        <TextField fx:id="usernameField" promptText="Username" styleClass="input-field"/>
-        <PasswordField fx:id="passwordField" promptText="Password" styleClass="input-field"/>
-        <PasswordField fx:id="confirmPasswordField" promptText="Confirm Password" styleClass="input-field"/>
+        <!-- Subtitle -->
+        <Label text="Join the Zoom Clone community"
+               style="-fx-text-fill: #7f8c8d; -fx-font-size: 14px;"/>
 
-        <VBox alignment="CENTER" spacing="15">
-            <Button text="Register" onAction="#onRegisterClick" styleClass="main-button"/>
-            <Button text="Back to Login" onAction="#onBackClick" styleClass="secondary-button"/>
+        <!-- Form -->
+        <VBox spacing="15" alignment="CENTER" style="-fx-padding: 20 0 0 0;">
+            <TextField fx:id="usernameField" promptText="Choose a username"
+                       style="-fx-background-radius: 10; -fx-padding: 12; -fx-font-size: 14px; -fx-pref-width: 280;"/>
+
+            <PasswordField fx:id="passwordField" promptText="Create a password"
+                           style="-fx-background-radius: 10; -fx-padding: 12; -fx-font-size: 14px; -fx-pref-width: 280;"/>
+
+            <PasswordField fx:id="confirmPasswordField" promptText="Confirm your password"
+                           style="-fx-background-radius: 10; -fx-padding: 12; -fx-font-size: 14px; -fx-pref-width: 280;"/>
         </VBox>
 
-        <Label fx:id="messageLabel" styleClass="message-label"/>
+        <!-- Password Requirements -->
+        <VBox spacing="5" alignment="CENTER_LEFT" style="-fx-padding: 0 20;">
+            <Label text="🔒 Password Requirements:"
+                   style="-fx-text-fill: #7f8c8d; -fx-font-size: 12px; -fx-font-weight: bold;"/>
+            <Label text="• At least 6 characters"
+                   style="-fx-text-fill: #95a5a6; -fx-font-size: 11px;"/>
+            <Label text="• Mix of letters and numbers"
+                   style="-fx-text-fill: #95a5a6; -fx-font-size: 11px;"/>
+        </VBox>
+
+        <!-- Buttons -->
+        <VBox spacing="12" alignment="CENTER" style="-fx-padding: 20 0 0 0;">
+            <Button text="Create Account" onAction="#onRegisterClick"
+                    style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-size: 16px; -fx-font-weight: bold; -fx-background-radius: 10; -fx-padding: 12 40;"/>
+
+            <Button text="← Back to Login" onAction="#onBackClick"
+                    style="-fx-background-color: transparent; -fx-text-fill: #3498db; -fx-border-color: transparent; -fx-font-size: 14px;"/>
+        </VBox>
+
+        <!-- Message Label -->
+        <Label fx:id="messageLabel"
+               style="-fx-font-size: 14px; -fx-font-weight: bold; -fx-wrap-text: true; -fx-alignment: center;"
+               maxWidth="300" prefHeight="40"/>
+
+        <!-- Footer -->
+        <VBox spacing="5" alignment="CENTER" style="-fx-padding: 20 0 0 0;">
+            <Label text="By creating an account, you agree to our"
+                   style="-fx-text-fill: #7f8c8d; -fx-font-size: 12px;"/>
+            <HBox spacing="5" alignment="CENTER">
+                <Hyperlink text="Terms of Service"
+                           style="-fx-text-fill: #3498db; -fx-font-size: 12px;"/>
+                <Label text="and" style="-fx-text-fill: #7f8c8d; -fx-font-size: 12px;"/>
+                <Hyperlink text="Privacy Policy"
+                           style="-fx-text-fill: #3498db; -fx-font-size: 12px;"/>
+            </HBox>
+        </VBox>
     </VBox>
 </StackPane>
