@@ -6,31 +6,55 @@
 
 <StackPane xmlns:fx="http://javafx.com/fxml"
            fx:controller="org.example.zoom.NewMeetingController"
-           prefWidth="400" prefHeight="300"
+           prefWidth="450" prefHeight="500"
            style="-fx-background-color: #f0f4f7;">
 
     <VBox alignment="CENTER" spacing="20"
           style="-fx-background-color: white; -fx-padding: 30; -fx-background-radius: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.2), 10,0,0,6);"
-          maxWidth="350">
+          maxWidth="380">
 
         <!-- Title -->
-        <Label text="New Meeting" style="-fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;"/>
+        <Label text="🎯 New Meeting" style="-fx-font-size: 24px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;"/>
 
-        <!-- Meeting ID Display -->
-        <Label text="Your Meeting ID:" style="-fx-font-size: 16px; -fx-text-fill: #34495e;"/>
-        <TextField fx:id="meetingIdField" editable="false"
-                   style="-fx-background-radius: 10; -fx-padding: 10; -fx-font-size: 18px; -fx-text-fill: #2c3e50; -fx-font-weight: bold;"/>
+        <!-- Meeting ID Section -->
+        <VBox spacing="15" alignment="CENTER">
+            <Label text="Your Meeting ID:" style="-fx-font-size: 16px; -fx-text-fill: #34495e; -fx-font-weight: bold;"/>
 
-        <!-- Buttons -->
-        <HBox alignment="CENTER" spacing="15">
-            <Button text="Start Meeting" onAction="#onStartMeetingClick"
-                    style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-size: 16px; -fx-background-radius: 10; -fx-padding: 10 20;"/>
-            <Button text="Back" onAction="#onBackClick"
-                    style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 16px; -fx-background-radius: 10; -fx-padding: 10 20;"/>
-        </HBox>
+            <!-- Meeting ID Display -->
+            <TextField fx:id="meetingIdField" editable="false"
+                       style="-fx-background-radius: 10; -fx-padding: 15; -fx-font-size: 20px; -fx-text-fill: #2c3e50; -fx-font-weight: bold; -fx-alignment: center; -fx-background-color: #ecf0f1;"/>
+
+            <!-- Copy Button -->
+            <Button text="📋 Copy Meeting ID" onAction="#onCopyIdClick"
+                    style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-size: 14px; -fx-font-weight: bold; -fx-background-radius: 10; -fx-padding: 10 25;"/>
+        </VBox>
+
+        <!-- Action Buttons -->
+        <VBox spacing="15" alignment="CENTER">
+            <HBox alignment="CENTER" spacing="15">
+                <Button text="🎬 Start Meeting" onAction="#onStartMeetingClick"
+                        style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-size: 16px; -fx-font-weight: bold; -fx-background-radius: 10; -fx-padding: 12 25;"/>
+                <Button text="🚪 Test Join" onAction="#onTestJoinClick"
+                        style="-fx-background-color: #f39c12; -fx-text-fill: white; -fx-font-size: 16px; -fx-background-radius: 10; -fx-padding: 12 25;"/>
+            </HBox>
+
+            <Button text="❌ Back to Dashboard" onAction="#onBackClick"
+                    style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 14px; -fx-background-radius: 10; -fx-padding: 10 20;"/>
+        </VBox>
 
         <!-- Status Message -->
-        <Label fx:id="statusLabel" style="-fx-text-fill: #2980b9; -fx-font-size: 14px;"/>
+        <Label fx:id="statusLabel"
+               style="-fx-text-fill: #2980b9; -fx-font-size: 14px; -fx-wrap-text: true; -fx-alignment: center; -fx-font-weight: bold;"
+               maxWidth="320" prefHeight="40"/>
+
+        <!-- Instructions -->
+        <VBox spacing="8" alignment="CENTER" style="-fx-padding: 15; -fx-background-color: #f8f9fa; -fx-background-radius: 10;">
+            <Label text="📋 Sharing Instructions:" style="-fx-text-fill: #2c3e50; -fx-font-weight: bold;"/>
+            <Label text="1. Click 'Copy Meeting ID'" style="-fx-text-fill: #7f8c8d; -fx-font-size: 12px;"/>
+            <Label text="2. Share the ID with participants" style="-fx-text-fill: #7f8c8d; -fx-font-size: 12px;"/>
+            <Label text="3. They can paste it in the Join Meeting page" style="-fx-text-fill: #7f8c8d; -fx-font-size: 12px;"/>
+            <Label text="4. Click 'Start Meeting' when ready" style="-fx-text-fill: #7f8c8d; -fx-font-size: 12px;"/>
+        </VBox>
 
     </VBox>
 </StackPane>

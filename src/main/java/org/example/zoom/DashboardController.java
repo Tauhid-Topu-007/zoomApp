@@ -67,15 +67,17 @@ public class DashboardController {
 
     @FXML
     protected void onNewMeetingClick() throws Exception {
-        // Generate a unique meeting ID
-        String meetingId = generateMeetingId();
-        HelloApplication.setActiveMeetingId(meetingId);
+        // Ensure WebSocket is connected before creating meeting
+        HelloApplication.ensureWebSocketConnection();
+
+        // Generate a unique meeting ID using HelloApplication's system
+        String meetingId = HelloApplication.createNewMeeting();
 
         // Join the meeting via WebSocket
         SimpleWebSocketClient client = HelloApplication.getWebSocketClient();
         if (client != null && client.isConnected()) {
             String username = HelloApplication.getLoggedInUser();
-            client.sendMessage("JOIN_MEETING", meetingId, username, "created and joined meeting");
+            client.sendMessage("MEETING_CREATED", meetingId, username, "created and joined meeting");
         } else {
             showPopup("Connection Issue", "Not connected to server. Some features may not work.");
         }
@@ -85,6 +87,8 @@ public class DashboardController {
 
     @FXML
     protected void onJoinClick() throws Exception {
+        // Ensure WebSocket is connected before joining
+        HelloApplication.ensureWebSocketConnection();
         HelloApplication.setRoot("join-view.fxml");
     }
 
@@ -192,11 +196,6 @@ public class DashboardController {
             client.disconnect();
         }
         HelloApplication.logout();
-    }
-
-    private String generateMeetingId() {
-        // Generate a 6-digit meeting ID
-        return String.valueOf((int) (Math.random() * 900000) + 100000);
     }
 
     private void showPopup(String title, String message) {

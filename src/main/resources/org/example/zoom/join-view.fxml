@@ -7,34 +7,67 @@
 
 <StackPane xmlns:fx="http://javafx.com/fxml"
            fx:controller="org.example.zoom.JoinController"
-           prefWidth="400" prefHeight="300"
-           style="-fx-background-color: #f0f4f7;">
+           prefWidth="500" prefHeight="450"
+           style="-fx-background-color: #2c3e50;">
 
-    <VBox alignment="CENTER" spacing="20"
-          style="-fx-background-color: white; -fx-padding: 30; -fx-background-radius: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.2), 10,0,0,6);"
-          maxWidth="350">
+    <VBox alignment="CENTER" spacing="25"
+          style="-fx-background-color: #34495e; -fx-padding: 40; -fx-background-radius: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 15,0,0,8);"
+          maxWidth="400">
 
         <!-- Title -->
-        <Label text="Join a Meeting" style="-fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;"/>
+        <Label text="🔗 Join Meeting"
+               style="-fx-font-size: 28px; -fx-font-weight: bold; -fx-text-fill: white;"/>
 
-        <!-- Meeting ID -->
-        <TextField fx:id="meetingIdField" promptText="Enter Meeting ID"
-                   style="-fx-background-radius: 10; -fx-padding: 10; -fx-font-size: 16px;"/>
+        <!-- Instructions -->
+        <Label text="Enter the 6-digit meeting ID to join"
+               style="-fx-text-fill: #bdc3c7; -fx-font-size: 14px;"/>
 
-        <!-- Name -->
-        <TextField fx:id="nameField" promptText="Enter Your Name"
-                   style="-fx-background-radius: 10; -fx-padding: 10; -fx-font-size: 16px;"/>
+        <!-- Meeting ID Section -->
+        <VBox spacing="8" alignment="CENTER_LEFT">
+            <HBox alignment="CENTER_LEFT" spacing="10">
+                <Label text="Meeting ID:" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+                <Label text="(Paste from host)" style="-fx-text-fill: #bdc3c7; -fx-font-size: 12px;"/>
+            </HBox>
+            <TextField fx:id="meetingIdField" promptText="Paste 6-digit meeting ID here"
+                       style="-fx-background-radius: 10; -fx-padding: 12; -fx-font-size: 16px; -fx-pref-width: 300; -fx-text-fill: #2c3e50;"/>
+        </VBox>
 
-        <!-- Buttons -->
-        <HBox alignment="CENTER" spacing="15">
-            <Button text="Join" onAction="#onJoinMeetingClick"
-                    style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-size: 16px; -fx-background-radius: 10; -fx-padding: 10 20;"/>
-            <Button text="Cancel" onAction="#onCancelClick"
-                    style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 16px; -fx-background-radius: 10; -fx-padding: 10 20;"/>
-        </HBox>
+        <!-- Name Section -->
+        <VBox spacing="8" alignment="CENTER_LEFT">
+            <Label text="Your Name:" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <TextField fx:id="nameField" promptText="Enter your display name"
+                       style="-fx-background-radius: 10; -fx-padding: 12; -fx-font-size: 16px; -fx-pref-width: 300; -fx-text-fill: #2c3e50;"/>
+        </VBox>
+
+        <!-- Action Buttons -->
+        <VBox spacing="15" alignment="CENTER">
+            <!-- Quick Join Button -->
+            <Button text="🎯 Quick Join (Generate Random ID)"
+                    onAction="#onQuickJoinClick"
+                    style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-size: 14px; -fx-background-radius: 10; -fx-padding: 10 20;"/>
+
+            <!-- Main Action Buttons -->
+            <HBox alignment="CENTER" spacing="20">
+                <Button text="🚪 Join Meeting" onAction="#onJoinMeetingClick"
+                        style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-size: 16px; -fx-font-weight: bold; -fx-background-radius: 10; -fx-padding: 12 30;"/>
+                <Button text="❌ Cancel" onAction="#onCancelClick"
+                        style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 16px; -fx-background-radius: 10; -fx-padding: 12 30;"/>
+            </HBox>
+        </VBox>
 
         <!-- Status Message -->
-        <Label fx:id="statusLabel" style="-fx-text-fill: #e67e22; -fx-font-size: 14px;"/>
+        <Label fx:id="statusLabel"
+               style="-fx-text-fill: #f39c12; -fx-font-size: 14px; -fx-font-weight: bold; -fx-wrap-text: true; -fx-alignment: center;"
+               maxWidth="350" prefHeight="50"/>
+
+        <!-- Help Text -->
+        <VBox spacing="8" alignment="CENTER" style="-fx-padding: 10; -fx-background-color: rgba(255,255,255,0.1); -fx-background-radius: 10;">
+            <Label text="💡 How to Join:" style="-fx-text-fill: #bdc3c7; -fx-font-weight: bold;"/>
+            <Label text="1. Get 6-digit ID from meeting host" style="-fx-text-fill: #bdc3c7; -fx-font-size: 12px;"/>
+            <Label text="2. Paste it in the Meeting ID field" style="-fx-text-fill: #bdc3c7; -fx-font-size: 12px;"/>
+            <Label text="3. Enter your name and click Join" style="-fx-text-fill: #bdc3c7; -fx-font-size: 12px;"/>
+            <Label text="4. Press Enter key to join quickly" style="-fx-text-fill: #bdc3c7; -fx-font-size: 12px;"/>
+        </VBox>
 
     </VBox>
 </StackPane>

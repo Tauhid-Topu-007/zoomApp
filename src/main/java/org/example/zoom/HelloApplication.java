@@ -7,7 +7,9 @@ import javafx.stage.Stage;
 import org.example.zoom.websocket.SimpleWebSocketClient;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class HelloApplication extends Application {
 
@@ -20,6 +22,10 @@ public class HelloApplication extends Application {
     // New fields for server configuration with persistence
     private static String serverIp = "localhost";
     private static String serverPort = "8887";
+
+    // Meeting management
+    private static final Map<String, MeetingInfo> activeMeetings = new HashMap<>();
+    private static boolean isMeetingHost = false;
 
     @Override
     public void start(Stage stage) throws Exception {
@@ -67,6 +73,9 @@ public class HelloApplication extends Application {
     }
 
     public static void logout() throws Exception {
+        // Leave current meeting if any
+        leaveCurrentMeeting();
+
         // Disconnect WebSocket before logout
         if (webSocketClient != null) {
             webSocketClient.disconnect();
@@ -76,6 +85,7 @@ public class HelloApplication extends Application {
         loggedInUser = null;
         activeParticipants.clear();
         activeMeetingId = null;
+        isMeetingHost = false;
         setRoot("login-view.fxml");
     }
 
@@ -202,12 +212,20 @@ public class HelloApplication extends Application {
             switch (type) {
                 case "USER_JOINED":
                     addParticipant(username);
+                    updateMeetingParticipants(meetingId, username, true);
                     break;
                 case "USER_LEFT":
                     activeParticipants.remove(username);
+                    updateMeetingParticipants(meetingId, username, false);
                     break;
                 case "MEETING_CREATED":
-                    setActiveMeetingId(meetingId);
+                    createMeeting(meetingId, username);
+                    break;
+                case "MEETING_ENDED":
+                    endMeeting(meetingId);
+                    break;
+                case "MEETING_VALIDATION":
+                    handleMeetingValidation(meetingId, content);
                     break;
                 case "CONNECTION_STATUS":
                     // Handle connection status updates
@@ -234,7 +252,7 @@ public class HelloApplication extends Application {
         }
     }
 
-    // Meeting ID storage
+    // Meeting Management Methods
     public static void setActiveMeetingId(String meetingId) {
         activeMeetingId = meetingId;
         System.out.println("🎯 Active meeting set to: " + meetingId);
@@ -244,16 +262,144 @@ public class HelloApplication extends Application {
         return activeMeetingId;
     }
 
+    public static void setMeetingHost(boolean host) {
+        isMeetingHost = host;
+        System.out.println("🎯 Meeting host status: " + (host ? "Host" : "Participant"));
+    }
+
+    public static boolean isMeetingHost() {
+        return isMeetingHost;
+    }
+
+    // Create a new meeting with proper validation
+    public static String createNewMeeting() {
+        String meetingId = generateMeetingId();
+
+        // Create meeting info
+        String hostName = getLoggedInUser();
+        if (hostName == null || hostName.isEmpty()) {
+            hostName = "Host";
+        }
+
+        MeetingInfo meetingInfo = new MeetingInfo(meetingId, hostName);
+        activeMeetings.put(meetingId, meetingInfo);
+
+        setActiveMeetingId(meetingId);
+        setMeetingHost(true);
+
+        // Add host as first participant
+        addParticipant(hostName);
+
+        // Notify via WebSocket
+        if (isWebSocketConnected()) {
+            sendWebSocketMessage("MEETING_CREATED", meetingId, "New meeting created by " + hostName);
+            System.out.println("🎯 New meeting created via WebSocket: " + meetingId + " by " + hostName);
+        } else {
+            System.out.println("🎯 New meeting created locally: " + meetingId + " by " + hostName + " (WebSocket offline)");
+        }
+
+        return meetingId;
+    }
+
+    // Join an existing meeting with validation
+    public static boolean joinMeeting(String meetingId, String participantName) {
+        if (!isValidMeeting(meetingId)) {
+            System.err.println("❌ Invalid meeting ID: " + meetingId);
+            return false;
+        }
+
+        setActiveMeetingId(meetingId);
+        setMeetingHost(false);
+
+        // Add participant
+        addParticipant(participantName);
+
+        // Notify via WebSocket
+        if (isWebSocketConnected()) {
+            sendWebSocketMessage("USER_JOINED", meetingId, participantName + " joined the meeting");
+            System.out.println("✅ Joined meeting via WebSocket: " + meetingId + " as " + participantName);
+        } else {
+            System.out.println("✅ Joined meeting locally: " + meetingId + " as " + participantName + " (WebSocket offline)");
+        }
+
+        return true;
+    }
+
+    // Validate meeting existence
+    public static boolean isValidMeeting(String meetingId) {
+        // Check if meeting exists in our active meetings
+        if (activeMeetings.containsKey(meetingId)) {
+            return true;
+        }
+
+        // For demo purposes, accept any 6-digit meeting ID
+        // In a real application, you would check against a server/database
+        return meetingId != null && meetingId.matches("\\d{6}");
+    }
+
+    // Create a test meeting for quick join functionality
+    public static void createMeetingForTesting(String meetingId) {
+        // Create meeting info for testing
+        MeetingInfo meetingInfo = new MeetingInfo(meetingId, "TestHost");
+        activeMeetings.put(meetingId, meetingInfo);
+        System.out.println("🎯 Test meeting created: " + meetingId);
+    }
+
+    // Leave current meeting
+    public static void leaveCurrentMeeting() {
+        if (activeMeetingId != null && loggedInUser != null) {
+            // Notify via WebSocket
+            if (isWebSocketConnected()) {
+                sendWebSocketMessage("USER_LEFT", activeMeetingId, loggedInUser + " left the meeting");
+            }
+
+            // Remove from participants
+            removeParticipant(loggedInUser);
+
+            // If host leaves, end the meeting
+            if (isMeetingHost) {
+                endMeeting(activeMeetingId);
+            }
+
+            System.out.println("🚪 Left meeting: " + activeMeetingId);
+        }
+
+        // Reset meeting state
+        activeMeetingId = null;
+        isMeetingHost = false;
+    }
+
+    // End a meeting (host only)
+    public static void endMeeting(String meetingId) {
+        if (activeMeetings.containsKey(meetingId)) {
+            // Notify all participants
+            if (isWebSocketConnected()) {
+                sendWebSocketMessage("MEETING_ENDED", meetingId, "Meeting ended by host");
+            }
+
+            // Clear participants and remove meeting
+            activeMeetings.remove(meetingId);
+            activeParticipants.clear();
+
+            System.out.println("🔚 Meeting ended: " + meetingId);
+        }
+    }
+
+    // Enhanced WebSocket connection check and reconnect
+    public static boolean ensureWebSocketConnection() {
+        if (!isWebSocketConnected() && loggedInUser != null) {
+            System.out.println("🔄 Attempting to reconnect WebSocket...");
+            initializeWebSocket(loggedInUser);
+            return isWebSocketConnected();
+        }
+        return isWebSocketConnected();
+    }
+
     // Participants management
     public static void addParticipant(String name) {
-        if (!activeParticipants.contains(name)) {
+        if (name != null && !activeParticipants.contains(name)) {
             activeParticipants.add(name);
             System.out.println("👥 Participant added: " + name);
-
-            // Notify via WebSocket if connected
-            if (webSocketClient != null && webSocketClient.isConnected()) {
-                webSocketClient.sendMessage("USER_JOINED", getActiveMeetingId(), name, "joined the meeting");
-            }
         }
     }
 
@@ -269,12 +415,39 @@ public class HelloApplication extends Application {
     public static void removeParticipant(String name) {
         if (activeParticipants.remove(name)) {
             System.out.println("👥 Participant removed: " + name);
+        }
+    }
 
-            // Notify via WebSocket if connected
-            if (webSocketClient != null && webSocketClient.isConnected()) {
-                webSocketClient.sendMessage("USER_LEFT", getActiveMeetingId(), name, "left the meeting");
+    // Meeting info management
+    private static void createMeeting(String meetingId, String host) {
+        MeetingInfo meetingInfo = new MeetingInfo(meetingId, host);
+        activeMeetings.put(meetingId, meetingInfo);
+        System.out.println("📋 Meeting registered: " + meetingId + " hosted by " + host);
+    }
+
+    private static void updateMeetingParticipants(String meetingId, String username, boolean joined) {
+        MeetingInfo meetingInfo = activeMeetings.get(meetingId);
+        if (meetingInfo != null) {
+            if (joined) {
+                meetingInfo.addParticipant(username);
+            } else {
+                meetingInfo.removeParticipant(username);
             }
         }
+    }
+
+    private static void handleMeetingValidation(String meetingId, String status) {
+        System.out.println("🔍 Meeting validation for " + meetingId + ": " + status);
+        // Handle validation responses from server
+    }
+
+    // Utility methods
+    private static String generateMeetingId() {
+        return String.valueOf((int) (Math.random() * 900000) + 100000);
+    }
+
+    public static Map<String, MeetingInfo> getActiveMeetings() {
+        return new HashMap<>(activeMeetings);
     }
 
     // WebSocket utility methods
@@ -298,7 +471,7 @@ public class HelloApplication extends Application {
         }
     }
 
-    // Send message via WebSocket
+    // Send message via WebSocket - FIXED METHOD SIGNATURE
     public static void sendWebSocketMessage(String type, String meetingId, String content) {
         if (webSocketClient != null && webSocketClient.isConnected() && loggedInUser != null) {
             webSocketClient.sendMessage(type, meetingId, loggedInUser, content);
@@ -307,20 +480,13 @@ public class HelloApplication extends Application {
         }
     }
 
-    // Create a new meeting with WebSocket notification
-    public static String createNewMeeting() {
-        String meetingId = generateMeetingId();
-        setActiveMeetingId(meetingId);
-
-        // Notify via WebSocket
-        sendWebSocketMessage("MEETING_CREATED", meetingId, "New meeting created");
-
-        System.out.println("🎯 New meeting created: " + meetingId);
-        return meetingId;
-    }
-
-    private static String generateMeetingId() {
-        return String.valueOf((int) (Math.random() * 900000) + 100000);
+    // Alternative method for sending messages with custom username
+    public static void sendWebSocketMessage(String type, String meetingId, String username, String content) {
+        if (webSocketClient != null && webSocketClient.isConnected()) {
+            webSocketClient.sendMessage(type, meetingId, username, content);
+        } else {
+            System.err.println("❌ Cannot send message - WebSocket not connected");
+        }
     }
 
     // Get server history for current user
@@ -348,6 +514,9 @@ public class HelloApplication extends Application {
 
     @Override
     public void stop() throws Exception {
+        // Leave current meeting if any
+        leaveCurrentMeeting();
+
         // Cleanup when application closes
         if (webSocketClient != null) {
             webSocketClient.disconnect();
@@ -363,5 +532,58 @@ public class HelloApplication extends Application {
 
     public static void main(String[] args) {
         launch();
+    }
+
+    // Inner class for meeting information
+    public static class MeetingInfo {
+        private String meetingId;
+        private String host;
+        private List<String> participants;
+        private long createdTime;
+
+        public MeetingInfo(String meetingId, String host) {
+            this.meetingId = meetingId;
+            this.host = host;
+            this.participants = new ArrayList<>();
+            this.createdTime = System.currentTimeMillis();
+
+            // Add host as first participant
+            if (host != null && !host.isEmpty()) {
+                participants.add(host);
+            }
+        }
+
+        public String getMeetingId() { return meetingId; }
+        public String getHost() { return host; }
+        public List<String> getParticipants() { return new ArrayList<>(participants); }
+        public long getCreatedTime() { return createdTime; }
+
+        public void addParticipant(String participant) {
+            if (participant != null && !participants.contains(participant)) {
+                participants.add(participant);
+            }
+        }
+
+        public void removeParticipant(String participant) {
+            participants.remove(participant);
+        }
+
+        public int getParticipantCount() {
+            return participants.size();
+        }
+
+        public boolean isParticipant(String username) {
+            return participants.contains(username);
+        }
+
+        @Override
+        public String toString() {
+            return "MeetingInfo{" +
+                    "meetingId='" + meetingId + '\'' +
+                    ", host='" + host + '\'' +
+                    ", participants=" + participants +
+                    ", participantCount=" + getParticipantCount() +
+                    '}';
+        }
     }
 }
