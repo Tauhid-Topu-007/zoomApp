@@ -4,28 +4,46 @@
 <?import javafx.scene.layout.*?>
 <?import javafx.geometry.Insets?>
 
-<BorderPane xmlns:fx="http://javafx.com/fxml"
-            fx:controller="org.example.zoom.RecordingsController">
+<VBox xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="org.example.zoom.RecordingsController" spacing="15" style="-fx-padding: 20;">
 
-    <top>
-        <Label text="🎥 My Recordings"
-               style="-fx-font-size: 18px; -fx-font-weight: bold; -fx-padding: 10;" />
-    </top>
+    <padding><Insets top="20" right="20" bottom="20" left="20"/></padding>
 
-    <center>
-        <ListView fx:id="recordingsList" prefHeight="400" prefWidth="600"/>
-    </center>
+    <!-- Header -->
+    <Label text="📁 Meeting Recordings" style="-fx-font-size: 24px; -fx-font-weight: bold;"/>
 
-    <bottom>
-        <HBox spacing="10" alignment="CENTER">
-            <padding>
-                <Insets top="10" right="10" bottom="10" left="10"/>
-            </padding>
-            <Button text="▶ Play" onAction="#onPlayClick"/>
-            <Button text="⬇ Download" onAction="#onDownloadClick"/>
-            <Button text="🗑 Delete" onAction="#onDeleteClick"/>
-            <Button text="⬅ Back" onAction="#onBackClick"/>
-        </HBox>
-    </bottom>
+    <!-- Controls -->
+    <HBox spacing="10" alignment="CENTER_LEFT">
+        <Label text="Found recordings: " style="-fx-font-weight: bold;"/>
+        <Label fx:id="recordingsCountLabel" text="0" style="-fx-font-weight: bold; -fx-text-fill: #3498db;"/>
+        <Region HBox.hgrow="ALWAYS"/>
+        <Button text="🔄 Refresh" onAction="#onRefreshClick"
+                style="-fx-background-color: #3498db; -fx-text-fill: white;"/>
+        <Button text="📁 Open Folder" onAction="#onOpenFolderClick"
+                style="-fx-background-color: #95a5a6; -fx-text-fill: white;"/>
+    </HBox>
 
-</BorderPane>
+    <!-- Recordings List -->
+    <VBox spacing="5">
+        <Label text="Available Recordings:" style="-fx-font-weight: bold;"/>
+        <ListView fx:id="recordingsList" VBox.vgrow="ALWAYS"
+                  style="-fx-border-color: #bdc3c7; -fx-border-radius: 5;"/>
+    </VBox>
+
+    <!-- Action Buttons -->
+    <HBox spacing="15" alignment="CENTER">
+        <Button text="▶ Play" onAction="#onPlayClick"
+                style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-min-width: 100;"/>
+        <Button text="⬇ Download" onAction="#onDownloadClick"
+                style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold; -fx-min-width: 100;"/>
+        <Button text="🗑 Delete" onAction="#onDeleteClick"
+                style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-min-width: 100;"/>
+    </HBox>
+
+    <!-- Back Button -->
+    <HBox alignment="CENTER">
+        <Button text="← Back to Dashboard" onAction="#onBackClick"
+                style="-fx-background-color: #7f8c8d; -fx-text-fill: white; -fx-min-width: 150;"/>
+    </HBox>
+
+</VBox>
