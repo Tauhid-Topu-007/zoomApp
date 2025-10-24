@@ -225,3 +225,53 @@
 .quick-option-button:hover {
     -fx-background-color: #bdc3c7;
 }
+
+/* Link button style for Forgot Password */
+.link-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: #3498db;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 5px 10px;
+    -fx-cursor: hand;
+}
+
+.link-button:hover {
+    -fx-text-fill: #2980b9;
+    -fx-underline: true;
+}
+
+.link-button:pressed {
+    -fx-text-fill: #21618c;
+}
+
+/* Checkbox styling */
+.check-box {
+    -fx-text-fill: #2c3e50;
+    -fx-font-size: 14px;
+}
+
+.check-box:selected .box {
+    -fx-background-color: #3498db;
+    -fx-border-color: #2980b9;
+}
+
+.check-box .box {
+    -fx-background-color: white;
+    -fx-border-color: #bdc3c7;
+    -fx-border-radius: 3px;
+}
+
+/* Dialog styling */
+.dialog-pane {
+    -fx-background-color: #f8f9fa;
+}
+
+.dialog-pane .header-panel {
+    -fx-background-color: #3498db;
+}
+
+.dialog-pane .header-panel .label {
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}

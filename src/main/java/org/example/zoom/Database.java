@@ -56,16 +56,73 @@ public class Database {
         }
     }
 
+    // Enhanced password update with validation
     public static boolean updatePassword(String username, String newPassword) {
+        if (newPassword == null || newPassword.length() < 3) {
+            System.err.println("❌ Password must be at least 3 characters long");
+            return false;
+        }
+
         String sql = "UPDATE users SET password = ? WHERE username = ?";
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, newPassword);
             stmt.setString(2, username);
-            return stmt.executeUpdate() > 0;
+            int rowsUpdated = stmt.executeUpdate();
+
+            if (rowsUpdated > 0) {
+                System.out.println("✅ Password updated successfully for user: " + username);
+
+                // Log the password change for security
+                logSecurityEvent(username, "PASSWORD_CHANGED", "User changed their password");
+                return true;
+            } else {
+                System.err.println("❌ No user found with username: " + username);
+                return false;
+            }
         } catch (SQLException e) {
             System.err.println("❌ updatePassword error: " + e.getMessage());
             return false;
+        }
+    }
+
+    // NEW: Enhanced password reset functionality
+    public static boolean resetPassword(String username, String newPassword) {
+        return updatePassword(username, newPassword);
+    }
+
+    // NEW: Get user profile information
+    public static UserProfile getUserProfile(String username) {
+        String sql = "SELECT username, created_at FROM users WHERE username = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                return new UserProfile(
+                        rs.getString("username"),
+                        rs.getTimestamp("created_at")
+                );
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ getUserProfile error: " + e.getMessage());
+        }
+        return null;
+    }
+
+    // NEW: Security event logging
+    private static void logSecurityEvent(String username, String eventType, String description) {
+        String sql = "INSERT INTO security_logs (username, event_type, description, ip_address, user_agent) VALUES (?, ?, ?, ?, ?)";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            stmt.setString(2, eventType);
+            stmt.setString(3, description);
+            stmt.setString(4, "127.0.0.1"); // In real app, get from request
+            stmt.setString(5, "JavaFX Client"); // In real app, get from request
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            System.err.println("❌ logSecurityEvent error: " + e.getMessage());
         }
     }
 
@@ -73,13 +130,17 @@ public class Database {
         String updateUsers = "UPDATE users SET username = ? WHERE username = ?";
         String updateMeetings = "UPDATE meetings SET username = ? WHERE username = ?";
         String updateContacts = "UPDATE contacts SET username = ? WHERE username = ?";
+        String updateServerConfig = "UPDATE server_config SET username = ? WHERE username = ?";
+        String updateUserPreferences = "UPDATE user_preferences SET username = ? WHERE username = ?";
 
         try (Connection conn = getConnection()) {
             conn.setAutoCommit(false); // start transaction
 
             try (PreparedStatement stmt1 = conn.prepareStatement(updateUsers);
                  PreparedStatement stmt2 = conn.prepareStatement(updateMeetings);
-                 PreparedStatement stmt3 = conn.prepareStatement(updateContacts)) {
+                 PreparedStatement stmt3 = conn.prepareStatement(updateContacts);
+                 PreparedStatement stmt4 = conn.prepareStatement(updateServerConfig);
+                 PreparedStatement stmt5 = conn.prepareStatement(updateUserPreferences)) {
 
                 stmt1.setString(1, newUsername);
                 stmt1.setString(2, oldUsername);
@@ -93,7 +154,18 @@ public class Database {
                 stmt3.setString(2, oldUsername);
                 stmt3.executeUpdate();
 
+                stmt4.setString(1, newUsername);
+                stmt4.setString(2, oldUsername);
+                stmt4.executeUpdate();
+
+                stmt5.setString(1, newUsername);
+                stmt5.setString(2, oldUsername);
+                stmt5.executeUpdate();
+
                 conn.commit();
+
+                // Log the username change
+                logSecurityEvent(newUsername, "USERNAME_CHANGED", "User changed username from " + oldUsername + " to " + newUsername);
                 return true;
 
             } catch (SQLException e) {
@@ -118,6 +190,22 @@ public class Database {
             System.err.println("❌ usernameExists error: " + e.getMessage());
             return false;
         }
+    }
+
+    // NEW: Get all users (for admin purposes)
+    public static List<String> getAllUsers() {
+        List<String> users = new ArrayList<>();
+        String sql = "SELECT username FROM users ORDER BY username";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                users.add(rs.getString("username"));
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ getAllUsers error: " + e.getMessage());
+        }
+        return users;
     }
 
     /* ==============================
@@ -229,6 +317,26 @@ public class Database {
             System.err.println("❌ getUserPreference error: " + e.getMessage());
         }
         return null;
+    }
+
+    // NEW: Get all user preferences
+    public static List<UserPreference> getAllUserPreferences(String username) {
+        List<UserPreference> preferences = new ArrayList<>();
+        String sql = "SELECT preference_key, preference_value FROM user_preferences WHERE username = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                preferences.add(new UserPreference(
+                        rs.getString("preference_key"),
+                        rs.getString("preference_value")
+                ));
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ getAllUserPreferences error: " + e.getMessage());
+        }
+        return preferences;
     }
 
     /* ==============================
@@ -354,6 +462,28 @@ public class Database {
             System.err.println("❌ deleteMeeting error: " + e.getMessage());
             return false;
         }
+    }
+
+    // NEW: Get meeting statistics
+    public static MeetingStatistics getMeetingStatistics(String username) {
+        MeetingStatistics stats = new MeetingStatistics();
+        String sql = "SELECT COUNT(*) as total_meetings, " +
+                "MIN(date) as first_meeting, " +
+                "MAX(date) as last_meeting " +
+                "FROM meetings WHERE username = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                stats.setTotalMeetings(rs.getInt("total_meetings"));
+                stats.setFirstMeeting(rs.getString("first_meeting"));
+                stats.setLastMeeting(rs.getString("last_meeting"));
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ getMeetingStatistics error: " + e.getMessage());
+        }
+        return stats;
     }
 
     /* ==============================
@@ -676,6 +806,51 @@ public class Database {
         }
     }
 
+    // NEW: User Profile class
+    public static class UserProfile {
+        private String username;
+        private Timestamp createdAt;
+
+        public UserProfile(String username, Timestamp createdAt) {
+            this.username = username;
+            this.createdAt = createdAt;
+        }
+
+        public String getUsername() { return username; }
+        public Timestamp getCreatedAt() { return createdAt; }
+    }
+
+    // NEW: User Preference class
+    public static class UserPreference {
+        private String key;
+        private String value;
+
+        public UserPreference(String key, String value) {
+            this.key = key;
+            this.value = value;
+        }
+
+        public String getKey() { return key; }
+        public String getValue() { return value; }
+    }
+
+    // NEW: Meeting Statistics class
+    public static class MeetingStatistics {
+        private int totalMeetings;
+        private String firstMeeting;
+        private String lastMeeting;
+
+        public MeetingStatistics() {}
+
+        public int getTotalMeetings() { return totalMeetings; }
+        public String getFirstMeeting() { return firstMeeting; }
+        public String getLastMeeting() { return lastMeeting; }
+
+        public void setTotalMeetings(int totalMeetings) { this.totalMeetings = totalMeetings; }
+        public void setFirstMeeting(String firstMeeting) { this.firstMeeting = firstMeeting; }
+        public void setLastMeeting(String lastMeeting) { this.lastMeeting = lastMeeting; }
+    }
+
     /* ==============================
        DATABASE INITIALIZATION
      ============================== */
@@ -707,6 +882,19 @@ public class Database {
                         "joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
                         "UNIQUE KEY unique_participant (meeting_id, username), " +
                         "INDEX idx_meeting_id (meeting_id)" +
+                        ")",
+
+                // Security logs table
+                "CREATE TABLE IF NOT EXISTS security_logs (" +
+                        "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                        "username VARCHAR(50) NOT NULL, " +
+                        "event_type VARCHAR(50) NOT NULL, " +
+                        "description TEXT, " +
+                        "ip_address VARCHAR(45), " +
+                        "user_agent TEXT, " +
+                        "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                        "INDEX idx_username (username), " +
+                        "INDEX idx_event_type (event_type)" +
                         ")"
         };
 
@@ -810,6 +998,21 @@ public class Database {
         // Fetch participants
         List<String> participants = getParticipants("TEST123");
         participants.forEach(p -> System.out.println("👥 " + p));
+
+        // Test password reset functionality
+        if (resetPassword("testuser", "newpassword123")) {
+            System.out.println("✅ Password reset successful!");
+        }
+
+        // Test user profile
+        UserProfile profile = getUserProfile("testuser");
+        if (profile != null) {
+            System.out.println("👤 User profile: " + profile.getUsername() + " created at " + profile.getCreatedAt());
+        }
+
+        // Test meeting statistics
+        MeetingStatistics stats = getMeetingStatistics("testuser");
+        System.out.println("📊 Meeting stats: " + stats.getTotalMeetings() + " total meetings");
     }
 
     // Get single contact by ID

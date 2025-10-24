@@ -3,7 +3,9 @@ package org.example.zoom;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
+import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
+import javafx.application.Platform;
 import org.example.zoom.websocket.SimpleWebSocketClient;
 
 public class LoginController {
@@ -27,46 +29,174 @@ public class LoginController {
 
         // Load saved username if remember me was checked
         loadSavedCredentials();
+
+        // Clear any previous error messages
+        clearErrorMessage();
     }
 
     @FXML
     protected void onLoginClick(ActionEvent event) {
-        String username = usernameField.getText();
+        String username = usernameField.getText().trim();
         String password = passwordField.getText();
 
+        // Clear previous messages
+        clearErrorMessage();
+
         if (username.isEmpty() || password.isEmpty()) {
-            messageLabel.setText("❌ Please enter both username and password!");
+            showErrorMessage("❌ Please enter both username and password!");
+            shakeLoginForm();
             return;
         }
 
-        // Don't test connection before login - let it handle connection after login
-        // This fixes the issue where WebSocket tries to connect before user is set
+        // Show loading state
+        setLoadingState(true);
+        messageLabel.setText("🔄 Authenticating...");
 
-        if (Database.authenticateUser(username, password)) {
-            // Save credentials if remember me is checked
-            if (rememberMe.isSelected()) {
-                saveCredentials(username, password);
-            } else {
-                clearSavedCredentials();
-            }
+        // Run authentication in background thread to prevent UI freezing
+        new Thread(() -> {
+            boolean isAuthenticated = Database.authenticateUser(username, password);
 
-            messageLabel.setText("✅ Login successful!");
+            Platform.runLater(() -> {
+                setLoadingState(false);
 
-            try {
-                // Store logged in user globally - this will initialize WebSocket
-                HelloApplication.setLoggedInUser(username);
+                if (isAuthenticated) {
+                    handleSuccessfulLogin(username, password);
+                } else {
+                    handleFailedLogin();
+                }
+            });
+        }).start();
+    }
 
-                // Navigate to dashboard
-                HelloApplication.setRoot("dashboard-view.fxml");
-
-            } catch (Exception e) {
-                e.printStackTrace();
-                messageLabel.setText("❌ Failed to load dashboard: " + e.getMessage());
-            }
-
+    private void handleSuccessfulLogin(String username, String password) {
+        // Save credentials if remember me is checked
+        if (rememberMe.isSelected()) {
+            saveCredentials(username, password);
         } else {
-            messageLabel.setText("❌ Invalid username or password!");
+            clearSavedCredentials();
         }
+
+        showSuccessMessage("✅ Login successful! Redirecting...");
+
+        try {
+            // Store logged in user globally - this will initialize WebSocket
+            HelloApplication.setLoggedInUser(username);
+
+            // Small delay to show success message
+            new Thread(() -> {
+                try {
+                    Thread.sleep(1000); // 1 second delay
+                    Platform.runLater(() -> {
+                        try {
+                            // Navigate to dashboard
+                            HelloApplication.setRoot("dashboard-view.fxml");
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                            showErrorMessage("❌ Failed to load dashboard: " + e.getMessage());
+                        }
+                    });
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }).start();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            showErrorMessage("❌ Login error: " + e.getMessage());
+        }
+    }
+
+    private void handleFailedLogin() {
+        showErrorMessage("❌ Invalid username or password!");
+        shakeLoginForm();
+        clearPasswordField();
+
+        // Additional feedback
+        highlightInvalidFields();
+    }
+
+    private void highlightInvalidFields() {
+        // Add temporary red border to indicate error
+        String errorStyle = "-fx-border-color: #e74c3c; -fx-border-width: 2px; -fx-border-radius: 5px;";
+
+        usernameField.setStyle(errorStyle);
+        passwordField.setStyle(errorStyle);
+
+        // Remove error styling after 3 seconds
+        new Thread(() -> {
+            try {
+                Thread.sleep(3000);
+                Platform.runLater(() -> {
+                    String normalStyle = "-fx-border-color: #bdc3c7; -fx-border-width: 1px; -fx-border-radius: 5px;";
+                    usernameField.setStyle(normalStyle);
+                    passwordField.setStyle(normalStyle);
+                });
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).start();
+    }
+
+    private void shakeLoginForm() {
+        // Create a simple shake animation for the form
+        String shakeAnimation =
+                "-fx-translate-x: 0; " +
+                        "-fx-effect: dropshadow(three-pass-box, rgba(231,76,60,0.4), 10, 0, 0, 0);";
+
+        // Apply shake effect
+        usernameField.setStyle(shakeAnimation);
+        passwordField.setStyle(shakeAnimation);
+
+        // Remove effect after animation
+        new Thread(() -> {
+            try {
+                Thread.sleep(500);
+                Platform.runLater(() -> {
+                    String normalStyle = "-fx-translate-x: 0; -fx-effect: null;";
+                    usernameField.setStyle(normalStyle);
+                    passwordField.setStyle(normalStyle);
+                });
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).start();
+    }
+
+    private void setLoadingState(boolean isLoading) {
+        if (isLoading) {
+            usernameField.setDisable(true);
+            passwordField.setDisable(true);
+            rememberMe.setDisable(true);
+        } else {
+            usernameField.setDisable(false);
+            passwordField.setDisable(false);
+            rememberMe.setDisable(false);
+        }
+    }
+
+    private void clearErrorMessage() {
+        if (messageLabel != null) {
+            messageLabel.setText("");
+            messageLabel.setStyle("-fx-text-fill: transparent;");
+        }
+    }
+
+    private void showErrorMessage(String message) {
+        if (messageLabel != null) {
+            messageLabel.setText(message);
+            messageLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-weight: bold;");
+        }
+    }
+
+    private void showSuccessMessage(String message) {
+        if (messageLabel != null) {
+            messageLabel.setText(message);
+            messageLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-weight: bold;");
+        }
+    }
+
+    private void clearPasswordField() {
+        passwordField.clear();
     }
 
     @FXML
@@ -75,7 +205,110 @@ public class LoginController {
             HelloApplication.setRoot("register-view.fxml");
         } catch (Exception e) {
             e.printStackTrace();
-            messageLabel.setText("❌ Failed to open registration!");
+            showErrorMessage("❌ Failed to open registration!");
+        }
+    }
+
+    // NEW: Fully functional Forgot Password implementation
+    @FXML
+    protected void onForgotPasswordClick(ActionEvent event) {
+        // Show dialog to enter username for password reset
+        TextInputDialog usernameDialog = new TextInputDialog();
+        usernameDialog.setTitle("Password Reset");
+        usernameDialog.setHeaderText("Reset Your Password");
+        usernameDialog.setContentText("Enter your username:");
+
+        usernameDialog.showAndWait().ifPresent(username -> {
+            if (username.isEmpty()) {
+                showErrorMessage("❌ Please enter a username!");
+                return;
+            }
+
+            // Check if username exists
+            if (!Database.usernameExists(username)) {
+                showErrorMessage("❌ Username not found!");
+                return;
+            }
+
+            // Show security question or direct password reset
+            showPasswordResetDialog(username);
+        });
+    }
+
+    private void showPasswordResetDialog(String username) {
+        // Create a custom password reset dialog
+        Dialog<ButtonType> resetDialog = new Dialog<>();
+        resetDialog.setTitle("Reset Password");
+        resetDialog.setHeaderText("Reset Password for: " + username);
+
+        // Create the password fields
+        PasswordField newPasswordField = new PasswordField();
+        newPasswordField.setPromptText("New Password");
+        PasswordField confirmPasswordField = new PasswordField();
+        confirmPasswordField.setPromptText("Confirm New Password");
+
+        VBox content = new VBox(10);
+        content.getChildren().addAll(
+                new Label("New Password:"),
+                newPasswordField,
+                new Label("Confirm Password:"),
+                confirmPasswordField
+        );
+
+        resetDialog.getDialogPane().setContent(content);
+
+        // Add buttons
+        ButtonType resetButtonType = new ButtonType("Reset Password", ButtonBar.ButtonData.OK_DONE);
+        resetDialog.getDialogPane().getButtonTypes().addAll(resetButtonType, ButtonType.CANCEL);
+
+        // Enable/disable reset button based on validation
+        Button resetButton = (Button) resetDialog.getDialogPane().lookupButton(resetButtonType);
+        resetButton.setDisable(true);
+
+        // Add validation
+        newPasswordField.textProperty().addListener((observable, oldValue, newValue) -> validatePasswords(newPasswordField, confirmPasswordField, resetButton));
+        confirmPasswordField.textProperty().addListener((observable, oldValue, newValue) -> validatePasswords(newPasswordField, confirmPasswordField, resetButton));
+
+        // Show dialog and handle result
+        resetDialog.showAndWait().ifPresent(result -> {
+            if (result == resetButtonType) {
+                String newPassword = newPasswordField.getText();
+                String confirmPassword = confirmPasswordField.getText();
+
+                if (newPassword.equals(confirmPassword)) {
+                    // Update password in database
+                    boolean success = Database.updatePassword(username, newPassword);
+                    if (success) {
+                        showSuccessMessage("✅ Password reset successfully! You can now login with your new password.");
+
+                        // Clear fields
+                        passwordField.clear();
+                    } else {
+                        showErrorMessage("❌ Failed to reset password. Please try again.");
+                    }
+                } else {
+                    showErrorMessage("❌ Passwords do not match!");
+                }
+            }
+        });
+    }
+
+    private void validatePasswords(PasswordField newPassword, PasswordField confirmPassword, Button resetButton) {
+        String pass1 = newPassword.getText();
+        String pass2 = confirmPassword.getText();
+
+        boolean isValid = !pass1.isEmpty() && !pass2.isEmpty() && pass1.equals(pass2) && pass1.length() >= 3;
+        resetButton.setDisable(!isValid);
+
+        // Visual feedback
+        if (!pass2.isEmpty()) {
+            if (pass1.equals(pass2)) {
+                confirmPassword.setStyle("-fx-border-color: #27ae60; -fx-border-width: 2px;");
+            } else {
+                confirmPassword.setStyle("-fx-border-color: #e74c3c; -fx-border-width: 2px;");
+            }
+        } else {
+            confirmPassword.setStyle("");
         }
     }
 
@@ -87,26 +320,26 @@ public class LoginController {
 
         if (dialog != null && dialog.isConnected()) {
             updateConnectionStatus();
-            messageLabel.setText("✅ Server configuration updated!");
+            showSuccessMessage("✅ Server configuration updated!");
         } else {
             updateConnectionStatus();
-            messageLabel.setText("⚠️ Server configuration cancelled.");
+            showErrorMessage("⚠️ Server configuration cancelled.");
         }
     }
 
     @FXML
     protected void onTestConnectionClick(ActionEvent event) {
-        messageLabel.setText("🔄 Testing connection...");
+        showSuccessMessage("🔄 Testing connection...");
 
         // Test connection without affecting the main WebSocket client
         new Thread(() -> {
             boolean success = testConnectionWithoutLogin();
 
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 if (success) {
-                    messageLabel.setText("✅ Connection test successful!");
+                    showSuccessMessage("✅ Connection test successful!");
                 } else {
-                    messageLabel.setText("❌ Connection test failed!");
+                    showErrorMessage("❌ Connection test failed!");
                 }
                 updateConnectionStatus();
             });
@@ -118,7 +351,7 @@ public class LoginController {
         // Quick connect to localhost - just update config, don't initialize WebSocket yet
         HelloApplication.setServerConfig("localhost", "8887");
         updateConnectionStatus();
-        messageLabel.setText("✅ Localhost configuration set!");
+        showSuccessMessage("✅ Localhost configuration set!");
 
         // Test the connection
         onTestConnectionClick(event);
@@ -136,7 +369,7 @@ public class LoginController {
             if (!ip.isEmpty()) {
                 HelloApplication.setServerConfig(ip, "8887");
                 updateConnectionStatus();
-                messageLabel.setText("✅ Network configuration set: " + ip);
+                showSuccessMessage("✅ Network configuration set: " + ip);
 
                 // Test the connection
                 onTestConnectionClick(event);
@@ -196,40 +429,58 @@ public class LoginController {
         }
     }
 
-    private boolean testCurrentConnection() {
-        // This method is not safe to use before login
-        // Use testConnectionWithoutLogin() instead
-        return false;
-    }
-
     private void loadSavedCredentials() {
-        // In a real app, load from secure storage
-        // For demo, we'll just clear the fields
-        usernameField.setText("");
-        passwordField.setText("");
-
-        // Try to load remembered username
+        // Load remembered username from preferences
         String rememberedUser = HelloApplication.getUserPreference("remembered_username");
         if (rememberedUser != null && !rememberedUser.isEmpty()) {
             usernameField.setText(rememberedUser);
             rememberMe.setSelected(true);
+
+            // Auto-focus on password field if username is remembered
+            Platform.runLater(() -> passwordField.requestFocus());
         }
     }
 
     private void saveCredentials(String username, String password) {
-        // In a real app, save to secure storage
-        System.out.println("💾 Saving credentials for: " + username);
+        // Save username to preferences
+        HelloApplication.saveUserPreference("remembered_username", username);
 
-        if (rememberMe.isSelected()) {
-            HelloApplication.saveUserPreference("remembered_username", username);
-        } else {
-            HelloApplication.saveUserPreference("remembered_username", "");
-        }
+        // In a secure application, you might want to encrypt and save the password
+        // For demo purposes, we're only saving the username
+        System.out.println("💾 Saved credentials for: " + username);
+
+        // Show confirmation
+        showSuccessMessage("✅ Login credentials saved!");
     }
 
     private void clearSavedCredentials() {
-        // In a real app, clear from secure storage
-        System.out.println("🗑️ Clearing saved credentials");
+        // Clear saved credentials from preferences
         HelloApplication.saveUserPreference("remembered_username", "");
+        System.out.println("🗑️ Cleared saved credentials");
+    }
+
+    // Additional helper methods for better UX
+    @FXML
+    protected void onUsernameEnter(ActionEvent event) {
+        // When user presses Enter in username field, move to password field
+        passwordField.requestFocus();
+    }
+
+    @FXML
+    protected void onPasswordEnter(ActionEvent event) {
+        // When user presses Enter in password field, trigger login
+        onLoginClick(event);
+    }
+
+    // NEW: Handle Remember Me checkbox changes
+    @FXML
+    protected void onRememberMeChanged(ActionEvent event) {
+        if (!rememberMe.isSelected()) {
+            // If user unchecks remember me, clear any immediately saved credentials
+            clearSavedCredentials();
+            showSuccessMessage("🔒 Login credentials will not be saved");
+        } else {
+            showSuccessMessage("💾 Login credentials will be saved");
+        }
     }
 }
