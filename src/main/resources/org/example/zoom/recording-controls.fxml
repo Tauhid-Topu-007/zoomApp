@@ -8,9 +8,17 @@
 <VBox xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1"
       fx:controller="org.example.zoom.MP4RecordingController" spacing="10" style="-fx-padding: 20;">
 
-    <padding><Insets top="20" right="20" bottom="20" left="20"/></padding>
+    <padding><Insets top="0" right="20" bottom="20" left="20"/></padding>
 
-    <Label text="Advanced MP4 Recording" style="-fx-font-size: 18; -fx-font-weight: bold;"/>
+    <!-- Title Bar with Window Controls -->
+    <HBox fx:id="titleBar" spacing="10" alignment="CENTER_LEFT" style="-fx-background-color: #2c3e50; -fx-padding: 10;">
+        <Label text="Advanced MP4 Recording" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+        <Region HBox.hgrow="ALWAYS"/>
+        <HBox spacing="5">
+            <Button fx:id="minimizeButton" text="─" style="-fx-background-color: transparent; -fx-text-fill: white; -fx-border-color: transparent; -fx-min-width: 30; -fx-min-height: 25;"/>
+            <Button fx:id="closeButton" text="✕" style="-fx-background-color: transparent; -fx-text-fill: white; -fx-border-color: transparent; -fx-min-width: 30; -fx-min-height: 25;"/>
+        </HBox>
+    </HBox>
 
     <!-- Location Settings -->
     <VBox spacing="5">
@@ -53,9 +61,9 @@
     <!-- Recording Controls -->
     <HBox spacing="10" alignment="CENTER">
         <Button fx:id="startRecordButton" text="Start Recording" onAction="#onStartRecording"
-                style="-fx-background-color: #27ae60; -fx-text-fill: white;"/>
+                style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-min-width: 120;"/>
         <Button fx:id="stopRecordButton" text="Stop Recording" onAction="#onStopRecording"
-                style="-fx-background-color: #e74c3c; -fx-text-fill: white;" disable="true"/>
+                style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-min-width: 120;" disable="true"/>
     </HBox>
 
     <!-- Recording Status -->
@@ -69,15 +77,11 @@
     <VBox fx:id="previewContainer" spacing="5" visible="false">
         <Label text="Recording Preview:" style="-fx-font-weight: bold;"/>
         <MediaView fx:id="recordingPreview"/>
-        <Button fx:id="playRecordingButton" text="Play Recording" onAction="#onPlayRecording"
-                style="-fx-background-color: #3498db; -fx-text-fill: white;" disable="true"/>
+        <HBox spacing="10" alignment="CENTER">
+            <Button fx:id="playRecordingButton" text="Play Recording" onAction="#onPlayRecording"
+                    style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-min-width: 120;" disable="true"/>
+            <Button text="Open Folder" onAction="#onOpenFolder"
+                    style="-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-min-width: 120;"/>
+        </HBox>
     </VBox>
-
-    <!-- Action Buttons -->
-    <HBox spacing="10" alignment="CENTER">
-        <Button text="Open Folder" onAction="#onOpenFolder"
-                style="-fx-background-color: #95a5a6; -fx-text-fill: white;"/>
-        <Button text="Close" onAction="#onClose"
-                style="-fx-background-color: #7f8c8d; -fx-text-fill: white;"/>
-    </HBox>
 </VBox>

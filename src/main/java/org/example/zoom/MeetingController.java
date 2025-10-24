@@ -39,6 +39,7 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Optional;
 
 public class MeetingController {
 
@@ -79,6 +80,9 @@ public class MeetingController {
 
     // Video display
     @FXML private ImageView videoDisplay;
+
+    // Placeholder for camera feed
+    @FXML private StackPane videoPlaceholder;
 
     private boolean audioMuted = false;
     private boolean videoOn = false;
@@ -178,6 +182,10 @@ public class MeetingController {
             setupAllFallbackControls();
         }
 
+        // Setup scrollable chat and participants
+        setupScrollableChat();
+        setupScrollableParticipants();
+
         updateParticipantsList();
         setupChat();
         updateMeetingInfo();
@@ -199,6 +207,60 @@ public class MeetingController {
                 videoControlsController.onMeetingStateChanged(true);
             }
         });
+    }
+
+    /**
+     * Setup scrollable chat area
+     */
+    private void setupScrollableChat() {
+        if (chatBox != null) {
+            // Make chat box scrollable with proper constraints
+            chatBox.setMaxHeight(Double.MAX_VALUE);
+            VBox.setVgrow(chatBox, Priority.ALWAYS);
+
+            // Ensure scroll pane works properly
+            if (chatScroll != null) {
+                chatScroll.setFitToWidth(true);
+                chatScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+                chatScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+                chatScroll.setPrefViewportHeight(400); // Set preferred height
+
+                // Auto-scroll to bottom when new messages are added
+                chatBox.heightProperty().addListener((observable, oldValue, newValue) -> {
+                    Platform.runLater(() -> {
+                        chatScroll.setVvalue(1.0);
+                    });
+                });
+            }
+        }
+    }
+
+    /**
+     * Setup scrollable participants list
+     */
+    private void setupScrollableParticipants() {
+        if (participantsList != null) {
+            participantsList.setMaxHeight(Double.MAX_VALUE);
+            participantsList.setPrefHeight(300); // Set preferred height
+            participantsList.setPlaceholder(new Label("No participants in meeting"));
+
+            // Make list view scrollable with better styling
+            participantsList.setCellFactory(param -> new ListCell<String>() {
+                @Override
+                protected void updateItem(String item, boolean empty) {
+                    super.updateItem(item, empty);
+                    if (empty || item == null) {
+                        setText(null);
+                        setGraphic(null);
+                        setStyle("");
+                    } else {
+                        setText(item);
+                        setStyle("-fx-padding: 10px; -fx-font-size: 13px; -fx-border-color: #ecf0f1; -fx-border-width: 0 0 1 0;");
+                        setPrefHeight(40);
+                    }
+                }
+            });
+        }
     }
 
     /**
@@ -282,6 +344,18 @@ public class MeetingController {
                 System.out.println("📷 Camera opened successfully");
             }
 
+            // Remove placeholder when camera starts
+            Platform.runLater(() -> {
+                if (videoPlaceholder != null) {
+                    videoPlaceholder.setVisible(false);
+                    videoPlaceholder.setManaged(false);
+                }
+                if (videoDisplay != null) {
+                    videoDisplay.setVisible(true);
+                    videoDisplay.setImage(null); // Clear any previous image
+                }
+            });
+
             cameraRunning = true;
             cameraThread = new Thread(() -> {
                 System.out.println("📷 Camera thread started");
@@ -346,6 +420,12 @@ public class MeetingController {
         Platform.runLater(() -> {
             if (videoDisplay != null) {
                 videoDisplay.setImage(null);
+                videoDisplay.setVisible(false);
+            }
+            // Show placeholder again when camera stops
+            if (videoPlaceholder != null) {
+                videoPlaceholder.setVisible(true);
+                videoPlaceholder.setManaged(true);
             }
             // Reset video controls to simulated camera
             if (videoControlsController != null) {
@@ -775,12 +855,43 @@ public class MeetingController {
             }
         });
 
+        // Load previous chat messages from database
+        loadChatHistory();
+
         // Add welcome message to chat
         addSystemMessage("Welcome to the meeting! Meeting ID: " + HelloApplication.getActiveMeetingId());
 
         if (HelloApplication.isMeetingHost()) {
             addSystemMessage("You are the host of this meeting. You can start recordings.");
         }
+    }
+
+    /**
+     * Load chat history from database for this meeting
+     */
+    private void loadChatHistory() {
+        String meetingId = HelloApplication.getActiveMeetingId();
+        if (meetingId == null) return;
+
+        System.out.println("📖 Loading chat history for meeting: " + meetingId);
+        List<Database.ChatMessage> chatHistory = Database.getChatMessages(meetingId);
+
+        if (chatHistory.isEmpty()) {
+            System.out.println("💬 No previous chat history found");
+        } else {
+            System.out.println("💬 Loading " + chatHistory.size() + " previous chat messages");
+        }
+
+        for (Database.ChatMessage chatMessage : chatHistory) {
+            if ("SYSTEM".equals(chatMessage.getMessageType())) {
+                addSystemMessage(chatMessage.getMessage());
+            } else {
+                addUserMessage(chatMessage.getUsername() + ": " + chatMessage.getMessage());
+            }
+        }
+
+        // Scroll to bottom after loading history
+        scrollToBottom();
     }
 
     private void startMeetingTimer() {
@@ -829,18 +940,31 @@ public class MeetingController {
             }
         }
 
-        // Update record button
+        // Update record button - FIXED: Proper recording state detection
         if (recordButton != null) {
-            // Check if advanced recording is active
-            boolean isAdvancedRecording = mp4RecordingController != null && mp4RecordingController.isRecording();
+            boolean isRecordingActive = false;
 
-            if (isAdvancedRecording || recording) {
+            // Check advanced recording first
+            if (mp4RecordingController != null) {
+                isRecordingActive = mp4RecordingController.isRecording();
+            }
+            // Then check basic recording
+            if (!isRecordingActive) {
+                isRecordingActive = recording;
+            }
+
+            if (isRecordingActive) {
                 recordButton.setText("🔴 Stop Recording");
-                recordButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-background-radius: 5;");
+                recordButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-background-radius: 5; -fx-font-weight: bold;");
+                recordButton.setTooltip(new Tooltip("Click to stop recording"));
             } else {
                 recordButton.setText("⏺ Start Recording");
                 recordButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-background-radius: 5;");
+                recordButton.setTooltip(new Tooltip("Click to start recording (Host only)"));
             }
+
+            // Disable if not host
+            recordButton.setDisable(!HelloApplication.isMeetingHost());
         }
 
         // Update panel toggle buttons
@@ -994,21 +1118,46 @@ public class MeetingController {
             return;
         }
 
-        // Check if advanced recording is already active
+        System.out.println("🎬 Recording toggle clicked - Current state:");
+        System.out.println("  - Basic recording: " + recording);
+        System.out.println("  - Advanced recording active: " + (mp4RecordingController != null));
+        System.out.println("  - Advanced recording running: " + (mp4RecordingController != null && mp4RecordingController.isRecording()));
+
+        // Check if advanced recording is already active and running
         if (mp4RecordingController != null && mp4RecordingController.isRecording()) {
-            // Stop advanced recording
-            openAdvancedRecordingControls();
+            System.out.println("🛑 Stopping advanced recording...");
+            // Stop advanced recording through the controller
+            mp4RecordingController.onStopRecording();
+            mp4RecordingController = null;
+            updateButtonStyles();
+            addSystemMessage("✅ Advanced recording stopped");
             return;
         }
 
         // Check if basic recording is active
         if (recording) {
+            System.out.println("🛑 Stopping basic recording...");
             stopBasicRecording();
             return;
         }
 
-        // Open advanced recording controls to start new recording
-        openAdvancedRecordingControls();
+        // If no recording is active, start a new one
+        System.out.println("🎬 Starting new recording...");
+
+        // Ask user which type of recording they want
+        ChoiceDialog<String> dialog = new ChoiceDialog<>("Advanced MP4", "Basic Text", "Advanced MP4");
+        dialog.setTitle("Recording Type");
+        dialog.setHeaderText("Choose Recording Type");
+        dialog.setContentText("Select recording type:");
+
+        Optional<String> result = dialog.showAndWait();
+        if (result.isPresent()) {
+            if ("Advanced MP4".equals(result.get())) {
+                openAdvancedRecordingControls();
+            } else {
+                startBasicRecording();
+            }
+        }
     }
 
     /**
@@ -1024,7 +1173,10 @@ public class MeetingController {
 
             Stage recordingStage = new Stage();
             recordingStage.setTitle("Advanced Meeting Recording - MP4");
-            recordingStage.initStyle(StageStyle.DECORATED);
+
+            // Remove window decorations for custom title bar
+            recordingStage.initStyle(StageStyle.UNDECORATED);
+
             recordingStage.setScene(new Scene(recordingControls, 550, 700));
             recordingStage.setResizable(false);
 
@@ -1033,8 +1185,12 @@ public class MeetingController {
                 recordingStage.initOwner(stage);
             }
 
+            // PASS THE STAGE TO THE CONTROLLER - THIS IS CRITICAL!
+            mp4RecordingController.setStage(recordingStage);
+
             // Close handler to cleanup resources
             recordingStage.setOnCloseRequest(e -> {
+                System.out.println("📹 Recording window closed");
                 if (mp4RecordingController != null && mp4RecordingController.isRecording()) {
                     mp4RecordingController.onStopRecording();
                 }
@@ -1042,6 +1198,8 @@ public class MeetingController {
                 updateButtonStyles(); // Update main UI
             });
 
+            // Center the window on screen
+            recordingStage.centerOnScreen();
             recordingStage.show();
 
             // Update main UI button
@@ -1051,7 +1209,7 @@ public class MeetingController {
             e.printStackTrace();
             // Fallback to basic recording
             showAlert("Advanced Recording", "Advanced recording features not available. Using basic recording.");
-            toggleBasicRecording();
+            startBasicRecording();
         }
     }
 
@@ -1069,9 +1227,12 @@ public class MeetingController {
     private void startBasicRecording() {
         try {
             String fileName = "Meeting_" + HelloApplication.getActiveMeetingId() + "_" +
-                    new SimpleDateFormat("yyyy-MM-dd_HHmmss").format(new Date()) + ".txt";
+                    new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date()) + ".txt";
             File dir = new File("recordings");
-            if (!dir.exists()) dir.mkdirs();
+            if (!dir.exists()) {
+                boolean created = dir.mkdirs();
+                System.out.println("📁 Recordings directory created: " + created);
+            }
 
             currentRecordingFile = new File(dir, fileName);
             FileWriter writer = new FileWriter(currentRecordingFile);
@@ -1085,27 +1246,53 @@ public class MeetingController {
             recording = true;
             updateButtonStyles();
             addSystemMessage("🔴 Basic recording started...");
+            System.out.println("✅ Basic recording started: " + currentRecordingFile.getAbsolutePath());
 
         } catch (IOException e) {
             e.printStackTrace();
-            showAlert("Recording Error", "Failed to start recording!");
+            showAlert("Recording Error", "Failed to start recording: " + e.getMessage());
         }
     }
 
     private void stopBasicRecording() {
         try {
-            FileWriter writer = new FileWriter(currentRecordingFile, true);
-            writer.write("--- Recording End ---\n");
-            writer.write("Recording stopped at: " + new Date() + "\n");
-            writer.close();
+            if (currentRecordingFile != null && currentRecordingFile.exists()) {
+                FileWriter writer = new FileWriter(currentRecordingFile, true);
+                writer.write("--- Recording End ---\n");
+                writer.write("Recording stopped at: " + new Date() + "\n");
+                writer.write("Meeting duration: " + formatMeetingTime() + "\n");
+                writer.close();
 
-            recording = false;
-            updateButtonStyles();
-            addSystemMessage("✅ Basic recording saved: " + currentRecordingFile.getName());
+                recording = false;
+                updateButtonStyles();
+                addSystemMessage("✅ Basic recording saved: " + currentRecordingFile.getName());
+                System.out.println("✅ Basic recording stopped: " + currentRecordingFile.getAbsolutePath());
+
+                // Reset the file reference
+                currentRecordingFile = null;
+            } else {
+                System.err.println("❌ No active recording file found to stop");
+                recording = false;
+                updateButtonStyles();
+            }
 
         } catch (IOException e) {
             e.printStackTrace();
-            showAlert("Recording Error", "Failed to stop recording!");
+            showAlert("Recording Error", "Failed to stop recording: " + e.getMessage());
+            recording = false;
+            updateButtonStyles();
+        }
+    }
+
+    private String formatMeetingTime() {
+        int hours = meetingSeconds / 3600;
+        int minutes = (meetingSeconds % 3600) / 60;
+        int seconds = meetingSeconds % 60;
+
+        if (hours > 0) {
+            return String.format("%02d:%02d:%02d", hours, minutes, seconds);
+        } else {
+            return String.format("%02d:%02d", minutes, seconds);
         }
     }
 
@@ -1121,6 +1308,17 @@ public class MeetingController {
 
             addUserMessage(username + ": " + msg);
             chatInput.clear();
+
+            // Save to database
+            String meetingId = HelloApplication.getActiveMeetingId();
+            if (meetingId != null) {
+                boolean saved = Database.saveChatMessage(meetingId, username, msg, "USER");
+                if (saved) {
+                    System.out.println("✅ Chat message saved to database");
+                } else {
+                    System.err.println("❌ Failed to save chat message to database");
+                }
+            }
 
             // Send via WebSocket if connected
             if (HelloApplication.isWebSocketConnected() && HelloApplication.getActiveMeetingId() != null) {
@@ -1146,7 +1344,15 @@ public class MeetingController {
 
         if (file != null) {
             try {
-                addSystemMessage("📎 File shared: " + file.getName());
+                String username = HelloApplication.getLoggedInUser();
+                String fileMessage = "📎 File shared: " + file.getName();
+                addSystemMessage(fileMessage);
+
+                // Save file share to database
+                String meetingId = HelloApplication.getActiveMeetingId();
+                if (meetingId != null) {
+                    Database.saveChatMessage(meetingId, username, fileMessage, "SYSTEM");
+                }
 
                 if (isImage(file)) {
                     displayImage(file);
@@ -1167,8 +1373,27 @@ public class MeetingController {
     @FXML
     protected void onClearChat() {
         if (chatBox != null) {
-            chatBox.getChildren().clear();
-            addSystemMessage("Chat cleared");
+            Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
+            confirmation.setTitle("Clear Chat");
+            confirmation.setHeaderText("Clear Chat History");
+            confirmation.setContentText("Are you sure you want to clear all chat messages? This action cannot be undone.");
+
+            Optional<ButtonType> result = confirmation.showAndWait();
+            if (result.isPresent() && result.get() == ButtonType.OK) {
+                chatBox.getChildren().clear();
+                addSystemMessage("Chat history cleared");
+
+                // Clear chat from database
+                String meetingId = HelloApplication.getActiveMeetingId();
+                if (meetingId != null) {
+                    boolean cleared = Database.clearChatMessages(meetingId);
+                    if (cleared) {
+                        System.out.println("✅ Chat cleared from database");
+                    } else {
+                        System.err.println("❌ Failed to clear chat from database");
+                    }
+                }
+            }
         }
     }
 
@@ -1237,14 +1462,21 @@ public class MeetingController {
     }
 
     private void addUserMessage(String text) {
-        addChatMessage(text, "#3498db", "white", "-fx-alignment: center-right;");
+        addChatMessage(text, "#3498db", "white", "-fx-alignment: center-left; -fx-background-insets: 5;");
     }
 
     /**
      * FIXED: Changed from private to public to allow access from MP4RecordingController
      */
     public void addSystemMessage(String text) {
-        addChatMessage(text, "#2c3e50", "white", "-fx-alignment: center; -fx-font-style: italic;");
+        addChatMessage("💬 " + text, "#2c3e50", "white", "-fx-alignment: center; -fx-font-style: italic; -fx-background-insets: 5;");
+
+        // Save system message to database
+        String meetingId = HelloApplication.getActiveMeetingId();
+        String username = HelloApplication.getLoggedInUser();
+        if (meetingId != null && username != null) {
+            Database.saveChatMessage(meetingId, username, text, "SYSTEM");
+        }
     }
 
     private void addChatMessage(String text, String bgColor, String textColor, String additionalStyle) {
@@ -1252,10 +1484,14 @@ public class MeetingController {
 
         Label messageLabel = new Label(text);
         messageLabel.setWrapText(true);
-        messageLabel.setMaxWidth(280);
+        messageLabel.setMaxWidth(380); // Increased max width for better readability
         messageLabel.setStyle(String.format(
-                "-fx-background-color: %s; -fx-text-fill: %s; -fx-padding: 8 12; -fx-background-radius: 12; %s",
+                "-fx-background-color: %s; -fx-text-fill: %s; -fx-padding: 10 15; -fx-background-radius: 15; -fx-font-size: 13px; %s",
                 bgColor, textColor, additionalStyle));
+
+        // Add some spacing between messages
+        VBox.setMargin(messageLabel, new javafx.geometry.Insets(2, 5, 2, 5));
+
         chatBox.getChildren().add(messageLabel);
         scrollToBottom();
     }
@@ -1263,9 +1499,11 @@ public class MeetingController {
     private void scrollToBottom() {
         if (chatScroll == null) return;
 
-        chatScroll.applyCss();
-        chatScroll.layout();
-        chatScroll.setVvalue(1.0);
+        Platform.runLater(() -> {
+            chatScroll.applyCss();
+            chatScroll.layout();
+            chatScroll.setVvalue(1.0);
+        });
     }
 
     // ---------------- Helpers ----------------
@@ -1317,24 +1555,31 @@ public class MeetingController {
 
     @FXML
     protected void onLeaveClick() throws Exception {
+        System.out.println("🚪 Leaving meeting...");
+
         // Stop media player if playing
         if (currentMediaPlayer != null) {
             currentMediaPlayer.stop();
+            currentMediaPlayer = null;
         }
 
         // Stop basic recording if active
         if (recording) {
+            System.out.println("🛑 Stopping basic recording before leaving...");
             stopBasicRecording();
         }
 
         // Stop advanced recording if active
         if (mp4RecordingController != null && mp4RecordingController.isRecording()) {
+            System.out.println("🛑 Stopping advanced recording before leaving...");
             mp4RecordingController.onStopRecording();
+            mp4RecordingController = null;
         }
 
         // Stop meeting timer
         if (meetingTimer != null) {
             meetingTimer.stop();
+            meetingTimer = null;
         }
 
         // Cleanup audio and video resources
@@ -1470,6 +1715,9 @@ public class MeetingController {
                 // Add chat message from other user
                 Platform.runLater(() -> {
                     addUserMessage(username + ": " + content);
+
+                    // Save to database
+                    Database.saveChatMessage(meetingId, username, content, "USER");
                 });
             } else if ("USER_JOINED".equals(type)) {
                 // Update participants list

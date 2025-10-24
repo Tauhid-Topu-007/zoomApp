@@ -423,6 +423,107 @@ public class Database {
     }
 
     /* ==============================
+       CHAT MANAGEMENT - FIXED SCHEMA
+     ============================== */
+    public static boolean saveChatMessage(String meetingId, String username, String message, String messageType) {
+        // First ensure the table exists with correct schema
+        createChatTable();
+
+        String sql = "INSERT INTO chat_messages (meeting_id, username, message, message_type, timestamp) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, meetingId);
+            stmt.setString(2, username);
+            stmt.setString(3, message);
+            stmt.setString(4, messageType); // "USER" or "SYSTEM"
+            stmt.executeUpdate();
+            System.out.println("✅ Chat message saved: " + username + " - " + message);
+            return true;
+        } catch (SQLException e) {
+            System.err.println("❌ saveChatMessage error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public static List<ChatMessage> getChatMessages(String meetingId) {
+        // First ensure the table exists with correct schema
+        createChatTable();
+
+        List<ChatMessage> messages = new ArrayList<>();
+        String sql = "SELECT username, message, message_type, timestamp FROM chat_messages WHERE meeting_id = ? ORDER BY timestamp ASC";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, meetingId);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                messages.add(new ChatMessage(
+                        rs.getString("username"),
+                        rs.getString("message"),
+                        rs.getString("message_type"),
+                        rs.getTimestamp("timestamp")
+                ));
+            }
+            System.out.println("✅ Loaded " + messages.size() + " chat messages for meeting: " + meetingId);
+        } catch (SQLException e) {
+            System.err.println("❌ getChatMessages error: " + e.getMessage());
+        }
+        return messages;
+    }
+
+    /**
+     * FIXED: Corrected chat table schema with username column
+     */
+    private static void createChatTable() {
+        String sql = "CREATE TABLE IF NOT EXISTS chat_messages (" +
+                "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                "meeting_id VARCHAR(50) NOT NULL, " +
+                "username VARCHAR(50) NOT NULL, " +  // ✅ FIXED: Added username column
+                "message TEXT NOT NULL, " +
+                "message_type VARCHAR(10) NOT NULL, " + // USER or SYSTEM
+                "timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "INDEX idx_meeting_id (meeting_id)" +
+                ")";
+        try (Connection conn = getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute(sql);
+            System.out.println("✅ Chat messages table created/verified successfully");
+
+            // Check if we need to alter table to add username column (for existing tables)
+            try {
+                DatabaseMetaData metaData = conn.getMetaData();
+                ResultSet columns = metaData.getColumns(null, null, "chat_messages", "username");
+                if (!columns.next()) {
+                    // username column doesn't exist, add it
+                    String alterSql = "ALTER TABLE chat_messages ADD COLUMN username VARCHAR(50) NOT NULL DEFAULT 'Unknown'";
+                    stmt.execute(alterSql);
+                    System.out.println("✅ Added username column to existing chat_messages table");
+                }
+            } catch (SQLException e) {
+                System.err.println("⚠️ Error checking/adding username column: " + e.getMessage());
+            }
+
+        } catch (SQLException e) {
+            System.err.println("❌ createChatTable error: " + e.getMessage());
+        }
+    }
+
+    public static boolean clearChatMessages(String meetingId) {
+        createChatTable(); // Ensure table exists
+
+        String sql = "DELETE FROM chat_messages WHERE meeting_id = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, meetingId);
+            int rowsDeleted = stmt.executeUpdate();
+            System.out.println("✅ Cleared " + rowsDeleted + " chat messages for meeting: " + meetingId);
+            return rowsDeleted > 0;
+        } catch (SQLException e) {
+            System.err.println("❌ clearChatMessages error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /* ==============================
        CLASSES (POJOs)
      ============================== */
     public static class Contact {
@@ -476,6 +577,30 @@ public class Database {
         }
     }
 
+    public static class ChatMessage {
+        private String username;
+        private String message;
+        private String messageType;
+        private Timestamp timestamp;
+
+        public ChatMessage(String username, String message, String messageType, Timestamp timestamp) {
+            this.username = username;
+            this.message = message;
+            this.messageType = messageType;
+            this.timestamp = timestamp;
+        }
+
+        public String getUsername() { return username; }
+        public String getMessage() { return message; }
+        public String getMessageType() { return messageType; }
+        public Timestamp getTimestamp() { return timestamp; }
+
+        @Override
+        public String toString() {
+            return "[" + timestamp + "] " + username + ": " + message;
+        }
+    }
+
     /* ==============================
        DATABASE INITIALIZATION
      ============================== */
@@ -514,6 +639,9 @@ public class Database {
 
             // Add description column to meetings table if it doesn't exist
             addDescriptionColumnToMeetings();
+
+            // Create chat table with correct schema
+            createChatTable();
 
             System.out.println("✅ Database tables initialized successfully");
 
@@ -579,6 +707,15 @@ public class Database {
         // Fetch meetings with description
         List<ScheduleController.Meeting> meetings = getMeetingsWithDescription("testuser");
         meetings.forEach(m -> System.out.println("📅 " + m.getTitle() + " - " + m.getDescription()));
+
+        // Test chat functionality
+        if (saveChatMessage("TEST123", "testuser", "Hello everyone!", "USER")) {
+            System.out.println("✅ Chat message saved!");
+        }
+
+        // Fetch chat messages
+        List<ChatMessage> chatMessages = getChatMessages("TEST123");
+        chatMessages.forEach(m -> System.out.println("💬 " + m));
     }
 
     // Get single contact by ID
