@@ -524,6 +524,81 @@ public class Database {
     }
 
     /* ==============================
+       PARTICIPANT MANAGEMENT
+     ============================== */
+    public static boolean addParticipant(String meetingId, String username) {
+        createParticipantsTable();
+
+        String sql = "INSERT INTO meeting_participants (meeting_id, username, joined_at) VALUES (?, ?, CURRENT_TIMESTAMP) " +
+                "ON DUPLICATE KEY UPDATE joined_at = CURRENT_TIMESTAMP";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, meetingId);
+            stmt.setString(2, username);
+            stmt.executeUpdate();
+            System.out.println("✅ Participant added: " + username + " to meeting: " + meetingId);
+            return true;
+        } catch (SQLException e) {
+            System.err.println("❌ addParticipant error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public static boolean removeParticipant(String meetingId, String username) {
+        createParticipantsTable();
+
+        String sql = "DELETE FROM meeting_participants WHERE meeting_id = ? AND username = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, meetingId);
+            stmt.setString(2, username);
+            boolean result = stmt.executeUpdate() > 0;
+            System.out.println("✅ Participant removed: " + username + " from meeting: " + meetingId);
+            return result;
+        } catch (SQLException e) {
+            System.err.println("❌ removeParticipant error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public static List<String> getParticipants(String meetingId) {
+        createParticipantsTable();
+
+        List<String> participants = new ArrayList<>();
+        String sql = "SELECT username FROM meeting_participants WHERE meeting_id = ? ORDER BY joined_at ASC";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, meetingId);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                participants.add(rs.getString("username"));
+            }
+            System.out.println("✅ Loaded " + participants.size() + " participants for meeting: " + meetingId);
+        } catch (SQLException e) {
+            System.err.println("❌ getParticipants error: " + e.getMessage());
+        }
+        return participants;
+    }
+
+    private static void createParticipantsTable() {
+        String sql = "CREATE TABLE IF NOT EXISTS meeting_participants (" +
+                "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                "meeting_id VARCHAR(50) NOT NULL, " +
+                "username VARCHAR(50) NOT NULL, " +
+                "joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "UNIQUE KEY unique_participant (meeting_id, username), " +
+                "INDEX idx_meeting_id (meeting_id)" +
+                ")";
+        try (Connection conn = getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute(sql);
+            System.out.println("✅ Meeting participants table created/verified successfully");
+        } catch (SQLException e) {
+            System.err.println("❌ createParticipantsTable error: " + e.getMessage());
+        }
+    }
+
+    /* ==============================
        CLASSES (POJOs)
      ============================== */
     public static class Contact {
@@ -622,6 +697,16 @@ public class Database {
                         "preference_key VARCHAR(50) NOT NULL, " +
                         "preference_value TEXT, " +
                         "PRIMARY KEY (username, preference_key)" +
+                        ")",
+
+                // Meeting participants table
+                "CREATE TABLE IF NOT EXISTS meeting_participants (" +
+                        "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                        "meeting_id VARCHAR(50) NOT NULL, " +
+                        "username VARCHAR(50) NOT NULL, " +
+                        "joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                        "UNIQUE KEY unique_participant (meeting_id, username), " +
+                        "INDEX idx_meeting_id (meeting_id)" +
                         ")"
         };
 
@@ -716,6 +801,15 @@ public class Database {
         // Fetch chat messages
         List<ChatMessage> chatMessages = getChatMessages("TEST123");
         chatMessages.forEach(m -> System.out.println("💬 " + m));
+
+        // Test participant functionality
+        if (addParticipant("TEST123", "participant1")) {
+            System.out.println("✅ Participant added!");
+        }
+
+        // Fetch participants
+        List<String> participants = getParticipants("TEST123");
+        participants.forEach(p -> System.out.println("👥 " + p));
     }
 
     // Get single contact by ID

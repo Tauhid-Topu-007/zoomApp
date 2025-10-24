@@ -240,11 +240,11 @@ public class HelloApplication extends Application {
 
             switch (type) {
                 case "USER_JOINED":
-                    addParticipant(username);
+                    addParticipantToMeeting(meetingId, username);
                     updateMeetingParticipants(meetingId, username, true);
                     break;
                 case "USER_LEFT":
-                    activeParticipants.remove(username);
+                    removeParticipantFromMeeting(meetingId, username);
                     updateMeetingParticipants(meetingId, username, false);
                     break;
                 case "MEETING_CREATED":
@@ -413,8 +413,8 @@ public class HelloApplication extends Application {
         setActiveMeetingId(meetingId);
         setMeetingHost(true);
 
-        // Add host as first participant
-        addParticipant(hostName);
+        // Add host as first participant to database
+        addParticipantToMeeting(meetingId, hostName);
 
         // Notify via WebSocket
         if (isWebSocketConnected()) {
@@ -440,8 +440,8 @@ public class HelloApplication extends Application {
         setActiveMeetingId(meetingId);
         setMeetingHost(false);
 
-        // Add participant
-        addParticipant(participantName);
+        // Add participant to database
+        addParticipantToMeeting(meetingId, participantName);
 
         // Notify via WebSocket
         if (isWebSocketConnected()) {
@@ -480,6 +480,9 @@ public class HelloApplication extends Application {
     // Leave current meeting
     public static void leaveCurrentMeeting() {
         if (activeMeetingId != null && loggedInUser != null) {
+            // Remove from database participants
+            removeParticipantFromMeeting(activeMeetingId, loggedInUser);
+
             // Notify via WebSocket
             if (isWebSocketConnected()) {
                 sendWebSocketMessage("USER_LEFT", activeMeetingId, loggedInUser + " left the meeting");
@@ -590,6 +593,28 @@ public class HelloApplication extends Application {
         if (activeParticipants.remove(name)) {
             System.out.println("👥 Participant removed: " + name);
         }
+    }
+
+    // Database participant management
+    public static void addParticipantToMeeting(String meetingId, String username) {
+        if (meetingId != null && username != null) {
+            Database.addParticipant(meetingId, username);
+            addParticipant(username);
+        }
+    }
+
+    public static void removeParticipantFromMeeting(String meetingId, String username) {
+        if (meetingId != null && username != null) {
+            Database.removeParticipant(meetingId, username);
+            removeParticipant(username);
+        }
+    }
+
+    public static List<String> getMeetingParticipants(String meetingId) {
+        if (meetingId != null) {
+            return Database.getParticipants(meetingId);
+        }
+        return new ArrayList<>();
     }
 
     // Meeting info management

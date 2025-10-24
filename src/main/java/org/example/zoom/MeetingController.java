@@ -825,24 +825,36 @@ public class MeetingController {
         }
     }
 
+    /**
+     * FIXED: Updated to use database participants instead of just active participants
+     */
     private void updateParticipantsList() {
         if (participantsList == null) return;
 
-        participantsList.getItems().clear();
-        participantsList.getItems().addAll(HelloApplication.getActiveParticipants());
+        String meetingId = HelloApplication.getActiveMeetingId();
+        if (meetingId == null) return;
 
-        // Update participants count
-        int count = HelloApplication.getActiveParticipants().size();
-        if (participantsCountLabel != null) {
-            participantsCountLabel.setText("Participants: " + count);
+        // Get actual participants from database
+        List<String> participants = HelloApplication.getMeetingParticipants(meetingId);
+
+        participantsList.getItems().clear();
+
+        if (!participants.isEmpty()) {
+            // Add host indicator to the actual host
+            String hostUsername = HelloApplication.getLoggedInUser();
+            for (String participant : participants) {
+                if (participant.equals(hostUsername) && HelloApplication.isMeetingHost()) {
+                    participantsList.getItems().add("👑 " + participant + " (Host)");
+                } else {
+                    participantsList.getItems().add("👤 " + participant);
+                }
+            }
         }
 
-        // Add host indicator
-        if (!participantsList.getItems().isEmpty() && HelloApplication.isMeetingHost()) {
-            String firstParticipant = participantsList.getItems().get(0);
-            if (!firstParticipant.contains("👑")) {
-                participantsList.getItems().set(0, "👑 " + firstParticipant + " (Host)");
-            }
+        // Update participants count
+        int count = participants.size();
+        if (participantsCountLabel != null) {
+            participantsCountLabel.setText("Participants: " + count);
         }
     }
 
@@ -1306,21 +1318,22 @@ public class MeetingController {
             String username = HelloApplication.getLoggedInUser();
             if (username == null) username = "Me";
 
+            // Use actual username for the message
             addUserMessage(username + ": " + msg);
             chatInput.clear();
 
-            // Save to database
+            // Save to database with correct username
             String meetingId = HelloApplication.getActiveMeetingId();
             if (meetingId != null) {
                 boolean saved = Database.saveChatMessage(meetingId, username, msg, "USER");
                 if (saved) {
-                    System.out.println("✅ Chat message saved to database");
+                    System.out.println("✅ Chat message saved to database for user: " + username);
                 } else {
                     System.err.println("❌ Failed to save chat message to database");
                 }
             }
 
-            // Send via WebSocket if connected
+            // Send via WebSocket with correct username
             if (HelloApplication.isWebSocketConnected() && HelloApplication.getActiveMeetingId() != null) {
                 HelloApplication.sendWebSocketMessage("CHAT", HelloApplication.getActiveMeetingId(), msg);
             }
@@ -1711,37 +1724,43 @@ public class MeetingController {
             String username = parts[2];
             String content = parts[3];
 
-            if ("CHAT".equals(type) && meetingId.equals(HelloApplication.getActiveMeetingId())) {
-                // Add chat message from other user
-                Platform.runLater(() -> {
-                    addUserMessage(username + ": " + content);
-
-                    // Save to database
-                    Database.saveChatMessage(meetingId, username, content, "USER");
-                });
-            } else if ("USER_JOINED".equals(type)) {
-                // Update participants list
-                Platform.runLater(() -> {
-                    updateParticipantsList();
-                    addSystemMessage(username + " joined the meeting");
-                });
-            } else if ("USER_LEFT".equals(type)) {
-                // Update participants list
-                Platform.runLater(() -> {
-                    updateParticipantsList();
-                    addSystemMessage(username + " left the meeting");
-                });
-            } else if ("AUDIO_STATUS".equals(type)) {
-                // Handle audio status updates from other participants
-                Platform.runLater(() -> {
-                    addSystemMessage(username + " " + content);
-                });
-            } else if ("VIDEO_STATUS".equals(type)) {
-                // Handle video status updates from other participants
-                Platform.runLater(() -> {
-                    addSystemMessage(username + " " + content);
-                });
+            if (!meetingId.equals(HelloApplication.getActiveMeetingId())) {
+                return; // Not for this meeting
             }
+
+            Platform.runLater(() -> {
+                switch (type) {
+                    case "CHAT":
+                        // Add chat message from other user with THEIR username
+                        addUserMessage(username + ": " + content);
+
+                        // Save to database with the correct username
+                        Database.saveChatMessage(meetingId, username, content, "USER");
+                        break;
+
+                    case "USER_JOINED":
+                        // Add participant to database and update UI
+                        HelloApplication.addParticipantToMeeting(meetingId, username);
+                        updateParticipantsList();
+                        addSystemMessage(username + " joined the meeting");
+                        break;
+
+                    case "USER_LEFT":
+                        // Remove participant from database and update UI
+                        HelloApplication.removeParticipantFromMeeting(meetingId, username);
+                        updateParticipantsList();
+                        addSystemMessage(username + " left the meeting");
+                        break;
+
+                    case "AUDIO_STATUS":
+                        addSystemMessage(username + " " + content);
+                        break;
+
+                    case "VIDEO_STATUS":
+                        addSystemMessage(username + " " + content);
+                        break;
+                }
+            });
         }
     }
 
