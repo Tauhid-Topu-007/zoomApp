@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.media.MediaView?>
+<?import javafx.geometry.Insets?>
+
+<VBox xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="org.example.zoom.MP4RecordingController" spacing="10" style="-fx-padding: 20;">
+
+    <padding><Insets top="20" right="20" bottom="20" left="20"/></padding>
+
+    <Label text="Advanced MP4 Recording" style="-fx-font-size: 18; -fx-font-weight: bold;"/>
+
+    <!-- Location Settings -->
+    <VBox spacing="5">
+        <Label text="Save Location:" style="-fx-font-weight: bold;"/>
+        <HBox spacing="10">
+            <TextField fx:id="locationField" promptText="Select recording location..." HBox.hgrow="ALWAYS"/>
+            <Button fx:id="browseLocationButton" text="Browse" onAction="#onBrowseLocation"/>
+        </HBox>
+    </VBox>
+
+    <!-- Recording Settings -->
+    <VBox spacing="10">
+        <Label text="Recording Settings:" style="-fx-font-weight: bold;"/>
+
+        <HBox spacing="10">
+            <VBox spacing="5" HBox.hgrow="ALWAYS">
+                <Label text="Resolution:"/>
+                <ComboBox fx:id="resolutionComboBox"/>
+            </VBox>
+
+            <VBox spacing="5" HBox.hgrow="ALWAYS">
+                <Label text="Frame Rate:"/>
+                <ComboBox fx:id="frameRateComboBox"/>
+            </VBox>
+        </HBox>
+
+        <HBox spacing="10">
+            <VBox spacing="5" HBox.hgrow="ALWAYS">
+                <Label text="Quality:"/>
+                <ComboBox fx:id="qualityComboBox"/>
+            </VBox>
+        </HBox>
+
+        <HBox spacing="20">
+            <CheckBox fx:id="recordAudioCheckbox" text="Record Audio"/>
+            <CheckBox fx:id="recordCameraCheckbox" text="Record Camera"/>
+        </HBox>
+    </VBox>
+
+    <!-- Recording Controls -->
+    <HBox spacing="10" alignment="CENTER">
+        <Button fx:id="startRecordButton" text="Start Recording" onAction="#onStartRecording"
+                style="-fx-background-color: #27ae60; -fx-text-fill: white;"/>
+        <Button fx:id="stopRecordButton" text="Stop Recording" onAction="#onStopRecording"
+                style="-fx-background-color: #e74c3c; -fx-text-fill: white;" disable="true"/>
+    </HBox>
+
+    <!-- Recording Status -->
+    <VBox spacing="5">
+        <Label fx:id="statusLabel" text="Ready to record" style="-fx-font-weight: bold;"/>
+        <Label fx:id="timerLabel" text="Recording: 00:00"/>
+        <ProgressBar fx:id="recordingProgress" progress="0"/>
+    </VBox>
+
+    <!-- Preview Section -->
+    <VBox fx:id="previewContainer" spacing="5" visible="false">
+        <Label text="Recording Preview:" style="-fx-font-weight: bold;"/>
+        <MediaView fx:id="recordingPreview"/>
+        <Button fx:id="playRecordingButton" text="Play Recording" onAction="#onPlayRecording"
+                style="-fx-background-color: #3498db; -fx-text-fill: white;" disable="true"/>
+    </VBox>
+
+    <!-- Action Buttons -->
+    <HBox spacing="10" alignment="CENTER">
+        <Button text="Open Folder" onAction="#onOpenFolder"
+                style="-fx-background-color: #95a5a6; -fx-text-fill: white;"/>
+        <Button text="Close" onAction="#onClose"
+                style="-fx-background-color: #7f8c8d; -fx-text-fill: white;"/>
+    </HBox>
+</VBox>

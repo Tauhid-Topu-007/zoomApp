@@ -18,6 +18,20 @@
 
   <dependencies>
 
+    <!-- JavaCV for MP4 recording -->
+    <dependency>
+      <groupId>org.bytedeco</groupId>
+      <artifactId>javacv-platform</artifactId>
+      <version>1.5.9</version>
+    </dependency>
+
+    <!-- FFmpeg binding (includes avcodec, avutil, etc.) -->
+    <dependency>
+      <groupId>org.bytedeco</groupId>
+      <artifactId>ffmpeg-platform</artifactId>
+      <version>6.1-1.5.10</version>
+    </dependency>
+
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-simple</artifactId>

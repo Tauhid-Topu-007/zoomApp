@@ -22,6 +22,7 @@ import javafx.stage.Screen;
 import javafx.fxml.FXMLLoader;
 import javafx.geometry.Pos;
 import javafx.scene.media.AudioClip;
+import javafx.scene.Scene;
 
 import com.github.sarxos.webcam.Webcam;
 import com.github.sarxos.webcam.WebcamPanel;
@@ -94,6 +95,9 @@ public class MeetingController {
     private AudioControlsController audioControlsController;
     private VideoControlsController videoControlsController;
 
+    // Advanced MP4 Recording controller
+    private MP4RecordingController mp4RecordingController;
+
     // Real camera and microphone
     private Webcam webcam;
     private TargetDataLine microphone;
@@ -121,8 +125,13 @@ public class MeetingController {
     private javafx.animation.Timeline meetingTimer;
     private int meetingSeconds = 0;
 
+    // Singleton instance
+    private static MeetingController instance;
+
     @FXML
     public void initialize() {
+        instance = this;
+
         try {
             System.out.println("🎯 Initializing Meeting Controller...");
 
@@ -822,7 +831,10 @@ public class MeetingController {
 
         // Update record button
         if (recordButton != null) {
-            if (recording) {
+            // Check if advanced recording is active
+            boolean isAdvancedRecording = mp4RecordingController != null && mp4RecordingController.isRecording();
+
+            if (isAdvancedRecording || recording) {
                 recordButton.setText("🔴 Stop Recording");
                 recordButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-background-radius: 5;");
             } else {
@@ -974,7 +986,7 @@ public class MeetingController {
         }
     }
 
-    // ---------------- Recording ----------------
+    // ---------------- ADVANCED MP4 RECORDING ----------------
     @FXML
     protected void onToggleRecording() {
         if (!HelloApplication.isMeetingHost()) {
@@ -982,14 +994,79 @@ public class MeetingController {
             return;
         }
 
-        if (!recording) {
-            startRecording();
-        } else {
-            stopRecording();
+        // Check if advanced recording is already active
+        if (mp4RecordingController != null && mp4RecordingController.isRecording()) {
+            // Stop advanced recording
+            openAdvancedRecordingControls();
+            return;
+        }
+
+        // Check if basic recording is active
+        if (recording) {
+            stopBasicRecording();
+            return;
+        }
+
+        // Open advanced recording controls to start new recording
+        openAdvancedRecordingControls();
+    }
+
+    /**
+     * Opens the advanced MP4 recording controls window
+     */
+    private void openAdvancedRecordingControls() {
+        try {
+            FXMLLoader loader = new FXMLLoader(getClass().getResource("recording-controls.fxml"));
+            VBox recordingControls = loader.load();
+
+            // Get the MP4 recording controller
+            mp4RecordingController = loader.getController();
+
+            Stage recordingStage = new Stage();
+            recordingStage.setTitle("Advanced Meeting Recording - MP4");
+            recordingStage.initStyle(StageStyle.DECORATED);
+            recordingStage.setScene(new Scene(recordingControls, 550, 700));
+            recordingStage.setResizable(false);
+
+            // Set the meeting stage as owner
+            if (stage != null) {
+                recordingStage.initOwner(stage);
+            }
+
+            // Close handler to cleanup resources
+            recordingStage.setOnCloseRequest(e -> {
+                if (mp4RecordingController != null && mp4RecordingController.isRecording()) {
+                    mp4RecordingController.onStopRecording();
+                }
+                mp4RecordingController = null;
+                updateButtonStyles(); // Update main UI
+            });
+
+            recordingStage.show();
+
+            // Update main UI button
+            updateButtonStyles();
+
+        } catch (IOException e) {
+            e.printStackTrace();
+            // Fallback to basic recording
+            showAlert("Advanced Recording", "Advanced recording features not available. Using basic recording.");
+            toggleBasicRecording();
         }
     }
 
-    private void startRecording() {
+    /**
+     * Fallback to basic text recording
+     */
+    private void toggleBasicRecording() {
+        if (!recording) {
+            startBasicRecording();
+        } else {
+            stopBasicRecording();
+        }
+    }
+
+    private void startBasicRecording() {
         try {
             String fileName = "Meeting_" + HelloApplication.getActiveMeetingId() + "_" +
                     new SimpleDateFormat("yyyy-MM-dd_HHmmss").format(new Date()) + ".txt";
@@ -1007,7 +1084,7 @@ public class MeetingController {
 
             recording = true;
             updateButtonStyles();
-            addSystemMessage("🔴 Recording started...");
+            addSystemMessage("🔴 Basic recording started...");
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -1015,7 +1092,7 @@ public class MeetingController {
         }
     }
 
-    private void stopRecording() {
+    private void stopBasicRecording() {
         try {
             FileWriter writer = new FileWriter(currentRecordingFile, true);
             writer.write("--- Recording End ---\n");
@@ -1024,7 +1101,7 @@ public class MeetingController {
 
             recording = false;
             updateButtonStyles();
-            addSystemMessage("✅ Recording saved: " + currentRecordingFile.getName());
+            addSystemMessage("✅ Basic recording saved: " + currentRecordingFile.getName());
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -1163,7 +1240,10 @@ public class MeetingController {
         addChatMessage(text, "#3498db", "white", "-fx-alignment: center-right;");
     }
 
-    private void addSystemMessage(String text) {
+    /**
+     * FIXED: Changed from private to public to allow access from MP4RecordingController
+     */
+    public void addSystemMessage(String text) {
         addChatMessage(text, "#2c3e50", "white", "-fx-alignment: center; -fx-font-style: italic;");
     }
 
@@ -1242,9 +1322,14 @@ public class MeetingController {
             currentMediaPlayer.stop();
         }
 
-        // Stop recording if active
+        // Stop basic recording if active
         if (recording) {
-            stopRecording();
+            stopBasicRecording();
+        }
+
+        // Stop advanced recording if active
+        if (mp4RecordingController != null && mp4RecordingController.isRecording()) {
+            mp4RecordingController.onStopRecording();
         }
 
         // Stop meeting timer
@@ -1424,5 +1509,12 @@ public class MeetingController {
      */
     public VideoControlsController getVideoControlsController() {
         return videoControlsController;
+    }
+
+    /**
+     * Singleton instance getter
+     */
+    public static MeetingController getInstance() {
+        return instance;
     }
 }
