@@ -1,5 +1,6 @@
 package org.example.zoom;
 
+import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
@@ -7,6 +8,8 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.Label;
 import javafx.stage.Stage;
 import org.example.zoom.websocket.SimpleWebSocketClient;
+
+import java.util.List;
 
 public class DashboardController implements HelloApplication.ConnectionStatusListener {
 
@@ -51,6 +54,38 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
     public void onConnectionStatusChanged(boolean connected, String status) {
         // Update the connection info when status changes
         updateConnectionInfo();
+    }
+
+    @FXML
+    protected void onNetworkDiagnosticClick() {
+        HelloApplication.showNetworkInfo();
+
+        new Thread(() -> {
+            List<String> servers = HelloApplication.discoverAvailableServers();
+
+            Platform.runLater(() -> {
+                StringBuilder message = new StringBuilder();
+                message.append("🔍 Network Diagnostic Results:\n\n");
+
+                if (servers.isEmpty()) {
+                    message.append("❌ No servers found\n\n");
+                    message.append("Troubleshooting Steps:\n");
+                    message.append("1. Ensure server is running on host computer\n");
+                    message.append("2. Check if both devices are on same WiFi\n");
+                    message.append("3. Disable VPN and firewall temporarily\n");
+                    message.append("4. Use 'Quick Connect' with host IP manually\n");
+                    message.append("5. Restart server and try again");
+                } else {
+                    message.append("✅ Found ").append(servers.size()).append(" server(s):\n");
+                    for (String server : servers) {
+                        message.append("• ").append(server).append("\n");
+                    }
+                    message.append("\nClick 'Quick Connect' to connect to any server above");
+                }
+
+                showPopup("Network Diagnostic", message.toString());
+            });
+        }).start();
     }
 
     @FXML

@@ -16,6 +16,7 @@ import java.util.Enumeration;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Collections;
 
 public class HelloApplication extends Application {
 
@@ -336,14 +337,74 @@ public class HelloApplication extends Application {
         return ips;
     }
 
-    // NEW: Test connection to a specific server
+    // NEW: Enhanced network discovery method
+    public static List<String> discoverAvailableServers() {
+        List<String> availableServers = new ArrayList<>();
+        List<String> localIPs = getLocalIPAddresses();
+
+        System.out.println("🔍 Starting enhanced network discovery...");
+
+        // Always check localhost first
+        if (testConnection("ws://localhost:8887")) {
+            availableServers.add("localhost:8887 (This Computer)");
+        }
+
+        // Check all local IPs and common network ranges
+        List<String> ipsToTest = new ArrayList<>();
+
+        for (String localIp : localIPs) {
+            // Add the local IP itself
+            ipsToTest.add(localIp);
+
+            // Add common IP ranges in the same subnet
+            String baseIp = localIp.substring(0, localIp.lastIndexOf('.') + 1);
+            for (int i = 1; i <= 20; i++) { // Test first 20 IPs
+                String testIp = baseIp + i;
+                if (!testIp.equals(localIp)) {
+                    ipsToTest.add(testIp);
+                }
+            }
+        }
+
+        // Test all IPs in parallel for faster discovery
+        List<Thread> threads = new ArrayList<>();
+        List<String> discoveredServers = Collections.synchronizedList(new ArrayList<>());
+
+        for (String ip : ipsToTest) {
+            Thread thread = new Thread(() -> {
+                String testUrl = "ws://" + ip + ":8887";
+                if (testConnection(testUrl)) {
+                    discoveredServers.add(ip + ":8887");
+                    System.out.println("✅ Found server: " + testUrl);
+                }
+            });
+            thread.start();
+            threads.add(thread);
+        }
+
+        // Wait for all threads to complete
+        for (Thread thread : threads) {
+            try {
+                thread.join(1000); // Wait max 1 second per thread
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        availableServers.addAll(discoveredServers);
+        System.out.println("🎯 Discovery complete. Found " + availableServers.size() + " servers.");
+
+        return availableServers;
+    }
+
+    // NEW: Test connection to a specific server with better timeout handling
     public static boolean testConnection(String serverUrl) {
         try {
             final boolean[] connectionSuccess = {false};
             final Object lock = new Object();
 
             SimpleWebSocketClient testClient = new SimpleWebSocketClient(serverUrl, message -> {
-                if (message.contains("Connected") || message.contains("Welcome")) {
+                if (message.contains("Connected") || message.contains("Welcome") || message.contains("SYSTEM")) {
                     synchronized (lock) {
                         connectionSuccess[0] = true;
                         lock.notifyAll();
@@ -351,10 +412,10 @@ public class HelloApplication extends Application {
                 }
             });
 
-            // Wait for connection result
+            // Wait for connection result with timeout
             synchronized (lock) {
                 try {
-                    lock.wait(3000); // Wait up to 3 seconds
+                    lock.wait(2000); // Wait up to 2 seconds (reduced from 3)
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
@@ -369,35 +430,32 @@ public class HelloApplication extends Application {
         }
     }
 
-    // NEW: Find available servers on the network
-    public static List<String> discoverAvailableServers() {
-        List<String> availableServers = new ArrayList<>();
+    // NEW: Show comprehensive network information
+    public static void showNetworkInfo() {
         List<String> localIPs = getLocalIPAddresses();
+        System.out.println("🌐 NETWORK CONNECTION GUIDE:");
+        System.out.println("=================================");
 
-        System.out.println("🔍 Discovering available servers...");
-
-        // Always check localhost first
-        if (testConnection("ws://localhost:8887")) {
-            availableServers.add("localhost:8887");
-        }
-
-        // Check common IP ranges
-        for (String localIp : localIPs) {
-            String baseIp = localIp.substring(0, localIp.lastIndexOf('.') + 1);
-
-            // Test a few common IPs in the same subnet
-            for (int i = 1; i <= 10; i++) {
-                String testIp = baseIp + i;
-                String testUrl = "ws://" + testIp + ":8887";
-
-                if (!testIp.equals(localIp) && testConnection(testUrl)) {
-                    availableServers.add(testIp + ":8887");
-                    System.out.println("✅ Found server at: " + testUrl);
-                }
+        if (localIPs.isEmpty()) {
+            System.out.println("❌ No network interfaces found!");
+            System.out.println("   Make sure you're connected to WiFi/Ethernet");
+        } else {
+            System.out.println("✅ Your computer's IP addresses:");
+            for (String ip : localIPs) {
+                System.out.println("   📍 " + ip + ":8887");
+            }
+            System.out.println("\n🔗 Other devices should use:");
+            for (String ip : localIPs) {
+                System.out.println("   ws://" + ip + ":8887");
             }
         }
 
-        return availableServers;
+        System.out.println("\n🔧 TROUBLESHOOTING:");
+        System.out.println("   1. Make sure all devices are on same WiFi");
+        System.out.println("   2. Turn off VPN if using one");
+        System.out.println("   3. Check firewall settings");
+        System.out.println("   4. Try different IP addresses from the list above");
+        System.out.println("   5. Ensure server is running on the host computer");
     }
 
     // Handle incoming WebSocket messages
