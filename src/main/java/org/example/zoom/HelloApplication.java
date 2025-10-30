@@ -1,6 +1,7 @@
 package org.example.zoom;
 
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
@@ -23,6 +24,10 @@ public class HelloApplication extends Application {
     private static String serverIp = "localhost";
     private static String serverPort = "8887";
 
+    // Connection status tracking
+    private static boolean connectionInitialized = false;
+    private static ConnectionStatusListener connectionStatusListener;
+
     // Meeting management
     private static final Map<String, MeetingInfo> activeMeetings = new HashMap<>();
     private static boolean isMeetingHost = false;
@@ -38,6 +43,11 @@ public class HelloApplication extends Application {
     private static boolean isRecording = false;
     private static boolean virtualBackgroundEnabled = false;
     private static VideoControlsController videoControlsController;
+
+    // Interface for connection status updates
+    public interface ConnectionStatusListener {
+        void onConnectionStatusChanged(boolean connected, String status);
+    }
 
     @Override
     public void start(Stage stage) throws Exception {
@@ -69,6 +79,13 @@ public class HelloApplication extends Application {
             audioControlsController = (AudioControlsController) controller;
         } else if (controller instanceof VideoControlsController) {
             videoControlsController = (VideoControlsController) controller;
+        } else if (controller instanceof DashboardController) {
+            // DashboardController now implements ConnectionStatusListener
+            // The initialize() method will handle the connection status setup
+            DashboardController dashboardController = (DashboardController) controller;
+            // Register as connection status listener
+            setConnectionStatusListener(dashboardController);
+            System.out.println("✅ Dashboard controller loaded and registered for connection updates");
         }
     }
 
@@ -89,6 +106,9 @@ public class HelloApplication extends Application {
     }
 
     public static void logout() throws Exception {
+        // Remove connection listener before logout
+        setConnectionStatusListener(null);
+
         // Leave current meeting if any
         leaveCurrentMeeting();
 
@@ -102,6 +122,7 @@ public class HelloApplication extends Application {
         activeParticipants.clear();
         activeMeetingId = null;
         isMeetingHost = false;
+        connectionInitialized = false;
 
         // Reset audio state
         audioMuted = false;
@@ -137,21 +158,32 @@ public class HelloApplication extends Application {
         }
     }
 
-    // WebSocket Client Management
+    // WebSocket Client Management - IMPROVED
     private static void initializeWebSocket(String username) {
         String url = getCurrentServerUrl();
         initializeWebSocketWithUrl(url);
     }
 
-    // New method to initialize with specific URL
+    // New method to initialize with specific URL - IMPROVED
     private static void initializeWebSocketWithUrl(String serverUrl) {
         try {
             System.out.println("🎯 Initializing WebSocket connection to: " + serverUrl);
+
+            // Disconnect existing client if any
+            if (webSocketClient != null) {
+                webSocketClient.disconnect();
+                webSocketClient = null;
+            }
 
             webSocketClient = new SimpleWebSocketClient(serverUrl, HelloApplication::handleWebSocketMessage);
             if (loggedInUser != null) {
                 webSocketClient.setCurrentUser(loggedInUser);
             }
+
+            connectionInitialized = true;
+
+            // Start connection monitoring
+            startConnectionMonitoring();
 
         } catch (Exception e) {
             System.err.println("❌ Failed to initialize WebSocket: " + e.getMessage());
@@ -159,26 +191,73 @@ public class HelloApplication extends Application {
         }
     }
 
+    // Start monitoring connection status
+    private static void startConnectionMonitoring() {
+        Thread monitorThread = new Thread(() -> {
+            while (connectionInitialized && loggedInUser != null) {
+                try {
+                    Thread.sleep(3000); // Check every 3 seconds
+
+                    boolean connected = isWebSocketConnected();
+                    String status = connected ? "🟢 Connected" : "🔴 Disconnected";
+
+                    // Notify listener if connection status changed
+                    if (connectionStatusListener != null) {
+                        Platform.runLater(() -> {
+                            connectionStatusListener.onConnectionStatusChanged(connected, status);
+                        });
+                    }
+
+                    // Attempt reconnection if disconnected
+                    if (!connected && webSocketClient != null) {
+                        System.out.println("🔄 Attempting to reconnect...");
+                        webSocketClient.reconnect();
+                    }
+
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        });
+        monitorThread.setDaemon(true);
+        monitorThread.start();
+    }
+
+    // Set connection status listener
+    public static void setConnectionStatusListener(ConnectionStatusListener listener) {
+        connectionStatusListener = listener;
+
+        // Immediately notify of current status
+        if (listener != null) {
+            boolean connected = isWebSocketConnected();
+            String status = connected ? "🟢 Connected" : "🔴 Disconnected";
+            Platform.runLater(() -> {
+                listener.onConnectionStatusChanged(connected, status);
+            });
+        }
+    }
+
     // Handle connection failures gracefully
     public static void handleConnectionFailure(String attemptedUrl) {
         System.err.println("❌ Connection failed to: " + attemptedUrl);
 
-        // Try fallback to localhost if not already trying localhost
-        if (!attemptedUrl.contains("localhost")) {
-            System.out.println("🔄 Falling back to localhost...");
-            initializeWebSocketWithUrl("ws://localhost:8887");
-        } else {
-            // Show connection dialog to user
-            javafx.application.Platform.runLater(() -> {
-                Stage primaryStage = getPrimaryStage();
-                if (primaryStage != null && loggedInUser != null) {
-                    ServerConfigDialog dialog = ServerConfigDialog.showDialog(primaryStage);
-                    if (dialog != null && dialog.isConnected()) {
-                        System.out.println("✅ User configured new server: " + dialog.getServerUrl());
-                    }
+        Platform.runLater(() -> {
+            // Notify listener about connection failure
+            if (connectionStatusListener != null) {
+                connectionStatusListener.onConnectionStatusChanged(false, "🔴 Connection failed");
+            }
+
+            // Show connection dialog to user if they're logged in
+            if (loggedInUser != null && primaryStage != null) {
+                ServerConfigDialog dialog = ServerConfigDialog.showDialog(primaryStage);
+                if (dialog != null && dialog.isConnected()) {
+                    System.out.println("✅ User configured new server: " + dialog.getServerUrl());
+                    // Reinitialize with new server
+                    initializeWebSocketWithUrl(dialog.getServerUrl());
                 }
-            });
-        }
+            }
+        });
     }
 
     public static void setWebSocketClient(SimpleWebSocketClient client) {
@@ -189,7 +268,7 @@ public class HelloApplication extends Application {
         return webSocketClient;
     }
 
-    // Server configuration methods with persistence
+    // Server configuration methods with persistence - IMPROVED
     public static void setServerConfig(String ip, String port) {
         serverIp = ip;
         serverPort = port;
@@ -198,6 +277,11 @@ public class HelloApplication extends Application {
         // Save to database if user is logged in
         if (loggedInUser != null) {
             Database.saveServerConfig(loggedInUser, ip, port);
+        }
+
+        // Reinitialize WebSocket with new configuration
+        if (loggedInUser != null) {
+            initializeWebSocketWithUrl(getCurrentServerUrl());
         }
     }
 
@@ -214,21 +298,29 @@ public class HelloApplication extends Application {
     }
 
     public static void reinitializeWebSocket(String newUrl) {
-        // Disconnect existing client
-        if (webSocketClient != null) {
-            webSocketClient.disconnect();
-            webSocketClient = null;
-        }
-
-        // Create new client
-        if (loggedInUser != null) {
-            initializeWebSocketWithUrl(newUrl);
-        }
+        initializeWebSocketWithUrl(newUrl);
     }
 
     // Handle incoming WebSocket messages
     private static void handleWebSocketMessage(String message) {
         System.out.println("📨 Application received: " + message);
+
+        // Handle connection status messages first
+        if (message.contains("Connected") || message.contains("Welcome")) {
+            System.out.println("✅ WebSocket connection confirmed");
+            if (connectionStatusListener != null) {
+                Platform.runLater(() -> {
+                    connectionStatusListener.onConnectionStatusChanged(true, "🟢 Connected");
+                });
+            }
+        } else if (message.contains("ERROR") || message.contains("Failed")) {
+            System.out.println("❌ WebSocket error received");
+            if (connectionStatusListener != null) {
+                Platform.runLater(() -> {
+                    connectionStatusListener.onConnectionStatusChanged(false, "🔴 Connection error");
+                });
+            }
+        }
 
         // Parse message: "TYPE|MEETING_ID|USERNAME|CONTENT"
         String[] parts = message.split("\\|", 4);
@@ -257,7 +349,6 @@ public class HelloApplication extends Application {
                     handleMeetingValidation(meetingId, content);
                     break;
                 case "CONNECTION_STATUS":
-                    // Handle connection status updates
                     System.out.println("🔗 Connection status: " + content);
                     break;
                 case "AUDIO_STATUS":
@@ -285,7 +376,7 @@ public class HelloApplication extends Application {
 
         // Update UI if audio controls are active
         if (audioControlsController != null) {
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 audioControlsController.updateFromServer(status);
             });
         }
@@ -300,7 +391,7 @@ public class HelloApplication extends Application {
 
         // Update UI if video controls are active
         if (videoControlsController != null) {
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 videoControlsController.updateFromServer(status);
             });
         }
@@ -314,29 +405,24 @@ public class HelloApplication extends Application {
         System.out.println("🔊 Audio control from " + username + ": " + command);
 
         if ("MUTE_ALL".equals(command)) {
-            // Host muted all participants - update local state
             allMuted = true;
             addSystemMessage("Host muted all participants");
 
-            // Update audio controls UI if available
             if (audioControlsController != null) {
-                javafx.application.Platform.runLater(() -> {
+                Platform.runLater(() -> {
                     audioControlsController.syncWithGlobalState();
                 });
             }
         } else if ("UNMUTE_ALL".equals(command)) {
-            // Host unmuted all participants - update local state
             allMuted = false;
             addSystemMessage("Host unmuted all participants");
 
-            // Update audio controls UI if available
             if (audioControlsController != null) {
-                javafx.application.Platform.runLater(() -> {
+                Platform.runLater(() -> {
                     audioControlsController.syncWithGlobalState();
                 });
             }
         } else if ("DEAFEN_ALL".equals(command)) {
-            // Host deafened all participants
             addSystemMessage("Host deafened all participants");
         }
     }
@@ -355,7 +441,6 @@ public class HelloApplication extends Application {
     private static void forwardMessageToCurrentController(String message) {
         try {
             // Get the current controller and forward the message if it's a ChatController
-            // This is a simplified approach - in a real app you'd use a more robust event system
             Scene currentScene = primaryStage.getScene();
             if (currentScene != null && currentScene.getUserData() instanceof ChatController) {
                 ChatController chatController = (ChatController) currentScene.getUserData();
@@ -382,12 +467,12 @@ public class HelloApplication extends Application {
 
         // Notify audio and video controllers about host status change
         if (audioControlsController != null) {
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 audioControlsController.onHostStatusChanged(host);
             });
         }
         if (videoControlsController != null) {
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 videoControlsController.onHostStatusChanged(host);
             });
         }
@@ -465,13 +550,11 @@ public class HelloApplication extends Application {
         }
 
         // For demo purposes, accept any 6-digit meeting ID
-        // In a real application, you would check against a server/database
         return meetingId != null && meetingId.matches("\\d{6}");
     }
 
     // Create a test meeting for quick join functionality
     public static void createMeetingForTesting(String meetingId) {
-        // Create meeting info for testing
         MeetingInfo meetingInfo = new MeetingInfo(meetingId, "TestHost");
         activeMeetings.put(meetingId, meetingInfo);
         System.out.println("🎯 Test meeting created: " + meetingId);
@@ -551,12 +634,12 @@ public class HelloApplication extends Application {
     // Notify controllers about meeting state changes
     private static void notifyControllersMeetingStateChanged(boolean inMeeting) {
         if (audioControlsController != null) {
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 audioControlsController.onMeetingStateChanged(inMeeting);
             });
         }
         if (videoControlsController != null) {
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 videoControlsController.onMeetingStateChanged(inMeeting);
             });
         }
@@ -637,7 +720,6 @@ public class HelloApplication extends Application {
 
     private static void handleMeetingValidation(String meetingId, String status) {
         System.out.println("🔍 Meeting validation for " + meetingId + ": " + status);
-        // Handle validation responses from server
     }
 
     // Utility methods
@@ -649,7 +731,7 @@ public class HelloApplication extends Application {
         return new HashMap<>(activeMeetings);
     }
 
-    // WebSocket utility methods
+    // WebSocket utility methods - IMPROVED
     public static boolean isWebSocketConnected() {
         return webSocketClient != null && webSocketClient.isConnected();
     }
@@ -658,7 +740,7 @@ public class HelloApplication extends Application {
         if (isWebSocketConnected()) {
             return "🟢 Connected to " + getCurrentServerUrl().replace("ws://", "");
         } else {
-            return "🔴 Disconnected";
+            return "🔴 Disconnected from " + getCurrentServerUrl().replace("ws://", "");
         }
     }
 
@@ -670,7 +752,39 @@ public class HelloApplication extends Application {
         }
     }
 
-    // Send message via WebSocket - FIXED METHOD SIGNATURE
+    // Test connection without initializing WebSocket
+    public static boolean testConnection(String serverUrl) {
+        try {
+            final boolean[] connectionSuccess = {false};
+            final Object lock = new Object();
+
+            SimpleWebSocketClient testClient = new SimpleWebSocketClient(serverUrl, message -> {
+                if (message.contains("Connected") || message.contains("Welcome")) {
+                    synchronized (lock) {
+                        connectionSuccess[0] = true;
+                        lock.notifyAll();
+                    }
+                }
+            });
+
+            // Wait for connection result
+            synchronized (lock) {
+                try {
+                    lock.wait(3000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+
+            testClient.disconnect();
+            return connectionSuccess[0];
+
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // Send message via WebSocket
     public static void sendWebSocketMessage(String type, String meetingId, String content) {
         if (webSocketClient != null && webSocketClient.isConnected() && loggedInUser != null) {
             webSocketClient.sendMessage(type, meetingId, loggedInUser, content);
@@ -712,10 +826,6 @@ public class HelloApplication extends Application {
     }
 
     // ==================== AUDIO CONTROLS MANAGEMENT ====================
-
-    /**
-     * Toggle audio mute/unmute state
-     */
     public static void toggleAudio() {
         audioMuted = !audioMuted;
         updateAudioButtonStyles();
@@ -732,17 +842,13 @@ public class HelloApplication extends Application {
             }
         }
 
-        // Update audio controls UI if available
         if (audioControlsController != null) {
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 audioControlsController.syncWithGlobalState();
             });
         }
     }
 
-    /**
-     * Mute all participants (host only)
-     */
     public static void muteAllParticipants() {
         if (!isMeetingHost) {
             addSystemMessage("Only the host can mute all participants");
@@ -763,17 +869,13 @@ public class HelloApplication extends Application {
             }
         }
 
-        // Update audio controls UI if available
         if (audioControlsController != null) {
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 audioControlsController.syncWithGlobalState();
             });
         }
     }
 
-    /**
-     * Toggle deafen state
-     */
     public static void toggleDeafen() {
         isDeafened = !isDeafened;
 
@@ -789,29 +891,21 @@ public class HelloApplication extends Application {
             }
         }
 
-        // Update audio controls UI if available
         if (audioControlsController != null) {
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 audioControlsController.syncWithGlobalState();
             });
         }
     }
 
-    /**
-     * Update audio button styles based on current state
-     */
     private static void updateAudioButtonStyles() {
-        // This would be handled by the AudioControlsController
         if (audioControlsController != null) {
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 audioControlsController.syncWithGlobalState();
             });
         }
     }
 
-    /**
-     * Get current audio state
-     */
     public static boolean isAudioMuted() {
         return audioMuted;
     }
@@ -824,44 +918,28 @@ public class HelloApplication extends Application {
         return allMuted;
     }
 
-    /**
-     * Force mute audio
-     */
     public static void muteAudio() {
         if (!audioMuted) {
             toggleAudio();
         }
     }
 
-    /**
-     * Force unmute audio
-     */
     public static void unmuteAudio() {
         if (audioMuted) {
             toggleAudio();
         }
     }
 
-    /**
-     * Set audio controls controller reference
-     */
     public static void setAudioControlsController(AudioControlsController controller) {
         audioControlsController = controller;
         System.out.println("🔊 Audio controls controller registered");
     }
 
-    /**
-     * Get audio controls controller
-     */
     public static AudioControlsController getAudioControlsController() {
         return audioControlsController;
     }
 
     // ==================== VIDEO CONTROLS MANAGEMENT ====================
-
-    /**
-     * Toggle video on/off state
-     */
     public static void toggleVideo() {
         videoOn = !videoOn;
 
@@ -877,17 +955,13 @@ public class HelloApplication extends Application {
             }
         }
 
-        // Update video controls UI if available
         if (videoControlsController != null) {
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 videoControlsController.syncWithGlobalState();
             });
         }
     }
 
-    /**
-     * Toggle recording state
-     */
     public static void toggleRecording() {
         isRecording = !isRecording;
 
@@ -903,38 +977,25 @@ public class HelloApplication extends Application {
             }
         }
 
-        // Update video controls UI if available
         if (videoControlsController != null) {
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 videoControlsController.syncWithGlobalState();
             });
         }
     }
 
-    /**
-     * Get current video state
-     */
     public static boolean isVideoOn() {
         return videoOn;
     }
 
-    /**
-     * Get current recording state
-     */
     public static boolean isRecording() {
         return isRecording;
     }
 
-    /**
-     * Get virtual background state
-     */
     public static boolean isVirtualBackgroundEnabled() {
         return virtualBackgroundEnabled;
     }
 
-    /**
-     * Set virtual background state
-     */
     public static void setVirtualBackgroundEnabled(boolean enabled) {
         virtualBackgroundEnabled = enabled;
 
@@ -945,53 +1006,35 @@ public class HelloApplication extends Application {
         }
     }
 
-    /**
-     * Start video
-     */
     public static void startVideo() {
         if (!videoOn) {
             toggleVideo();
         }
     }
 
-    /**
-     * Stop video
-     */
     public static void stopVideo() {
         if (videoOn) {
             toggleVideo();
         }
     }
 
-    /**
-     * Start recording
-     */
     public static void startRecording() {
         if (!isRecording) {
             toggleRecording();
         }
     }
 
-    /**
-     * Stop recording
-     */
     public static void stopRecording() {
         if (isRecording) {
             toggleRecording();
         }
     }
 
-    /**
-     * Set video controls controller reference
-     */
     public static void setVideoControlsController(VideoControlsController controller) {
         videoControlsController = controller;
         System.out.println("🎥 Video controls controller registered");
     }
 
-    /**
-     * Get video controls controller
-     */
     public static VideoControlsController getVideoControlsController() {
         return videoControlsController;
     }
@@ -1001,12 +1044,6 @@ public class HelloApplication extends Application {
      */
     public static void addSystemMessage(String message) {
         System.out.println("🔊 System: " + message);
-
-        // In a real application, you would add this to your chat system
-        // For now, we'll just log it and you can integrate with your existing messaging system
-
-        // If you have a main chat controller, you could forward this message
-        // ChatController.addSystemMessage(message);
     }
 
     @Override
@@ -1031,6 +1068,8 @@ public class HelloApplication extends Application {
         if (loggedInUser != null) {
             Database.saveServerConfig(loggedInUser, serverIp, serverPort);
         }
+
+        connectionInitialized = false;
 
         super.stop();
     }

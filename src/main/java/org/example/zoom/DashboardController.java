@@ -8,7 +8,7 @@ import javafx.scene.control.Label;
 import javafx.stage.Stage;
 import org.example.zoom.websocket.SimpleWebSocketClient;
 
-public class DashboardController {
+public class DashboardController implements HelloApplication.ConnectionStatusListener {
 
     @FXML
     private Label welcomeLabel;
@@ -22,10 +22,42 @@ public class DashboardController {
         String user = HelloApplication.getLoggedInUser();
         if (user != null) {
             welcomeLabel.setText("Welcome, " + user + " 👋");
-            // WebSocket is now initialized automatically in HelloApplication.setLoggedInUser()
-            // So we don't need to initialize it here anymore
-            checkWebSocketStatus();
+
+            // Register as connection status listener
+            HelloApplication.setConnectionStatusListener(this);
+
+            // Update connection info immediately
             updateConnectionInfo();
+        }
+    }
+
+    // Make this method public so HelloApplication can call it
+    public void updateConnectionInfo() {
+        if (connectionInfoLabel != null) {
+            String status = getConnectionStatus();
+            String serverUrl = HelloApplication.getCurrentServerUrl();
+
+            connectionInfoLabel.setText(status + " | " + serverUrl.replace("ws://", ""));
+
+            if (isWebSocketConnected()) {
+                connectionInfoLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-size: 12; -fx-font-weight: bold;");
+            } else {
+                connectionInfoLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-size: 12; -fx-font-weight: bold;");
+            }
+        }
+    }
+
+    // Implement ConnectionStatusListener interface
+    @Override
+    public void onConnectionStatusChanged(boolean connected, String status) {
+        // Update the connection info when status changes
+        updateConnectionInfo();
+
+        // Optional: Show notification for connection changes
+        if (connected) {
+            System.out.println("✅ Connection established from dashboard");
+        } else {
+            System.out.println("❌ Connection lost from dashboard");
         }
     }
 
@@ -34,18 +66,6 @@ public class DashboardController {
             System.out.println("✅ WebSocket connected successfully");
         } else {
             System.out.println("⚠️ WebSocket not connected - using local mode");
-        }
-    }
-
-    private void updateConnectionInfo() {
-        String status = HelloApplication.getConnectionStatus();
-        String serverUrl = HelloApplication.getCurrentServerUrl();
-        connectionInfoLabel.setText(status + " | " + serverUrl);
-
-        if (HelloApplication.isWebSocketConnected()) {
-            connectionInfoLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-size: 12;");
-        } else {
-            connectionInfoLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-size: 12;");
         }
     }
 
@@ -189,7 +209,22 @@ public class DashboardController {
     }
 
     @FXML
+    protected void onTestConnectionClick() {
+        // Test the current connection
+        SimpleWebSocketClient client = HelloApplication.getWebSocketClient();
+        if (client != null && client.isConnected()) {
+            showPopup("Connection Status", "🟢 Connected to server: " + HelloApplication.getCurrentServerUrl());
+        } else {
+            showPopup("Connection Status", "🔴 Not connected to server. Please check your connection settings.");
+        }
+        updateConnectionInfo();
+    }
+
+    @FXML
     protected void onLogoutClick() throws Exception {
+        // Remove connection listener before logout
+        HelloApplication.setConnectionStatusListener(null);
+
         // Disconnect WebSocket before logging out
         SimpleWebSocketClient client = HelloApplication.getWebSocketClient();
         if (client != null) {

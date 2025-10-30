@@ -53,7 +53,32 @@ public class SimpleWebSocketClient implements Listener {
         }
     }
 
-    // ✅ Setter for username (fix for your error)
+    // ✅ NEW: Reconnect method
+    public void reconnect() {
+        System.out.println("🔄 Attempting to reconnect to: " + serverUrl);
+
+        // Clean up existing connection
+        if (webSocket != null) {
+            try {
+                webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "Reconnecting");
+            } catch (Exception e) {
+                // Ignore errors during close
+            }
+            webSocket = null;
+        }
+
+        connected = false;
+
+        // Attempt new connection
+        try {
+            Thread.sleep(1000); // Wait 1 second before reconnecting
+            connect();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    // ✅ Setter for username
     public void setCurrentUser(String username) {
         this.currentUser = username;
     }
@@ -63,29 +88,41 @@ public class SimpleWebSocketClient implements Listener {
         if (webSocket != null && connected) {
             String message = type + "|" + meetingId + "|" + username + "|" + content;
             webSocket.sendText(message, true);
+            System.out.println("📤 Sent: " + message);
         } else {
             if (messageHandler != null) {
                 messageHandler.accept("SYSTEM|global|Server|⚠️ Not connected to server");
             }
+            System.err.println("❌ Cannot send message - WebSocket not connected");
         }
     }
 
     // ✅ Disconnect cleanly
     public void disconnect() {
-        if (webSocket != null) {
-            webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "Goodbye")
-                    .thenRun(() -> {
-                        if (messageHandler != null) {
-                            messageHandler.accept("SYSTEM|global|Server|🔴 Disconnected");
-                        }
-                    });
-        }
         connected = false;
+        if (webSocket != null) {
+            try {
+                webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "Goodbye")
+                        .thenRun(() -> {
+                            if (messageHandler != null) {
+                                messageHandler.accept("SYSTEM|global|Server|🔴 Disconnected");
+                            }
+                        });
+            } catch (Exception e) {
+                System.err.println("Error during disconnect: " + e.getMessage());
+            }
+            webSocket = null;
+        }
     }
 
     // ✅ Connection status
     public boolean isConnected() {
-        return connected;
+        return connected && webSocket != null;
+    }
+
+    // ✅ Get server URL
+    public String getServerUrl() {
+        return serverUrl;
     }
 
     // ✅ WebSocket event handlers
@@ -93,6 +130,7 @@ public class SimpleWebSocketClient implements Listener {
     public void onOpen(WebSocket webSocket) {
         Listener.super.onOpen(webSocket);
         connected = true;
+        System.out.println("✅ WebSocket connection opened: " + serverUrl);
         if (messageHandler != null) {
             messageHandler.accept("SYSTEM|global|Server|Connected to WebSocket server");
         }
@@ -100,8 +138,10 @@ public class SimpleWebSocketClient implements Listener {
 
     @Override
     public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+        String message = data.toString();
+        System.out.println("📨 Received: " + message);
         if (messageHandler != null) {
-            messageHandler.accept(data.toString());
+            messageHandler.accept(message);
         }
         return Listener.super.onText(webSocket, data, last);
     }
@@ -109,6 +149,7 @@ public class SimpleWebSocketClient implements Listener {
     @Override
     public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
         connected = false;
+        System.out.println("🔴 WebSocket connection closed: " + reason + " (code: " + statusCode + ")");
         if (messageHandler != null) {
             messageHandler.accept("SYSTEM|global|Server|🔴 Connection closed: " + reason);
         }
@@ -118,6 +159,7 @@ public class SimpleWebSocketClient implements Listener {
     @Override
     public void onError(WebSocket webSocket, Throwable error) {
         connected = false;
+        System.err.println("❌ WebSocket error: " + error.getMessage());
         if (messageHandler != null) {
             messageHandler.accept("SYSTEM|global|Server|⚠️ Error: " + error.getMessage());
         }

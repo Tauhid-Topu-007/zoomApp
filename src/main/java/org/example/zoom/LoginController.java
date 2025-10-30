@@ -22,6 +22,8 @@ public class LoginController {
     @FXML
     private CheckBox rememberMe;
 
+    private SimpleWebSocketClient testClient;
+
     @FXML
     public void initialize() {
         // Update connection status when the login screen loads
@@ -76,34 +78,85 @@ public class LoginController {
             clearSavedCredentials();
         }
 
-        showSuccessMessage("✅ Login successful! Redirecting...");
+        showSuccessMessage("✅ Login successful! Connecting to server...");
 
         try {
-            // Store logged in user globally - this will initialize WebSocket
-            HelloApplication.setLoggedInUser(username);
-
-            // Small delay to show success message
-            new Thread(() -> {
-                try {
-                    Thread.sleep(1000); // 1 second delay
-                    Platform.runLater(() -> {
-                        try {
-                            // Navigate to dashboard
-                            HelloApplication.setRoot("dashboard-view.fxml");
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                            showErrorMessage("❌ Failed to load dashboard: " + e.getMessage());
-                        }
-                    });
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }).start();
+            // Initialize WebSocket connection BEFORE setting the logged-in user
+            initializeWebSocketConnection(username);
 
         } catch (Exception e) {
             e.printStackTrace();
             showErrorMessage("❌ Login error: " + e.getMessage());
         }
+    }
+
+    private void initializeWebSocketConnection(String username) {
+        new Thread(() -> {
+            try {
+                // Get current server configuration
+                String serverUrl = HelloApplication.getCurrentServerUrl();
+                System.out.println("🔗 Initializing WebSocket connection to: " + serverUrl);
+
+                // Create and initialize WebSocket client
+                SimpleWebSocketClient client = new SimpleWebSocketClient(serverUrl, message -> {
+                    System.out.println("📨 WebSocket message during login: " + message);
+
+                    Platform.runLater(() -> {
+                        if (message.contains("Connected") || message.contains("Welcome")) {
+                            // Connection successful - complete login process
+                            completeLoginProcess(username);
+                        } else if (message.contains("ERROR") || message.contains("Failed")) {
+                            // Connection failed but allow login in offline mode
+                            showErrorMessage("⚠️ Server connection failed, but you can continue in offline mode");
+                            completeLoginProcess(username);
+                        }
+                    });
+                });
+
+                // Wait for connection with timeout
+                Thread.sleep(2000); // Wait 2 seconds for connection
+
+                Platform.runLater(() -> {
+                    if (client.isConnected()) {
+                        showSuccessMessage("✅ Connected to server! Redirecting...");
+                    } else {
+                        showErrorMessage("⚠️ Cannot connect to server, but you can continue in offline mode");
+                    }
+                    // Complete login regardless of connection status
+                    completeLoginProcess(username);
+                });
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                Platform.runLater(() -> {
+                    showErrorMessage("⚠️ Server connection issue, but you can continue in offline mode");
+                    completeLoginProcess(username);
+                });
+            }
+        }).start();
+    }
+
+    private void completeLoginProcess(String username) {
+        // Store logged in user globally - this maintains the WebSocket connection
+        HelloApplication.setLoggedInUser(username);
+
+        // Small delay to show success message
+        new Thread(() -> {
+            try {
+                Thread.sleep(1000); // 1 second delay
+                Platform.runLater(() -> {
+                    try {
+                        // Navigate to dashboard
+                        HelloApplication.setRoot("dashboard-view.fxml");
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        showErrorMessage("❌ Failed to load dashboard: " + e.getMessage());
+                    }
+                });
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).start();
     }
 
     private void handleFailedLogin() {
@@ -380,14 +433,53 @@ public class LoginController {
     private void updateConnectionStatus() {
         if (connectionStatusLabel != null && serverInfoLabel != null) {
             String serverUrl = HelloApplication.getCurrentServerUrl();
+            boolean isConnected = testConnectionQuick();
 
-            // For login screen, we can't use HelloApplication.isWebSocketConnected()
-            // because WebSocket isn't initialized until after login
-            // So we'll just show the configured server
-            connectionStatusLabel.setText("⚙️ Configured");
-            connectionStatusLabel.setStyle("-fx-text-fill: #f39c12; -fx-font-weight: bold;");
+            if (isConnected) {
+                connectionStatusLabel.setText("🟢 Connected");
+                connectionStatusLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-weight: bold;");
+            } else {
+                connectionStatusLabel.setText("🔴 Disconnected");
+                connectionStatusLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-weight: bold;");
+            }
 
             serverInfoLabel.setText(serverUrl.replace("ws://", ""));
+        }
+    }
+
+    private boolean testConnectionQuick() {
+        try {
+            String testUrl = HelloApplication.getCurrentServerUrl();
+            final boolean[] connectionSuccess = {false};
+            final Object lock = new Object();
+
+            // Create a temporary test client
+            SimpleWebSocketClient testClient = new SimpleWebSocketClient(testUrl, message -> {
+                System.out.println("Quick test received: " + message);
+                if (message.contains("Connected") || message.contains("Welcome")) {
+                    synchronized (lock) {
+                        connectionSuccess[0] = true;
+                        lock.notifyAll();
+                    }
+                }
+            });
+
+            // Wait for connection result
+            synchronized (lock) {
+                try {
+                    lock.wait(2000); // Wait up to 2 seconds
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+
+            // Disconnect the test client
+            testClient.disconnect();
+            return connectionSuccess[0];
+
+        } catch (Exception e) {
+            System.err.println("Quick connection test failed: " + e.getMessage());
+            return false;
         }
     }
 
