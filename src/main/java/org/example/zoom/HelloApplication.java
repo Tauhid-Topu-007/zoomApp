@@ -7,9 +7,14 @@ import javafx.scene.Scene;
 import javafx.stage.Stage;
 import org.example.zoom.websocket.SimpleWebSocketClient;
 
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Enumeration;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 
 public class HelloApplication extends Application {
@@ -81,7 +86,6 @@ public class HelloApplication extends Application {
             videoControlsController = (VideoControlsController) controller;
         } else if (controller instanceof DashboardController) {
             // DashboardController now implements ConnectionStatusListener
-            // The initialize() method will handle the connection status setup
             DashboardController dashboardController = (DashboardController) controller;
             // Register as connection status listener
             setConnectionStatusListener(dashboardController);
@@ -211,7 +215,12 @@ public class HelloApplication extends Application {
                     // Attempt reconnection if disconnected
                     if (!connected && webSocketClient != null) {
                         System.out.println("🔄 Attempting to reconnect...");
-                        webSocketClient.reconnect();
+                        try {
+                            // Create new connection
+                            initializeWebSocketWithUrl(getCurrentServerUrl());
+                        } catch (Exception e) {
+                            System.err.println("❌ Reconnection failed: " + e.getMessage());
+                        }
                     }
 
                 } catch (InterruptedException e) {
@@ -299,6 +308,96 @@ public class HelloApplication extends Application {
 
     public static void reinitializeWebSocket(String newUrl) {
         initializeWebSocketWithUrl(newUrl);
+    }
+
+    // NEW: Get all local IP addresses for network discovery
+    public static List<String> getLocalIPAddresses() {
+        List<String> ips = new ArrayList<>();
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface iface = interfaces.nextElement();
+                if (iface.isLoopback() || !iface.isUp()) continue;
+
+                Enumeration<InetAddress> addresses = iface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress addr = addresses.nextElement();
+                    if (addr instanceof Inet4Address) {
+                        String ip = addr.getHostAddress();
+                        if (!ip.startsWith("127.") && !ip.startsWith("169.254.")) {
+                            ips.add(ip);
+                        }
+                    }
+                }
+            }
+        } catch (SocketException e) {
+            System.err.println("❌ Error getting network interfaces: " + e.getMessage());
+        }
+        return ips;
+    }
+
+    // NEW: Test connection to a specific server
+    public static boolean testConnection(String serverUrl) {
+        try {
+            final boolean[] connectionSuccess = {false};
+            final Object lock = new Object();
+
+            SimpleWebSocketClient testClient = new SimpleWebSocketClient(serverUrl, message -> {
+                if (message.contains("Connected") || message.contains("Welcome")) {
+                    synchronized (lock) {
+                        connectionSuccess[0] = true;
+                        lock.notifyAll();
+                    }
+                }
+            });
+
+            // Wait for connection result
+            synchronized (lock) {
+                try {
+                    lock.wait(3000); // Wait up to 3 seconds
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+
+            testClient.disconnect();
+            return connectionSuccess[0];
+
+        } catch (Exception e) {
+            System.err.println("❌ Connection test failed for " + serverUrl + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    // NEW: Find available servers on the network
+    public static List<String> discoverAvailableServers() {
+        List<String> availableServers = new ArrayList<>();
+        List<String> localIPs = getLocalIPAddresses();
+
+        System.out.println("🔍 Discovering available servers...");
+
+        // Always check localhost first
+        if (testConnection("ws://localhost:8887")) {
+            availableServers.add("localhost:8887");
+        }
+
+        // Check common IP ranges
+        for (String localIp : localIPs) {
+            String baseIp = localIp.substring(0, localIp.lastIndexOf('.') + 1);
+
+            // Test a few common IPs in the same subnet
+            for (int i = 1; i <= 10; i++) {
+                String testIp = baseIp + i;
+                String testUrl = "ws://" + testIp + ":8887";
+
+                if (!testIp.equals(localIp) && testConnection(testUrl)) {
+                    availableServers.add(testIp + ":8887");
+                    System.out.println("✅ Found server at: " + testUrl);
+                }
+            }
+        }
+
+        return availableServers;
     }
 
     // Handle incoming WebSocket messages
@@ -749,38 +848,6 @@ public class HelloApplication extends Application {
             return "🟢 Connected";
         } else {
             return "🔴 Disconnected";
-        }
-    }
-
-    // Test connection without initializing WebSocket
-    public static boolean testConnection(String serverUrl) {
-        try {
-            final boolean[] connectionSuccess = {false};
-            final Object lock = new Object();
-
-            SimpleWebSocketClient testClient = new SimpleWebSocketClient(serverUrl, message -> {
-                if (message.contains("Connected") || message.contains("Welcome")) {
-                    synchronized (lock) {
-                        connectionSuccess[0] = true;
-                        lock.notifyAll();
-                    }
-                }
-            });
-
-            // Wait for connection result
-            synchronized (lock) {
-                try {
-                    lock.wait(3000);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-
-            testClient.disconnect();
-            return connectionSuccess[0];
-
-        } catch (Exception e) {
-            return false;
         }
     }
 

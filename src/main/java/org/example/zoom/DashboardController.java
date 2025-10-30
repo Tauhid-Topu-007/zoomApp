@@ -21,7 +21,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         // Always pull the logged-in user from HelloApplication
         String user = HelloApplication.getLoggedInUser();
         if (user != null) {
-            welcomeLabel.setText("Welcome, " + user + " 👋");
+            welcomeLabel.setText("Welcome, " + user + "!");
 
             // Register as connection status listener
             HelloApplication.setConnectionStatusListener(this);
@@ -31,7 +31,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         }
     }
 
-    // Make this method public so HelloApplication can call it
     public void updateConnectionInfo() {
         if (connectionInfoLabel != null) {
             String status = getConnectionStatus();
@@ -40,9 +39,9 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
             connectionInfoLabel.setText(status + " | " + serverUrl.replace("ws://", ""));
 
             if (isWebSocketConnected()) {
-                connectionInfoLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-size: 12; -fx-font-weight: bold;");
+                connectionInfoLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-size: 12px; -fx-padding: 5; -fx-background-color: #34495e; -fx-background-radius: 5;");
             } else {
-                connectionInfoLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-size: 12; -fx-font-weight: bold;");
+                connectionInfoLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-size: 12px; -fx-padding: 5; -fx-background-color: #34495e; -fx-background-radius: 5;");
             }
         }
     }
@@ -52,37 +51,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
     public void onConnectionStatusChanged(boolean connected, String status) {
         // Update the connection info when status changes
         updateConnectionInfo();
-
-        // Optional: Show notification for connection changes
-        if (connected) {
-            System.out.println("✅ Connection established from dashboard");
-        } else {
-            System.out.println("❌ Connection lost from dashboard");
-        }
-    }
-
-    private void checkWebSocketStatus() {
-        if (HelloApplication.isWebSocketConnected()) {
-            System.out.println("✅ WebSocket connected successfully");
-        } else {
-            System.out.println("⚠️ WebSocket not connected - using local mode");
-        }
-    }
-
-    private void handleWebSocketMessage(String message) {
-        System.out.println("📨 WebSocket message: " + message);
-
-        // Handle different message types
-        if (message.startsWith("CONNECTED")) {
-            System.out.println("✅ " + message);
-            updateConnectionInfo();
-        } else if (message.startsWith("ERROR")) {
-            showPopup("Connection Error", message);
-        } else if (message.startsWith("DISCONNECTED")) {
-            System.out.println("❌ " + message);
-            updateConnectionInfo();
-        }
-        // Other message types will be handled by specific controllers
     }
 
     @FXML
@@ -163,7 +131,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
 
         } catch (Exception e) {
             e.printStackTrace();
-            showPopup("Error", "❌ Failed to open Chat!");
+            showPopup("Error", "Failed to open Chat!");
         }
     }
 
@@ -188,7 +156,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
 
         } catch (Exception e) {
             e.printStackTrace();
-            showPopup("Error", "❌ Failed to open Settings!");
+            showPopup("Error", "Failed to open Settings!");
         }
     }
 
@@ -213,9 +181,9 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         // Test the current connection
         SimpleWebSocketClient client = HelloApplication.getWebSocketClient();
         if (client != null && client.isConnected()) {
-            showPopup("Connection Status", "🟢 Connected to server: " + HelloApplication.getCurrentServerUrl());
+            showPopup("Connection Status", "✅ Connected to server: " + HelloApplication.getCurrentServerUrl());
         } else {
-            showPopup("Connection Status", "🔴 Not connected to server. Please check your connection settings.");
+            showPopup("Connection Status", "❌ Not connected to server. Please check your connection settings.");
         }
         updateConnectionInfo();
     }

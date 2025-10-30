@@ -35,70 +35,73 @@
 
         <!-- Row 1 -->
         <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="0" GridPane.rowIndex="0">
-            <Label text="🎥" style="-fx-font-size: 24px;"/>
             <Label text="New Meeting" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
             <Button text="Start" onAction="#onNewMeetingClick"
-                    style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold;"/>
+                    style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 120;"/>
         </VBox>
 
         <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="1" GridPane.rowIndex="0">
-            <Label text="🔗" style="-fx-font-size: 24px;"/>
             <Label text="Join Meeting" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
             <Button text="Join" onAction="#onJoinClick"
-                    style="-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold;"/>
+                    style="-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 120;"/>
         </VBox>
 
         <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="2" GridPane.rowIndex="0">
-            <Label text="📅" style="-fx-font-size: 24px;"/>
             <Label text="Schedule" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
             <Button text="Schedule" onAction="#onScheduleClick"
-                    style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-weight: bold;"/>
+                    style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 120;"/>
         </VBox>
 
         <!-- Row 2 -->
         <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="0" GridPane.rowIndex="1">
-            <Label text="💬" style="-fx-font-size: 24px;"/>
             <Label text="Chat" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
             <Button text="Open Chat" onAction="#onChatClick"
-                    style="-fx-background-color: #e67e22; -fx-text-fill: white; -fx-font-weight: bold;"/>
+                    style="-fx-background-color: #e67e22; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 120;"/>
         </VBox>
 
         <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="1" GridPane.rowIndex="1">
-            <Label text="⚙️" style="-fx-font-size: 24px;"/>
             <Label text="Settings" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
             <Button text="Settings" onAction="#onSettingsClick"
-                    style="-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-font-weight: bold;"/>
+                    style="-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 120;"/>
         </VBox>
 
         <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="2" GridPane.rowIndex="1">
-            <Label text="🚪" style="-fx-font-size: 24px;"/>
             <Label text="Logout" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
             <Button text="Logout" onAction="#onLogoutClick"
-                    style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold;"/>
+                    style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 120;"/>
         </VBox>
     </GridPane>
 
     <!-- Additional Features Row -->
     <HBox spacing="20" alignment="CENTER">
         <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 15; -fx-background-radius: 10;">
-            <Label text="🖥️" style="-fx-font-size: 20px;"/>
             <Label text="Share Screen" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
             <Button text="Share" onAction="#onShareScreenClick"
-                    style="-fx-background-color: #1abc9c; -fx-text-fill: white; -fx-font-weight: bold;"/>
+                    style="-fx-background-color: #1abc9c; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 100;"/>
         </VBox>
 
         <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 15; -fx-background-radius: 10;">
-            <Label text="👥" style="-fx-font-size: 20px;"/>
             <Label text="Contacts" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
             <Button text="Contacts" onAction="#onContactsClick"
-                    style="-fx-background-color: #f1c40f; -fx-text-fill: white; -fx-font-weight: bold;"/>
+                    style="-fx-background-color: #f1c40f; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 100;"/>
         </VBox>
 
         <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 15; -fx-background-radius: 10;">
-            <Label text="📹" style="-fx-font-size: 20px;"/>
             <Label text="Recordings" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
             <Button text="Recordings" onAction="#onRecordingsClick"
-                    style="-fx-background-color: #d35400; -fx-text-fill: white; -fx-font-weight: bold;"/>
+                    style="-fx-background-color: #d35400; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 100;"/>
+        </VBox>
+
+        <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 15; -fx-background-radius: 10;">
+            <Label text="Quick Connect" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Button text="Connect" onAction="#onQuickConnectClick"
+                    style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 100;"/>
+        </VBox>
+
+        <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 15; -fx-background-radius: 10;">
+            <Label text="Test Connection" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+            <Button text="Test" onAction="#onTestConnectionClick"
+                    style="-fx-background-color: #f39c12; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 100;"/>
         </VBox>
     </HBox>
 </VBox>

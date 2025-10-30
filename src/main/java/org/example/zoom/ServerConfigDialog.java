@@ -1,190 +1,272 @@
 package org.example.zoom;
 
-import javafx.fxml.FXML;
-import javafx.fxml.FXMLLoader;
-import javafx.scene.Scene;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.control.*;
-import javafx.stage.Modality;
+import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
-import javafx.stage.StageStyle;
-import org.example.zoom.websocket.SimpleWebSocketClient;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+import java.util.List;
 
-public class ServerConfigDialog {
+public class ServerConfigDialog extends Dialog<Boolean> {
 
-    @FXML
-    private TextField serverIpField;
-
-    @FXML
-    private TextField serverPortField;
-
-    @FXML
+    private TextField ipField;
+    private TextField portField;
     private Label statusLabel;
-
-    @FXML
     private Button testButton;
-
-    @FXML
-    private Button connectButton;
-
-    @FXML
-    private Button cancelButton;
-
-    private Stage stage;
     private boolean connected = false;
-    private String finalServerUrl;
 
-    public void setStage(Stage stage) {
-        this.stage = stage;
-    }
+    public ServerConfigDialog(Stage owner) {
+        setTitle("Server Configuration");
+        setHeaderText("Configure WebSocket Server Connection");
 
-    @FXML
-    public void initialize() {
-        // Load current settings
-        serverIpField.setText(HelloApplication.getServerIp());
-        serverPortField.setText(HelloApplication.getServerPort());
+        // Set the owner stage
+        initOwner(owner);
 
-        // Add input validation
-        serverPortField.textProperty().addListener((observable, oldValue, newValue) -> {
-            if (!newValue.matches("\\d*")) {
-                serverPortField.setText(newValue.replaceAll("[^\\d]", ""));
+        // Create the main content
+        VBox content = createContent();
+        getDialogPane().setContent(content);
+
+        // Add buttons
+        ButtonType connectButtonType = new ButtonType("Connect", ButtonBar.ButtonData.OK_DONE);
+        ButtonType cancelButtonType = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
+        getDialogPane().getButtonTypes().addAll(connectButtonType, cancelButtonType);
+
+        // Enable/disable connect button based on validation
+        Button connectButton = (Button) getDialogPane().lookupButton(connectButtonType);
+        connectButton.setDisable(true);
+
+        // Add validation
+        ipField.textProperty().addListener((observable, oldValue, newValue) -> validateInput(connectButton));
+        portField.textProperty().addListener((observable, oldValue, newValue) -> validateInput(connectButton));
+
+        // Set result converter
+        setResultConverter(dialogButton -> {
+            if (dialogButton == connectButtonType) {
+                // Save configuration and connect
+                String ip = ipField.getText();
+                String port = portField.getText();
+                HelloApplication.setServerConfig(ip, port);
+                connected = true;
+                return true;
             }
+            return false;
         });
 
-        // Enable/disable connect button based on input
-        serverIpField.textProperty().addListener((obs, oldVal, newVal) -> updateConnectButton());
-        serverPortField.textProperty().addListener((obs, oldVal, newVal) -> updateConnectButton());
+        // Load saved configuration
+        loadSavedConfig();
 
-        updateConnectButton();
+        // Show available IPs
+        showAvailableIPs();
     }
 
-    private void updateConnectButton() {
-        boolean hasInput = !serverIpField.getText().trim().isEmpty() &&
-                !serverPortField.getText().trim().isEmpty();
-        connectButton.setDisable(!hasInput);
-    }
+    private VBox createContent() {
+        VBox content = new VBox(15);
+        content.setPadding(new Insets(20));
+        content.setAlignment(Pos.CENTER);
 
-    @FXML
-    protected void onTestConnection() {
-        String ip = serverIpField.getText().trim();
-        String port = serverPortField.getText().trim();
+        // Network information
+        Label networkInfoLabel = new Label("🌐 Available Network IPs:");
+        networkInfoLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: #2c3e50;");
 
-        if (ip.isEmpty() || port.isEmpty()) {
-            statusLabel.setText("❌ Please enter both IP and port");
-            statusLabel.setStyle("-fx-text-fill: #e74c3c;");
-            return;
+        List<String> localIPs = HelloApplication.getLocalIPAddresses();
+        VBox ipList = new VBox(5);
+        if (localIPs.isEmpty()) {
+            ipList.getChildren().add(new Label("No network interfaces found"));
+        } else {
+            for (String ip : localIPs) {
+                Label ipLabel = new Label("• " + ip);
+                ipLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-family: monospace;");
+
+                // Make IP clickable to auto-fill
+                ipLabel.setOnMouseClicked(e -> {
+                    ipField.setText(ip);
+                    validateInput(null);
+                });
+                ipLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-family: monospace; -fx-cursor: hand;");
+                ipList.getChildren().add(ipLabel);
+            }
         }
 
+        // Server configuration form
+        Label formLabel = new Label("Server Configuration:");
+        formLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: #2c3e50;");
+
+        GridPane form = new GridPane();
+        form.setHgap(10);
+        form.setVgap(10);
+        form.setAlignment(Pos.CENTER);
+
+        // IP Address field
+        Label ipLabel = new Label("IP Address:");
+        ipField = new TextField();
+        ipField.setPromptText("e.g., 192.168.1.100 or localhost");
+        ipField.setPrefWidth(200);
+
+        // Port field
+        Label portLabel = new Label("Port:");
+        portField = new TextField();
+        portField.setPromptText("e.g., 8887");
+        portField.setPrefWidth(100);
+
+        form.add(ipLabel, 0, 0);
+        form.add(ipField, 1, 0);
+        form.add(portLabel, 0, 1);
+        form.add(portField, 1, 1);
+
+        // Test connection section
+        HBox testBox = new HBox(10);
+        testBox.setAlignment(Pos.CENTER);
+
+        testButton = new Button("Test Connection");
+        testButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+        testButton.setOnAction(e -> testConnection());
+
+        statusLabel = new Label("Click 'Test Connection' to verify server");
+        statusLabel.setStyle("-fx-text-fill: #7f8c8d;");
+
+        testBox.getChildren().addAll(testButton, statusLabel);
+
+        // Quick connect buttons
+        Label quickConnectLabel = new Label("Quick Connect:");
+        quickConnectLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: #2c3e50;");
+
+        HBox quickConnectBox = new HBox(10);
+        quickConnectBox.setAlignment(Pos.CENTER);
+
+        Button localhostButton = new Button("Localhost");
+        localhostButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
+        localhostButton.setOnAction(e -> {
+            ipField.setText("localhost");
+            portField.setText("8887");
+            validateInput(null);
+        });
+
+        Button autoDiscoverButton = new Button("Auto Discover");
+        autoDiscoverButton.setStyle("-fx-background-color: #9b59b6; -fx-text-fill: white;");
+        autoDiscoverButton.setOnAction(e -> autoDiscoverServers());
+
+        quickConnectBox.getChildren().addAll(localhostButton, autoDiscoverButton);
+
+        // Add all components to content
+        content.getChildren().addAll(
+                networkInfoLabel,
+                ipList,
+                new Separator(),
+                formLabel,
+                form,
+                testBox,
+                new Separator(),
+                quickConnectLabel,
+                quickConnectBox
+        );
+
+        return content;
+    }
+
+    private void validateInput(Button connectButton) {
+        String ip = ipField.getText();
+        String port = portField.getText();
+
+        boolean isValid = !ip.isEmpty() && !port.isEmpty() && port.matches("\\d+");
+
+        if (connectButton != null) {
+            connectButton.setDisable(!isValid);
+        }
+
+        // Visual feedback
+        if (ip.isEmpty() || port.isEmpty()) {
+            ipField.setStyle("");
+            portField.setStyle("");
+        } else if (isValid) {
+            ipField.setStyle("-fx-border-color: #27ae60; -fx-border-width: 1px;");
+            portField.setStyle("-fx-border-color: #27ae60; -fx-border-width: 1px;");
+        } else {
+            ipField.setStyle("-fx-border-color: #e74c3c; -fx-border-width: 1px;");
+            portField.setStyle("-fx-border-color: #e74c3c; -fx-border-width: 1px;");
+        }
+    }
+
+    private void testConnection() {
+        String ip = ipField.getText();
+        String port = portField.getText();
+        String serverUrl = "ws://" + ip + ":" + port;
+
         testButton.setDisable(true);
-        testButton.setText("Testing...");
-        statusLabel.setText("Testing connection...");
+        statusLabel.setText("🔄 Testing connection to " + serverUrl + "...");
         statusLabel.setStyle("-fx-text-fill: #f39c12;");
 
         new Thread(() -> {
-            boolean success = testWebSocketConnection(ip, port);
+            boolean success = HelloApplication.testConnection(serverUrl);
 
             javafx.application.Platform.runLater(() -> {
+                testButton.setDisable(false);
                 if (success) {
                     statusLabel.setText("✅ Connection successful!");
                     statusLabel.setStyle("-fx-text-fill: #27ae60;");
-                    connectButton.setDisable(false);
+                    connected = true;
                 } else {
-                    statusLabel.setText("❌ Connection failed!");
+                    statusLabel.setText("❌ Connection failed - Server not reachable");
                     statusLabel.setStyle("-fx-text-fill: #e74c3c;");
+                    connected = false;
                 }
-
-                testButton.setDisable(false);
-                testButton.setText("Test Connection");
             });
         }).start();
     }
 
-    @FXML
-    protected void onConnect() {
-        String ip = serverIpField.getText().trim();
-        String port = serverPortField.getText().trim();
-
-        if (ip.isEmpty() || port.isEmpty()) {
-            statusLabel.setText("❌ Please enter both IP and port");
-            statusLabel.setStyle("-fx-text-fill: #e74c3c;");
-            return;
-        }
-
-        connectButton.setDisable(true);
-        connectButton.setText("Connecting...");
-        statusLabel.setText("Connecting to server...");
+    private void autoDiscoverServers() {
+        statusLabel.setText("🔍 Discovering servers on network...");
         statusLabel.setStyle("-fx-text-fill: #f39c12;");
+        testButton.setDisable(true);
 
         new Thread(() -> {
-            boolean success = testWebSocketConnection(ip, port);
+            List<String> availableServers = HelloApplication.discoverAvailableServers();
 
             javafx.application.Platform.runLater(() -> {
-                if (success) {
-                    // Save the configuration
-                    HelloApplication.setServerConfig(ip, port);
-
-                    // Reconnect with new settings
-                    String newUrl = "ws://" + ip + ":" + port;
-                    HelloApplication.reinitializeWebSocket(newUrl);
-
-                    statusLabel.setText("✅ Connected successfully!");
-                    statusLabel.setStyle("-fx-text-fill: #27ae60;");
-                    connected = true;
-                    finalServerUrl = newUrl;
-
-                    // Close dialog after short delay
-                    new Thread(() -> {
-                        try {
-                            Thread.sleep(1000);
-                            javafx.application.Platform.runLater(() -> stage.close());
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                    }).start();
-                } else {
-                    statusLabel.setText("❌ Failed to connect!");
+                testButton.setDisable(false);
+                if (availableServers.isEmpty()) {
+                    statusLabel.setText("❌ No servers found on network");
                     statusLabel.setStyle("-fx-text-fill: #e74c3c;");
-                    connectButton.setDisable(false);
-                    connectButton.setText("Connect");
+                } else {
+                    // Use the first available server
+                    String firstServer = availableServers.get(0);
+                    String[] parts = firstServer.split(":");
+                    if (parts.length == 2) {
+                        ipField.setText(parts[0]);
+                        portField.setText(parts[1]);
+                        statusLabel.setText("✅ Found server: " + firstServer);
+                        statusLabel.setStyle("-fx-text-fill: #27ae60;");
+                        validateInput(null);
+                    }
                 }
             });
         }).start();
     }
 
-    @FXML
-    protected void onCancel() {
-        connected = false;
-        stage.close();
+    private void loadSavedConfig() {
+        String savedIp = HelloApplication.getServerIp();
+        String savedPort = HelloApplication.getServerPort();
+
+        if (savedIp != null) ipField.setText(savedIp);
+        if (savedPort != null) portField.setText(savedPort);
+
+        validateInput(null);
     }
 
-    private boolean testWebSocketConnection(String ip, String port) {
-        try {
-            String testUrl = "ws://" + ip + ":" + port;
-            System.out.println("Testing connection to: " + testUrl);
-
-            final boolean[] connectionSuccess = {false};
-            final CountDownLatch latch = new CountDownLatch(1);
-
-            SimpleWebSocketClient testClient = new SimpleWebSocketClient(testUrl, message -> {
-                System.out.println("Test connection message: " + message);
-                if (message.contains("Connected") || message.contains("Welcome")) {
-                    connectionSuccess[0] = true;
-                    latch.countDown();
-                }
-            });
-
-            // Wait for connection result with timeout
-            boolean connected = latch.await(5, TimeUnit.SECONDS);
-            testClient.disconnect();
-
-            return connectionSuccess[0];
-
-        } catch (Exception e) {
-            System.err.println("Connection test failed: " + e.getMessage());
-            return false;
+    private void showAvailableIPs() {
+        List<String> localIPs = HelloApplication.getLocalIPAddresses();
+        System.out.println("🌐 Available IP addresses for sharing:");
+        for (String ip : localIPs) {
+            System.out.println("   - " + ip + ":8887");
         }
+    }
+
+    public static ServerConfigDialog showDialog(Stage owner) {
+        ServerConfigDialog dialog = new ServerConfigDialog(owner);
+        dialog.showAndWait();
+        return dialog;
     }
 
     public boolean isConnected() {
@@ -192,32 +274,6 @@ public class ServerConfigDialog {
     }
 
     public String getServerUrl() {
-        return finalServerUrl;
-    }
-
-    // Static method to show the dialog
-    public static ServerConfigDialog showDialog(Stage owner) {
-        try {
-            FXMLLoader loader = new FXMLLoader(ServerConfigDialog.class.getResource("server-config-dialog.fxml"));
-            Scene scene = new Scene(loader.load(), 400, 300);
-
-            Stage dialogStage = new Stage();
-            dialogStage.setTitle("Server Configuration");
-            dialogStage.initModality(Modality.WINDOW_MODAL);
-            dialogStage.initOwner(owner);
-            dialogStage.initStyle(StageStyle.UTILITY);
-            dialogStage.setResizable(false);
-            dialogStage.setScene(scene);
-
-            ServerConfigDialog controller = loader.getController();
-            controller.setStage(dialogStage);
-
-            dialogStage.showAndWait();
-            return controller;
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            return null;
-        }
+        return "ws://" + ipField.getText() + ":" + portField.getText();
     }
 }
