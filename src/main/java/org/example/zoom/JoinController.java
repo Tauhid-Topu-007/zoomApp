@@ -19,6 +19,8 @@ public class JoinController {
 
         // Set up proper key event handlers
         setupKeyHandlers();
+
+        System.out.println("🔍 Join Controller initialized - checking for available meetings...");
     }
 
     private void checkForMeetingId() {
@@ -27,6 +29,9 @@ public class JoinController {
         if (activeMeetingId != null && !activeMeetingId.isEmpty()) {
             meetingIdField.setText(activeMeetingId);
             statusLabel.setText("📋 Meeting ID detected! Enter your name to join.");
+            System.out.println("✅ Auto-filled meeting ID from NewMeeting: " + activeMeetingId);
+        } else {
+            System.out.println("ℹ️ No active meeting ID detected from NewMeetingController");
         }
     }
 
@@ -112,7 +117,7 @@ public class JoinController {
         // Register this as a valid meeting for testing
         HelloApplication.createMeetingForTesting(randomMeetingId);
 
-        statusLabel.setText("🎯 Quick Join ID: " + randomMeetingId);
+        statusLabel.setText("🎯 Quick Join ID: " + randomMeetingId + " - Enter your name!");
 
         // Focus on name field for better UX
         nameField.requestFocus();

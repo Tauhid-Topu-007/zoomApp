@@ -58,7 +58,8 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
 
     @FXML
     protected void onNetworkDiagnosticClick() {
-        HelloApplication.showNetworkInfo();
+        // Show local network information first
+        showLocalNetworkInfo();
 
         new Thread(() -> {
             List<String> servers = HelloApplication.discoverAvailableServers();
@@ -86,6 +87,34 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
                 showPopup("Network Diagnostic", message.toString());
             });
         }).start();
+    }
+
+    // New method to show local network information
+    private void showLocalNetworkInfo() {
+        List<String> localIPs = HelloApplication.getLocalIPAddresses();
+
+        if (localIPs.isEmpty()) {
+            System.out.println("❌ No network interfaces found!");
+            System.out.println("   Make sure you're connected to WiFi/Ethernet");
+        } else {
+            System.out.println("🌐 NETWORK CONNECTION GUIDE:");
+            System.out.println("=================================");
+            System.out.println("✅ Your computer's IP addresses:");
+            for (String ip : localIPs) {
+                System.out.println("   📍 " + ip + ":8887");
+            }
+            System.out.println("\n🔗 Other devices should use:");
+            for (String ip : localIPs) {
+                System.out.println("   ws://" + ip + ":8887");
+            }
+
+            System.out.println("\n🔧 TROUBLESHOOTING:");
+            System.out.println("   1. Make sure all devices are on same WiFi");
+            System.out.println("   2. Turn off VPN if using one");
+            System.out.println("   3. Check firewall settings");
+            System.out.println("   4. Try different IP addresses from the list above");
+            System.out.println("   5. Ensure server is running on the host computer");
+        }
     }
 
     @FXML

@@ -6,6 +6,7 @@ import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
 import org.example.zoom.websocket.SimpleWebSocketClient;
+import javafx.scene.control.Alert;
 
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -34,7 +35,7 @@ public class HelloApplication extends Application {
     private static boolean connectionInitialized = false;
     private static ConnectionStatusListener connectionStatusListener;
 
-    // Meeting management
+    // Meeting management - ENHANCED with proper meeting storage
     private static final Map<String, MeetingInfo> activeMeetings = new HashMap<>();
     private static boolean isMeetingHost = false;
 
@@ -430,34 +431,6 @@ public class HelloApplication extends Application {
         }
     }
 
-    // NEW: Show comprehensive network information
-    public static void showNetworkInfo() {
-        List<String> localIPs = getLocalIPAddresses();
-        System.out.println("🌐 NETWORK CONNECTION GUIDE:");
-        System.out.println("=================================");
-
-        if (localIPs.isEmpty()) {
-            System.out.println("❌ No network interfaces found!");
-            System.out.println("   Make sure you're connected to WiFi/Ethernet");
-        } else {
-            System.out.println("✅ Your computer's IP addresses:");
-            for (String ip : localIPs) {
-                System.out.println("   📍 " + ip + ":8887");
-            }
-            System.out.println("\n🔗 Other devices should use:");
-            for (String ip : localIPs) {
-                System.out.println("   ws://" + ip + ":8887");
-            }
-        }
-
-        System.out.println("\n🔧 TROUBLESHOOTING:");
-        System.out.println("   1. Make sure all devices are on same WiFi");
-        System.out.println("   2. Turn off VPN if using one");
-        System.out.println("   3. Check firewall settings");
-        System.out.println("   4. Try different IP addresses from the list above");
-        System.out.println("   5. Ensure server is running on the host computer");
-    }
-
     // Handle incoming WebSocket messages
     private static void handleWebSocketMessage(String message) {
         System.out.println("📨 Application received: " + message);
@@ -608,7 +581,11 @@ public class HelloApplication extends Application {
         }
     }
 
-    // Meeting Management Methods
+    // ==================== MEETING MANAGEMENT - ENHANCED CONNECTION ====================
+
+    /**
+     * Set the active meeting ID and store it globally for JoinController access
+     */
     public static void setActiveMeetingId(String meetingId) {
         activeMeetingId = meetingId;
         System.out.println("🎯 Active meeting set to: " + meetingId);
@@ -639,21 +616,27 @@ public class HelloApplication extends Application {
         return isMeetingHost;
     }
 
-    // Create a new meeting with proper validation
+    /**
+     * Create a new meeting with proper validation and storage - FIXED CONNECTION
+     */
     public static String createNewMeeting() {
         String meetingId = generateMeetingId();
-
-        // Create meeting info
         String hostName = getLoggedInUser();
         if (hostName == null || hostName.isEmpty()) {
             hostName = "Host";
         }
 
+        System.out.println("🎯 CREATING NEW MEETING: " + meetingId + " by " + hostName);
+
+        // Create meeting info
         MeetingInfo meetingInfo = new MeetingInfo(meetingId, hostName);
         activeMeetings.put(meetingId, meetingInfo);
 
         setActiveMeetingId(meetingId);
         setMeetingHost(true);
+
+        // Store meeting in database with proper meeting ID - THIS IS THE KEY FIX
+        Database.saveMeetingWithId(meetingId, hostName, "Meeting " + meetingId, "Auto-generated meeting");
 
         // Add host as first participant to database
         addParticipantToMeeting(meetingId, hostName);
@@ -669,13 +652,48 @@ public class HelloApplication extends Application {
         // Notify controllers about meeting state change
         notifyControllersMeetingStateChanged(true);
 
+        System.out.println("✅ MEETING CREATION SUCCESS: " + meetingId + " - Ready for participants to join!");
+        System.out.println("🔍 Active meetings now: " + activeMeetings.keySet());
         return meetingId;
     }
 
-    // Join an existing meeting with validation
+    /**
+     * Join an existing meeting with exact ID validation - FIXED CONNECTION
+     */
     public static boolean joinMeeting(String meetingId, String participantName) {
-        if (!isValidMeeting(meetingId)) {
-            System.err.println("❌ Invalid meeting ID: " + meetingId);
+        System.out.println("🔍 Attempting to join meeting: " + meetingId + " as " + participantName);
+
+        // Validate meeting ID format first
+        if (!meetingId.matches("\\d{6}")) {
+            System.err.println("❌ Invalid meeting ID format. Must be 6 digits: " + meetingId);
+            return false;
+        }
+
+        // Check if meeting exists in active meetings OR database
+        boolean meetingExists = false;
+
+        // Check active meetings first (in-memory)
+        if (activeMeetings.containsKey(meetingId)) {
+            System.out.println("✅ Meeting found in active meetings: " + meetingId);
+            meetingExists = true;
+        }
+        // Check database if not found in active meetings
+        else if (Database.meetingExists(meetingId)) {
+            System.out.println("✅ Meeting found in database: " + meetingId);
+
+            // Create meeting info if it exists in database but not in active meetings
+            String host = Database.getMeetingHost(meetingId);
+            if (host != null) {
+                MeetingInfo meetingInfo = new MeetingInfo(meetingId, host);
+                activeMeetings.put(meetingId, meetingInfo);
+                meetingExists = true;
+                System.out.println("✅ Recreated meeting from database: " + meetingId);
+            }
+        }
+
+        if (!meetingExists) {
+            System.err.println("❌ Meeting not found: " + meetingId);
+            System.err.println("🔍 Available meetings: " + activeMeetings.keySet());
             return false;
         }
 
@@ -696,28 +714,67 @@ public class HelloApplication extends Application {
         // Notify controllers about meeting state change
         notifyControllersMeetingStateChanged(true);
 
+        System.out.println("✅ JOIN SUCCESS: " + participantName + " joined meeting " + meetingId);
         return true;
     }
 
-    // Validate meeting existence
+    /**
+     * Validate meeting existence - ENHANCED with multiple checks
+     */
     public static boolean isValidMeeting(String meetingId) {
-        // Check if meeting exists in our active meetings
+        System.out.println("🔍 Validating meeting: " + meetingId);
+
+        // Check format
+        if (!meetingId.matches("\\d{6}")) {
+            System.err.println("❌ Invalid meeting ID format: " + meetingId);
+            return false;
+        }
+
+        // First check if meeting exists in our active meetings
         if (activeMeetings.containsKey(meetingId)) {
+            System.out.println("✅ Meeting found in active meetings: " + meetingId);
             return true;
         }
 
-        // For demo purposes, accept any 6-digit meeting ID
-        return meetingId != null && meetingId.matches("\\d{6}");
+        // Check if meeting exists in database
+        if (Database.meetingExists(meetingId)) {
+            System.out.println("✅ Meeting found in database: " + meetingId);
+
+            // Create meeting info if it exists in database but not in active meetings
+            String host = Database.getMeetingHost(meetingId);
+            if (host != null) {
+                MeetingInfo meetingInfo = new MeetingInfo(meetingId, host);
+                activeMeetings.put(meetingId, meetingInfo);
+                return true;
+            }
+        }
+
+        System.err.println("❌ Meeting not found: " + meetingId);
+        System.err.println("🔍 Currently active meetings: " + activeMeetings.keySet());
+        return false;
     }
 
-    // Create a test meeting for quick join functionality
+    /**
+     * Create a test meeting for quick join functionality
+     */
     public static void createMeetingForTesting(String meetingId) {
-        MeetingInfo meetingInfo = new MeetingInfo(meetingId, "TestHost");
+        String hostName = getLoggedInUser();
+        if (hostName == null || hostName.isEmpty()) {
+            hostName = "TestHost";
+        }
+
+        MeetingInfo meetingInfo = new MeetingInfo(meetingId, hostName);
         activeMeetings.put(meetingId, meetingInfo);
-        System.out.println("🎯 Test meeting created: " + meetingId);
+
+        // Also store in database
+        Database.saveMeetingWithId(meetingId, hostName, "Test Meeting " + meetingId, "Quick join test meeting");
+
+        System.out.println("🎯 Test meeting created: " + meetingId + " by " + hostName);
     }
 
-    // Leave current meeting
+    /**
+     * Leave current meeting
+     */
     public static void leaveCurrentMeeting() {
         if (activeMeetingId != null && loggedInUser != null) {
             // Remove from database participants
@@ -758,7 +815,9 @@ public class HelloApplication extends Application {
         notifyControllersMeetingStateChanged(false);
     }
 
-    // End a meeting (host only)
+    /**
+     * End a meeting (host only)
+     */
     public static void endMeeting(String meetingId) {
         if (activeMeetings.containsKey(meetingId)) {
             // Notify all participants
@@ -769,6 +828,9 @@ public class HelloApplication extends Application {
             // Clear participants and remove meeting
             activeMeetings.remove(meetingId);
             activeParticipants.clear();
+
+            // Remove from database
+            Database.removeMeeting(meetingId);
 
             System.out.println("🔚 Meeting ended: " + meetingId);
 
@@ -786,6 +848,27 @@ public class HelloApplication extends Application {
             // Notify controllers about meeting state change
             notifyControllersMeetingStateChanged(false);
         }
+    }
+
+    /**
+     * Get meeting information by ID
+     */
+    public static MeetingInfo getMeetingInfo(String meetingId) {
+        return activeMeetings.get(meetingId);
+    }
+
+    /**
+     * Get all active meetings
+     */
+    public static List<String> getActiveMeetingIds() {
+        return new ArrayList<>(activeMeetings.keySet());
+    }
+
+    /**
+     * Check if user is in any meeting
+     */
+    public static boolean isInMeeting() {
+        return activeMeetingId != null;
     }
 
     // Notify controllers about meeting state changes
@@ -1243,6 +1326,65 @@ public class HelloApplication extends Application {
 
         public boolean isParticipant(String username) {
             return participants.contains(username);
+        }
+
+        // NEW: Show comprehensive network information
+        public static void showNetworkInfo() {
+            List<String> localIPs = getLocalIPAddresses();
+            System.out.println("🌐 NETWORK CONNECTION GUIDE:");
+            System.out.println("=================================");
+
+            if (localIPs.isEmpty()) {
+                System.out.println("❌ No network interfaces found!");
+                System.out.println("   Make sure you're connected to WiFi/Ethernet");
+            } else {
+                System.out.println("✅ Your computer's IP addresses:");
+                for (String ip : localIPs) {
+                    System.out.println("   📍 " + ip + ":8887");
+                }
+                System.out.println("\n🔗 Other devices should use:");
+                for (String ip : localIPs) {
+                    System.out.println("   ws://" + ip + ":8887");
+                }
+            }
+
+            System.out.println("\n🔧 TROUBLESHOOTING:");
+            System.out.println("   1. Make sure all devices are on same WiFi");
+            System.out.println("   2. Turn off VPN if using one");
+            System.out.println("   3. Check firewall settings");
+            System.out.println("   4. Try different IP addresses from the list above");
+            System.out.println("   5. Ensure server is running on the host computer");
+
+            // Also show in a popup for the user
+            Platform.runLater(() -> {
+                Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                alert.setTitle("Network Information");
+                alert.setHeaderText("Your Network Connection Details");
+
+                StringBuilder message = new StringBuilder();
+                if (localIPs.isEmpty()) {
+                    message.append("❌ No network interfaces found!\n\n");
+                    message.append("Make sure you're connected to WiFi/Ethernet");
+                } else {
+                    message.append("✅ Your computer's IP addresses:\n");
+                    for (String ip : localIPs) {
+                        message.append("📍 ").append(ip).append(":8887\n");
+                    }
+                    message.append("\n🔗 Other devices should connect to:\n");
+                    for (String ip : localIPs) {
+                        message.append("ws://").append(ip).append(":8887\n");
+                    }
+                }
+
+                message.append("\n🔧 Troubleshooting:\n");
+                message.append("• Make sure all devices are on same WiFi\n");
+                message.append("• Turn off VPN if using one\n");
+                message.append("• Check firewall settings\n");
+                message.append("• Ensure server is running on host computer");
+
+                alert.setContentText(message.toString());
+                alert.showAndWait();
+            });
         }
 
         @Override

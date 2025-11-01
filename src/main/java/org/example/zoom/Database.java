@@ -340,8 +340,148 @@ public class Database {
     }
 
     /* ==============================
-       MEETING MANAGEMENT
+       MEETING MANAGEMENT - ENHANCED
      ============================== */
+
+    // NEW: Store meeting with proper meeting ID - THIS IS THE KEY FIX
+    public static boolean saveMeetingWithId(String meetingId, String hostUsername, String title, String description) {
+        // First ensure meetings table has meeting_id column
+        addMeetingIdColumnToMeetings();
+
+        String sql = "INSERT INTO meetings (meeting_id, username, title, description, date, time) VALUES (?, ?, ?, ?, CURDATE(), CURTIME())";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, meetingId);
+            stmt.setString(2, hostUsername);
+            stmt.setString(3, title);
+            stmt.setString(4, description);
+            stmt.executeUpdate();
+            System.out.println("✅ Meeting saved with ID: " + meetingId + " by host: " + hostUsername);
+            return true;
+        } catch (SQLException e) {
+            System.err.println("❌ saveMeetingWithId error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    // NEW: Enhanced meeting existence check
+    public static boolean meetingExists(String meetingId) {
+        System.out.println("🔍 Checking if meeting exists: " + meetingId);
+
+        // First check meeting_participants table (most reliable)
+        String sql = "SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, meetingId);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next() && rs.getInt(1) > 0) {
+                System.out.println("✅ Meeting found in participants: " + meetingId);
+                return true;
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ meetingExists (participants) error: " + e.getMessage());
+        }
+
+        // Also check meetings table with meeting_id column
+        String sql2 = "SELECT COUNT(*) FROM meetings WHERE meeting_id = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql2)) {
+            stmt.setString(1, meetingId);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next() && rs.getInt(1) > 0) {
+                System.out.println("✅ Meeting found in meetings table: " + meetingId);
+                return true;
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ meetingExists (meetings) error: " + e.getMessage());
+        }
+
+        // For backward compatibility, also check title as meeting ID
+        String sql3 = "SELECT COUNT(*) FROM meetings WHERE title = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql3)) {
+            stmt.setString(1, meetingId);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next() && rs.getInt(1) > 0) {
+                System.out.println("✅ Meeting found by title: " + meetingId);
+                return true;
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ meetingExists (title) error: " + e.getMessage());
+        }
+
+        System.out.println("❌ Meeting not found in database: " + meetingId);
+        return false;
+    }
+
+    // NEW: Get meeting host from database
+    public static String getMeetingHost(String meetingId) {
+        // Try to get host from meeting_participants (first participant is usually host)
+        String sql = "SELECT username FROM meeting_participants WHERE meeting_id = ? ORDER BY joined_at ASC LIMIT 1";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, meetingId);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                String host = rs.getString("username");
+                System.out.println("✅ Found meeting host in participants: " + host);
+                return host;
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ getMeetingHost (participants) error: " + e.getMessage());
+        }
+
+        // Alternative: Check meetings table with meeting_id
+        String sql2 = "SELECT username FROM meetings WHERE meeting_id = ? LIMIT 1";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql2)) {
+            stmt.setString(1, meetingId);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                String host = rs.getString("username");
+                System.out.println("✅ Found meeting host in meetings: " + host);
+                return host;
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ getMeetingHost (meetings) error: " + e.getMessage());
+        }
+
+        System.out.println("❌ No host found for meeting: " + meetingId);
+        return null;
+    }
+
+    // NEW: Remove meeting from database
+    public static boolean removeMeeting(String meetingId) {
+        // Remove participants first
+        String deleteParticipants = "DELETE FROM meeting_participants WHERE meeting_id = ?";
+        String deleteChatMessages = "DELETE FROM chat_messages WHERE meeting_id = ?";
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false); // Start transaction
+
+            try (PreparedStatement stmt1 = conn.prepareStatement(deleteParticipants);
+                 PreparedStatement stmt2 = conn.prepareStatement(deleteChatMessages)) {
+
+                stmt1.setString(1, meetingId);
+                stmt1.executeUpdate();
+
+                stmt2.setString(1, meetingId);
+                stmt2.executeUpdate();
+
+                conn.commit();
+                System.out.println("✅ Meeting removed from database: " + meetingId);
+                return true;
+            } catch (SQLException e) {
+                conn.rollback();
+                System.err.println("❌ removeMeeting transaction error: " + e.getMessage());
+                return false;
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ removeMeeting error: " + e.getMessage());
+            return false;
+        }
+    }
+
     public static boolean saveMeeting(String username, String title, String date, String time) {
         String sql = "INSERT INTO meetings(username, title, date, time) VALUES (?, ?, ?, ?)";
         try (Connection conn = getConnection();
@@ -852,7 +992,7 @@ public class Database {
     }
 
     /* ==============================
-       DATABASE INITIALIZATION
+       DATABASE INITIALIZATION - ENHANCED
      ============================== */
     public static void initializeDatabase() {
         // Create tables if they don't exist
@@ -913,6 +1053,9 @@ public class Database {
             // Add description column to meetings table if it doesn't exist
             addDescriptionColumnToMeetings();
 
+            // Add meeting_id column to meetings table if it doesn't exist
+            addMeetingIdColumnToMeetings();
+
             // Create chat table with correct schema
             createChatTable();
 
@@ -942,6 +1085,28 @@ public class Database {
             }
         } catch (SQLException e) {
             System.err.println("❌ Error adding description column: " + e.getMessage());
+        }
+    }
+
+    // Helper method to add meeting_id column to meetings table
+    private static void addMeetingIdColumnToMeetings() {
+        try (Connection conn = getConnection()) {
+            // Check if meeting_id column already exists
+            DatabaseMetaData metaData = conn.getMetaData();
+            ResultSet columns = metaData.getColumns(null, null, "meetings", "meeting_id");
+
+            if (!columns.next()) {
+                // Column doesn't exist, add it
+                try (Statement stmt = conn.createStatement()) {
+                    String sql = "ALTER TABLE meetings ADD COLUMN meeting_id VARCHAR(20)";
+                    stmt.execute(sql);
+                    System.out.println("✅ Added meeting_id column to meetings table");
+                }
+            } else {
+                System.out.println("✅ meeting_id column already exists in meetings table");
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ Error adding meeting_id column: " + e.getMessage());
         }
     }
 
@@ -975,6 +1140,11 @@ public class Database {
         // Test meeting with description
         if (saveMeetingWithDescription("testuser", "Test Meeting", "2024-01-01", "14:30", "This is a test meeting description")) {
             System.out.println("✅ Meeting with description saved!");
+        }
+
+        // Test new meeting with ID method
+        if (saveMeetingWithId("123456", "testuser", "New Meeting Test", "Test meeting with ID")) {
+            System.out.println("✅ Meeting with ID saved successfully!");
         }
 
         // Fetch meetings with description
@@ -1013,6 +1183,21 @@ public class Database {
         // Test meeting statistics
         MeetingStatistics stats = getMeetingStatistics("testuser");
         System.out.println("📊 Meeting stats: " + stats.getTotalMeetings() + " total meetings");
+
+        // Test new meeting existence methods
+        System.out.println("\n=== Testing New Meeting Methods ===");
+        boolean exists = meetingExists("TEST123");
+        System.out.println("✅ Meeting exists: " + exists);
+
+        boolean exists2 = meetingExists("123456");
+        System.out.println("✅ Meeting with ID exists: " + exists2);
+
+        String host = getMeetingHost("TEST123");
+        System.out.println("✅ Meeting host: " + host);
+
+        // Test remove meeting
+        boolean removed = removeMeeting("TEST123");
+        System.out.println("✅ Meeting removed: " + removed);
     }
 
     // Get single contact by ID

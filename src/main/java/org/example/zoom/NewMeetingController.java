@@ -22,7 +22,11 @@ public class NewMeetingController {
         meetingId = HelloApplication.createNewMeeting();
         meetingIdField.setText(meetingId);
 
+        // Store the meeting ID globally so JoinController can access it
+        HelloApplication.setActiveMeetingId(meetingId);
+
         statusLabel.setText("✅ Meeting ID generated! Share it with participants.");
+        System.out.println("🎯 New Meeting Controller: Meeting ID " + meetingId + " is ready for joining!");
     }
 
     @FXML
@@ -35,9 +39,6 @@ public class NewMeetingController {
         HelloApplication.addParticipant(username);
 
         statusLabel.setText("✅ Meeting started with ID: " + meetingId);
-
-        // Notify via WebSocket that meeting was created
-        // This is now handled by HelloApplication.createNewMeeting()
 
         // Navigate directly to meeting view as host
         HelloApplication.setRoot("meeting-view.fxml");
@@ -67,7 +68,7 @@ public class NewMeetingController {
         // Set up for joining as a test participant
         HelloApplication.setMeetingHost(false); // Not host for test join
 
-        // Navigate to join view
+        // Navigate to join view - the meeting ID will be automatically detected
         HelloApplication.setRoot("join-view.fxml");
     }
 }
