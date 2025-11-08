@@ -26,7 +26,7 @@ public class Database {
     }
 
     /* ==============================
-       USER MANAGEMENT
+       USER MANAGEMENT - ENHANCED
      ============================== */
     public static boolean registerUser(String username, String password) {
         String sql = "INSERT INTO users(username, password) VALUES (?, ?)";
@@ -35,6 +35,10 @@ public class Database {
             stmt.setString(1, username);
             stmt.setString(2, password);
             stmt.executeUpdate();
+
+            // Log the registration
+            logSecurityEvent(username, "USER_REGISTERED", "New user registered successfully");
+            System.out.println("✅ User registered: " + username);
             return true;
         } catch (SQLException e) {
             System.err.println("❌ registerUser error: " + e.getMessage());
@@ -49,9 +53,133 @@ public class Database {
             stmt.setString(1, username);
             stmt.setString(2, password);
             ResultSet rs = stmt.executeQuery();
-            return rs.next();
+            boolean authenticated = rs.next();
+
+            if (authenticated) {
+                logSecurityEvent(username, "USER_LOGIN", "User logged in successfully");
+                System.out.println("✅ User authenticated: " + username);
+            } else {
+                System.out.println("❌ Authentication failed for: " + username);
+            }
+
+            return authenticated;
         } catch (SQLException e) {
             System.err.println("❌ authenticateUser error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    // NEW: Get all registered users with detailed information
+    public static List<UserDetail> getAllUserDetails() {
+        List<UserDetail> users = new ArrayList<>();
+        String sql = "SELECT username, created_at, " +
+                "(SELECT COUNT(*) FROM meetings WHERE username = users.username) as meeting_count, " +
+                "(SELECT COUNT(*) FROM contacts WHERE username = users.username) as contact_count, " +
+                "(SELECT MAX(last_used) FROM server_config WHERE username = users.username) as last_active " +
+                "FROM users ORDER BY username";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                users.add(new UserDetail(
+                        rs.getString("username"),
+                        rs.getTimestamp("created_at"),
+                        rs.getInt("meeting_count"),
+                        rs.getInt("contact_count"),
+                        rs.getTimestamp("last_active")
+                ));
+            }
+            System.out.println("✅ Loaded " + users.size() + " user details from database");
+        } catch (SQLException e) {
+            System.err.println("❌ getAllUserDetails error: " + e.getMessage());
+        }
+        return users;
+    }
+
+    // NEW: Get user count for statistics
+    public static int getUserCount() {
+        String sql = "SELECT COUNT(*) as user_count FROM users";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                return rs.getInt("user_count");
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ getUserCount error: " + e.getMessage());
+        }
+        return 0;
+    }
+
+    // NEW: Search users by username pattern
+    public static List<String> searchUsers(String searchPattern) {
+        List<String> users = new ArrayList<>();
+        String sql = "SELECT username FROM users WHERE username LIKE ? ORDER BY username";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, "%" + searchPattern + "%");
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                users.add(rs.getString("username"));
+            }
+            System.out.println("✅ Found " + users.size() + " users matching: " + searchPattern);
+        } catch (SQLException e) {
+            System.err.println("❌ searchUsers error: " + e.getMessage());
+        }
+        return users;
+    }
+
+    // NEW: Delete user account (admin function)
+    public static boolean deleteUser(String username) {
+        String deleteServerConfig = "DELETE FROM server_config WHERE username = ?";
+        String deleteUserPreferences = "DELETE FROM user_preferences WHERE username = ?";
+        String deleteContacts = "DELETE FROM contacts WHERE username = ?";
+        String deleteMeetings = "DELETE FROM meetings WHERE username = ?";
+        String deleteUser = "DELETE FROM users WHERE username = ?";
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false); // Start transaction
+
+            try (PreparedStatement stmt1 = conn.prepareStatement(deleteServerConfig);
+                 PreparedStatement stmt2 = conn.prepareStatement(deleteUserPreferences);
+                 PreparedStatement stmt3 = conn.prepareStatement(deleteContacts);
+                 PreparedStatement stmt4 = conn.prepareStatement(deleteMeetings);
+                 PreparedStatement stmt5 = conn.prepareStatement(deleteUser)) {
+
+                // Delete user data from all tables
+                stmt1.setString(1, username);
+                stmt1.executeUpdate();
+
+                stmt2.setString(1, username);
+                stmt2.executeUpdate();
+
+                stmt3.setString(1, username);
+                stmt3.executeUpdate();
+
+                stmt4.setString(1, username);
+                stmt4.executeUpdate();
+
+                stmt5.setString(1, username);
+                int rowsDeleted = stmt5.executeUpdate();
+
+                conn.commit();
+
+                if (rowsDeleted > 0) {
+                    logSecurityEvent("SYSTEM", "USER_DELETED", "User account deleted: " + username);
+                    System.out.println("✅ User deleted: " + username);
+                    return true;
+                } else {
+                    System.out.println("❌ No user found: " + username);
+                    return false;
+                }
+
+            } catch (SQLException e) {
+                conn.rollback();
+                System.err.println("❌ deleteUser transaction error: " + e.getMessage());
+                return false;
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ deleteUser error: " + e.getMessage());
             return false;
         }
     }
@@ -202,6 +330,7 @@ public class Database {
             while (rs.next()) {
                 users.add(rs.getString("username"));
             }
+            System.out.println("✅ Loaded " + users.size() + " users from database");
         } catch (SQLException e) {
             System.err.println("❌ getAllUsers error: " + e.getMessage());
         }
@@ -869,7 +998,7 @@ public class Database {
     }
 
     /* ==============================
-       CLASSES (POJOs)
+       CLASSES (POJOs) - ENHANCED
      ============================== */
     public static class Contact {
         private int id;
@@ -991,12 +1120,57 @@ public class Database {
         public void setLastMeeting(String lastMeeting) { this.lastMeeting = lastMeeting; }
     }
 
+    // NEW: User Detail class for comprehensive user information
+    public static class UserDetail {
+        private String username;
+        private Timestamp createdAt;
+        private int meetingCount;
+        private int contactCount;
+        private Timestamp lastActive;
+
+        public UserDetail(String username, Timestamp createdAt, int meetingCount, int contactCount, Timestamp lastActive) {
+            this.username = username;
+            this.createdAt = createdAt;
+            this.meetingCount = meetingCount;
+            this.contactCount = contactCount;
+            this.lastActive = lastActive;
+        }
+
+        public String getUsername() { return username; }
+        public Timestamp getCreatedAt() { return createdAt; }
+        public int getMeetingCount() { return meetingCount; }
+        public int getContactCount() { return contactCount; }
+        public Timestamp getLastActive() { return lastActive; }
+
+        public String getStatus() {
+            if (lastActive == null) return "Never Active";
+            long diff = System.currentTimeMillis() - lastActive.getTime();
+            long minutes = diff / (60 * 1000);
+            if (minutes < 5) return "Online";
+            if (minutes < 60) return "Recently Active";
+            if (minutes < 1440) return "Active Today";
+            return "Inactive";
+        }
+
+        @Override
+        public String toString() {
+            return username + " | Meetings: " + meetingCount + " | Contacts: " + contactCount + " | " + getStatus();
+        }
+    }
+
     /* ==============================
        DATABASE INITIALIZATION - ENHANCED
      ============================== */
     public static void initializeDatabase() {
         // Create tables if they don't exist
         String[] createTables = {
+                // Users table (ensure it exists)
+                "CREATE TABLE IF NOT EXISTS users (" +
+                        "username VARCHAR(50) PRIMARY KEY, " +
+                        "password VARCHAR(100) NOT NULL, " +
+                        "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                        ")",
+
                 // Server config table
                 "CREATE TABLE IF NOT EXISTS server_config (" +
                         "username VARCHAR(50) NOT NULL, " +
@@ -1111,11 +1285,16 @@ public class Database {
     }
 
     /* ==============================
-       TESTING
+       TESTING - ENHANCED
      ============================== */
     public static void main(String[] args) {
         // Initialize database
         initializeDatabase();
+
+        // Test user registration
+        if (registerUser("testuser", "password123")) {
+            System.out.println("✅ User registered!");
+        }
 
         // Test server config
         if (saveServerConfig("testuser", "192.168.1.100", "8887")) {
@@ -1198,6 +1377,30 @@ public class Database {
         // Test remove meeting
         boolean removed = removeMeeting("TEST123");
         System.out.println("✅ Meeting removed: " + removed);
+
+        // Test new user management methods
+        System.out.println("\n=== Testing New User Management Methods ===");
+
+        // Get all users
+        List<String> allUsers = getAllUsers();
+        System.out.println("👥 All users: " + allUsers);
+
+        // Get user count
+        int userCount = getUserCount();
+        System.out.println("📊 Total users: " + userCount);
+
+        // Get user details
+        List<UserDetail> userDetails = getAllUserDetails();
+        userDetails.forEach(ud -> System.out.println("🔍 User detail: " + ud));
+
+        // Search users
+        List<String> foundUsers = searchUsers("test");
+        System.out.println("🔎 Found users: " + foundUsers);
+
+        // Test user deletion (commented out for safety)
+        // if (deleteUser("testuser")) {
+        //     System.out.println("✅ User deleted successfully!");
+        // }
     }
 
     // Get single contact by ID
