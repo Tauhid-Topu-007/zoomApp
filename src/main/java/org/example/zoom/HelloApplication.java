@@ -165,16 +165,26 @@ public class HelloApplication extends Application {
     // ==================== ENHANCED CONNECTION INITIALIZATION ====================
 
     // Enhanced connection initialization with fallback
+// ENHANCED: Connection initialization with localhost handling
     public static void initializeWebSocket(String username) {
         String savedUrl = getCurrentServerUrl();
         System.out.println("🎯 Attempting connection to saved server: " + savedUrl);
 
         // Test the saved connection first
         if (!testConnection(savedUrl)) {
-            System.out.println("❌ Saved server connection failed, showing connection dialog");
-            Platform.runLater(() -> {
-                showServerConnectionDialog();
-            });
+            System.out.println("❌ Saved server connection failed");
+
+            // Special handling for localhost failures
+            if (savedUrl.contains("localhost")) {
+                System.out.println("🔄 Localhost failed - suggesting network connection");
+                Platform.runLater(() -> {
+                    MeetingInfo.handleLocalhostFailure();
+                });
+            } else {
+                Platform.runLater(() -> {
+                    showServerConnectionDialog();
+                });
+            }
         } else {
             initializeWebSocketWithUrl(savedUrl);
         }
@@ -211,23 +221,24 @@ public class HelloApplication extends Application {
     }
 
     // Enhanced network discovery that shows results
+// ENHANCED: Network discovery with better user guidance
     public static void discoverAndConnectToServer() {
         Platform.runLater(() -> {
             Alert searchingAlert = new Alert(Alert.AlertType.INFORMATION);
             searchingAlert.setTitle("Network Discovery");
             searchingAlert.setHeaderText("Searching for available servers...");
-            searchingAlert.setContentText("Please wait while we scan your network for Zoom servers.");
+            searchingAlert.setContentText("Scanning your network for Zoom servers.\n\nNote: This will NOT find servers on different networks.");
             searchingAlert.show();
 
             new Thread(() -> {
                 List<String> availableServers = discoverAvailableServers();
+                List<String> localIPs = getLocalIPAddresses();
 
                 Platform.runLater(() -> {
                     searchingAlert.close();
 
                     if (availableServers.isEmpty()) {
-                        // No servers found, show manual connection
-                        showNoServersFoundDialog();
+                        showNoServersFoundDialog(localIPs);
                     } else if (availableServers.size() == 1) {
                         // Auto-connect if only one server found
                         String server = availableServers.get(0);
@@ -245,6 +256,68 @@ public class HelloApplication extends Application {
                 });
             }).start();
         });
+    }
+
+    // ENHANCED: No servers found dialog with better guidance
+    private static void showNoServersFoundDialog(List<String> localIPs) {
+        Alert alert = new Alert(Alert.AlertType.WARNING);
+        alert.setTitle("No Servers Found");
+        alert.setHeaderText("No Zoom servers found on your local network");
+
+        StringBuilder content = new StringBuilder();
+        content.append("Please make sure:\n\n");
+        content.append("• The Zoom server is running on another device\n");
+        content.append("• Both devices are on the same WiFi network\n");
+        content.append("• Firewall allows port 8887\n\n");
+
+        if (!localIPs.isEmpty()) {
+            content.append("Your network IP addresses:\n");
+            for (String ip : localIPs) {
+                content.append("📍 ").append(ip).append("\n");
+            }
+            content.append("\n");
+        }
+
+        content.append("Would you like to:");
+
+        alert.setContentText(content.toString());
+
+        ButtonType manualButton = new ButtonType("Enter Server IP Manually");
+        ButtonType guideButton = new ButtonType("View Connection Guide");
+        ButtonType cancelButton = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+        alert.getButtonTypes().setAll(manualButton, guideButton, cancelButton);
+
+        Optional<ButtonType> result = alert.showAndWait();
+        if (result.isPresent()) {
+            if (result.get() == manualButton) {
+                showManualConnectionDialog();
+            } else if (result.get() == guideButton) {
+                showConnectionGuide();
+            }
+        }
+    }
+
+    // NEW: Quick server status check
+    public static void checkServerStatus() {
+        String currentUrl = getCurrentServerUrl();
+        System.out.println("🔍 Checking server status: " + currentUrl);
+
+        if (testConnection(currentUrl)) {
+            showAlert(Alert.AlertType.INFORMATION, "Server Status",
+                    "✅ Server is running and accessible at:\n" + currentUrl);
+        } else {
+            if (currentUrl.contains("localhost")) {
+                showAlert(Alert.AlertType.ERROR, "Server Status",
+                        "❌ Local server is not running\n\n" +
+                                "The WebSocket server needs to be started on this computer " +
+                                "or connect to another computer running the server.");
+            } else {
+                showAlert(Alert.AlertType.ERROR, "Server Status",
+                        "❌ Cannot connect to server at:\n" + currentUrl +
+                                "\n\nPlease check if the server is running and accessible.");
+            }
+        }
     }
 
     // Dialog when no servers are found
@@ -815,6 +888,12 @@ public class HelloApplication extends Application {
             }
 
             boolean success = connectionSuccess.get() && !receivedDisconnect.get();
+
+            // Special handling for localhost failure
+            if (!success && serverUrl.contains("localhost")) {
+                System.out.println("❌ Localhost connection failed - server likely not running on this device");
+            }
+
             System.out.println("🔍 Connection test result for " + serverUrl + ": " +
                     (success ? "SUCCESS" : "FAILED") +
                     " [Connected: " + connectionSuccess.get() +
@@ -826,6 +905,11 @@ public class HelloApplication extends Application {
             System.err.println("❌ Connection test failed for " + serverUrl + ": " + e.getMessage());
             if (testClient != null) {
                 testClient.disconnect();
+            }
+
+            // Special message for localhost connection refused
+            if (e.getMessage().contains("Connection refused") && serverUrl.contains("localhost")) {
+                System.out.println("💡 Hint: WebSocket server is not running on this device. Connect to another computer's IP.");
             }
             return false;
         }
@@ -1830,6 +1914,47 @@ public class HelloApplication extends Application {
 
                 alert.setContentText(message.toString());
                 alert.showAndWait();
+            });
+        }
+
+        // NEW: Handle localhost connection failure and suggest alternatives
+        public static void handleLocalhostFailure() {
+            Platform.runLater(() -> {
+                List<String> localIPs = getLocalIPAddresses();
+
+                Alert alert = new Alert(Alert.AlertType.WARNING);
+                alert.setTitle("Localhost Connection Failed");
+                alert.setHeaderText("Cannot connect to localhost:8887");
+
+                StringBuilder content = new StringBuilder();
+                content.append("The WebSocket server is not running on this device.\n\n");
+
+                if (!localIPs.isEmpty()) {
+                    content.append("If you're trying to connect to another computer:\n");
+                    for (String ip : localIPs) {
+                        content.append("• Try connecting to: ").append(ip).append(":8887\n");
+                    }
+                    content.append("\n");
+                }
+
+                content.append("Please choose an option:");
+
+                alert.setContentText(content.toString());
+
+                ButtonType discoverButton = new ButtonType("Discover Servers");
+                ButtonType manualButton = new ButtonType("Enter Server IP");
+                ButtonType cancelButton = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+                alert.getButtonTypes().setAll(discoverButton, manualButton, cancelButton);
+
+                Optional<ButtonType> result = alert.showAndWait();
+                if (result.isPresent()) {
+                    if (result.get() == discoverButton) {
+                        discoverAndConnectToServer();
+                    } else if (result.get() == manualButton) {
+                        showManualConnectionDialog();
+                    }
+                }
             });
         }
 
