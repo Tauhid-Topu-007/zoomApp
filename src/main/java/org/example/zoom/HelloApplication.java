@@ -10,6 +10,7 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ChoiceDialog;
 import javafx.scene.control.TextInputDialog;
+import javafx.scene.control.ButtonBar;
 
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -153,6 +154,135 @@ public class HelloApplication extends Application {
         return primaryStage;
     }
 
+    // ==================== ENHANCED CONNECTION INITIALIZATION ====================
+
+    // Enhanced connection initialization with fallback
+    public static void initializeWebSocket(String username) {
+        String savedUrl = getCurrentServerUrl();
+        System.out.println("🎯 Attempting connection to saved server: " + savedUrl);
+
+        // Test the saved connection first
+        if (!testConnection(savedUrl)) {
+            System.out.println("❌ Saved server connection failed, showing connection dialog");
+            Platform.runLater(() -> {
+                showServerConnectionDialog();
+            });
+        } else {
+            initializeWebSocketWithUrl(savedUrl);
+        }
+    }
+
+    // Show connection dialog to user
+    public static void showServerConnectionDialog() {
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+            alert.setTitle("Server Connection Required");
+            alert.setHeaderText("Cannot Connect to Server");
+            alert.setContentText("Unable to connect to the saved server.\n\n" +
+                    "Please choose an option:");
+
+            ButtonType discoverButton = new ButtonType("Discover Servers");
+            ButtonType manualButton = new ButtonType("Enter Server IP");
+            ButtonType localhostButton = new ButtonType("Try Localhost");
+            ButtonType cancelButton = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+            alert.getButtonTypes().setAll(discoverButton, manualButton, localhostButton, cancelButton);
+
+            Optional<ButtonType> result = alert.showAndWait();
+            if (result.isPresent()) {
+                if (result.get() == discoverButton) {
+                    discoverAndConnectToServer();
+                } else if (result.get() == manualButton) {
+                    showManualConnectionDialog();
+                } else if (result.get() == localhostButton) {
+                    // Try localhost
+                    initializeWebSocketWithUrl("ws://localhost:8887");
+                }
+            }
+        });
+    }
+
+    // Enhanced network discovery that shows results
+    public static void discoverAndConnectToServer() {
+        Platform.runLater(() -> {
+            Alert searchingAlert = new Alert(Alert.AlertType.INFORMATION);
+            searchingAlert.setTitle("Network Discovery");
+            searchingAlert.setHeaderText("Searching for available servers...");
+            searchingAlert.setContentText("Please wait while we scan your network for Zoom servers.");
+            searchingAlert.show();
+
+            new Thread(() -> {
+                List<String> availableServers = discoverAvailableServers();
+
+                Platform.runLater(() -> {
+                    searchingAlert.close();
+
+                    if (availableServers.isEmpty()) {
+                        // No servers found, show manual connection
+                        showNoServersFoundDialog();
+                    } else if (availableServers.size() == 1) {
+                        // Auto-connect if only one server found
+                        String server = availableServers.get(0);
+                        String[] parts = server.split(":");
+                        if (parts.length >= 2) {
+                            setServerConfig(parts[0], parts[1]);
+                            showAlert(Alert.AlertType.INFORMATION, "Connected",
+                                    "Connected to: " + server);
+                        }
+                    } else {
+                        // Let user choose from multiple servers
+                        showServerSelectionDialog(availableServers);
+                    }
+                });
+            }).start();
+        });
+    }
+
+    // Dialog when no servers are found
+    private static void showNoServersFoundDialog() {
+        Alert alert = new Alert(Alert.AlertType.WARNING);
+        alert.setTitle("No Servers Found");
+        alert.setHeaderText("No Zoom servers found on your network");
+        alert.setContentText("Please make sure:\n\n" +
+                "• The Zoom server is running on another device\n" +
+                "• Both devices are on the same WiFi network\n" +
+                "• Firewall allows port 8887\n\n" +
+                "Would you like to enter the server IP manually?");
+
+        ButtonType manualButton = new ButtonType("Enter IP Manually");
+        ButtonType cancelButton = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+        alert.getButtonTypes().setAll(manualButton, cancelButton);
+
+        Optional<ButtonType> result = alert.showAndWait();
+        if (result.isPresent() && result.get() == manualButton) {
+            showManualConnectionDialog();
+        }
+    }
+
+    // Server selection dialog
+    private static void showServerSelectionDialog(List<String> servers) {
+        ChoiceDialog<String> dialog = new ChoiceDialog<>(servers.get(0), servers);
+        dialog.setTitle("Select Server");
+        dialog.setHeaderText("Multiple servers found");
+        dialog.setContentText("Choose a server to connect:");
+
+        Optional<String> result = dialog.showAndWait();
+        result.ifPresent(server -> {
+            String[] parts = server.split(":");
+            if (parts.length >= 2) {
+                String ip = parts[0];
+                String port = parts[1];
+                String serverUrl = "ws://" + ip + ":" + port;
+
+                // Use reset instead of direct set
+                resetConnectionAndRetry(serverUrl);
+                showAlert(Alert.AlertType.INFORMATION, "Connecting",
+                        "Connecting to: " + server);
+            }
+        });
+    }
+
     // Load user's saved server configuration from database
     private static void loadUserServerConfig(String username) {
         Database.ServerConfig config = Database.getServerConfig(username);
@@ -169,12 +299,6 @@ public class HelloApplication extends Application {
     }
 
     // WebSocket Client Management - IMPROVED
-    private static void initializeWebSocket(String username) {
-        String url = getCurrentServerUrl();
-        initializeWebSocketWithUrl(url);
-    }
-
-    // New method to initialize with specific URL - IMPROVED
     private static void initializeWebSocketWithUrl(String serverUrl) {
         try {
             System.out.println("🎯 Initializing WebSocket connection to: " + serverUrl);
@@ -201,10 +325,12 @@ public class HelloApplication extends Application {
         }
     }
 
-    // Start monitoring connection status
+    // Improved connection monitoring with fallback logic
     private static void startConnectionMonitoring() {
         Thread monitorThread = new Thread(() -> {
             boolean previousConnectedState = isWebSocketConnected();
+            int consecutiveFailures = 0;
+            final int MAX_CONSECUTIVE_FAILURES = 3;
 
             while (connectionInitialized && loggedInUser != null) {
                 try {
@@ -224,17 +350,42 @@ public class HelloApplication extends Application {
                         }
 
                         previousConnectedState = currentConnectedState;
+
+                        // Reset failure counter on successful connection
+                        if (currentConnectedState) {
+                            consecutiveFailures = 0;
+                            System.out.println("✅ Connection restored, reset failure counter");
+                        }
                     }
 
                     // Attempt reconnection if disconnected
                     if (!currentConnectedState && webSocketClient != null) {
-                        System.out.println("🔄 Attempting to reconnect...");
+                        consecutiveFailures++;
+                        System.out.println("🔄 Attempting to reconnect... (Failure #" + consecutiveFailures + ")");
+
+                        // If too many consecutive failures, trigger fallback
+                        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                            System.out.println("❌ Too many connection failures (" + consecutiveFailures + "), triggering fallback...");
+
+                            Platform.runLater(() -> {
+                                showConnectionFallbackDialog();
+                            });
+
+                            // Reset counter and wait longer before next attempt
+                            consecutiveFailures = 0;
+                            Thread.sleep(15000); // Wait 15 seconds before next attempt
+                            continue;
+                        }
+
                         try {
                             // Create new connection
                             initializeWebSocketWithUrl(getCurrentServerUrl());
                         } catch (Exception e) {
                             System.err.println("❌ Reconnection failed: " + e.getMessage());
                         }
+                    } else if (currentConnectedState) {
+                        // Reset counter if connected
+                        consecutiveFailures = 0;
                     }
 
                 } catch (InterruptedException e) {
@@ -244,7 +395,39 @@ public class HelloApplication extends Application {
             }
         });
         monitorThread.setDaemon(true);
+        monitorThread.setName("WebSocket-Monitor");
         monitorThread.start();
+    }
+
+    // NEW: Show fallback dialog when connection repeatedly fails
+    private static void showConnectionFallbackDialog() {
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.WARNING);
+            alert.setTitle("Connection Issues");
+            alert.setHeaderText("Cannot connect to server: " + getCurrentServerUrl());
+            alert.setContentText("Multiple connection attempts failed.\n\n" +
+                    "Please choose an option:");
+
+            ButtonType discoverButton = new ButtonType("Discover Servers");
+            ButtonType manualButton = new ButtonType("Enter Server IP");
+            ButtonType localhostButton = new ButtonType("Try Localhost");
+            ButtonType cancelButton = new ButtonType("Continue Retrying", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+            alert.getButtonTypes().setAll(discoverButton, manualButton, localhostButton, cancelButton);
+
+            Optional<ButtonType> result = alert.showAndWait();
+            if (result.isPresent()) {
+                if (result.get() == discoverButton) {
+                    discoverAndConnectToServer();
+                } else if (result.get() == manualButton) {
+                    showManualConnectionDialog();
+                } else if (result.get() == localhostButton) {
+                    // Try localhost instead
+                    setServerConfig("localhost", "8887");
+                }
+                // If user chooses "Continue Retrying", just continue with normal retry logic
+            }
+        });
     }
 
     // Set connection status listener
@@ -278,7 +461,7 @@ public class HelloApplication extends Application {
         });
     }
 
-    // NEW: Show connection error and trigger network discovery
+    // Show connection error and trigger network discovery
     private static void showConnectionErrorAndDiscover(String attemptedUrl) {
         Alert alert = new Alert(Alert.AlertType.WARNING);
         alert.setTitle("Connection Failed");
@@ -302,7 +485,7 @@ public class HelloApplication extends Application {
         }
     }
 
-    // NEW: Manual connection dialog
+    // Manual connection dialog
     public static void showManualConnectionDialog() {
         TextInputDialog ipDialog = new TextInputDialog("192.168.1.");
         ipDialog.setTitle("Manual Server Connection");
@@ -330,7 +513,7 @@ public class HelloApplication extends Application {
         }
     }
 
-    // NEW: Manual connection method
+    // Manual connection method - UPDATED
     public static void connectToServerManual(String ip, String port) {
         if (ip == null || ip.trim().isEmpty()) {
             showAlert(Alert.AlertType.ERROR, "Invalid IP", "Please enter a valid IP address");
@@ -350,135 +533,46 @@ public class HelloApplication extends Application {
         String serverUrl = "ws://" + ip + ":" + port;
         System.out.println("🔗 Attempting manual connection to: " + serverUrl);
 
-        // Test connection first
-        showAlert(Alert.AlertType.INFORMATION, "Connecting", "Attempting to connect to: " + serverUrl);
-        initializeWebSocketWithUrl(serverUrl);
+        // Stop current attempts and start fresh
+        resetConnectionAndRetry(serverUrl);
     }
 
-    // NEW: IP validation method
+    // NEW: Stop all connection attempts and monitoring
+    public static void stopConnectionAttempts() {
+        connectionInitialized = false;
+
+        if (webSocketClient != null) {
+            webSocketClient.disconnect();
+            webSocketClient = null;
+        }
+
+        System.out.println("🛑 All connection attempts stopped");
+    }
+
+    // NEW: Call this when switching to manual connection or discovery
+    public static void resetConnectionAndRetry(String newUrl) {
+        stopConnectionAttempts();
+
+        // Small delay before new connection attempt
+        new Thread(() -> {
+            try {
+                Thread.sleep(1000);
+                Platform.runLater(() -> {
+                    initializeWebSocketWithUrl(newUrl);
+                });
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).start();
+    }
+
+    // IP validation method
     public static boolean isValidIPAddress(String ip) {
         String ipPattern = "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$";
         return ip.matches(ipPattern);
     }
 
-    // NEW: Enhanced network discovery and connection method
-    public static void discoverAndConnectToServer() {
-        Platform.runLater(() -> {
-            // Show searching dialog
-            Alert searchingAlert = new Alert(Alert.AlertType.INFORMATION);
-            searchingAlert.setTitle("Network Discovery");
-            searchingAlert.setHeaderText("Searching for available servers...");
-            searchingAlert.setContentText("Please wait while we scan your network for Zoom servers.");
-            searchingAlert.show();
-
-            // Run discovery in background thread
-            new Thread(() -> {
-                List<String> availableServers = discoverAvailableServers();
-                List<String> localIPs = getLocalIPAddresses();
-
-                Platform.runLater(() -> {
-                    searchingAlert.close();
-
-                    if (!availableServers.isEmpty()) {
-                        // Create display names with descriptions but store clean URLs
-                        List<String> displayNames = new ArrayList<>();
-                        Map<String, String> serverMap = new HashMap<>(); // Display name -> Clean URL
-
-                        for (String server : availableServers) {
-                            String cleanUrl = "ws://" + server;
-                            String displayName = server;
-                            if (localIPs.contains(server.split(":")[0])) {
-                                displayName = server + " (Your Computer)";
-                            }
-                            displayNames.add(displayName);
-                            serverMap.put(displayName, cleanUrl);
-                        }
-
-                        // Let user choose from available servers
-                        ChoiceDialog<String> dialog = new ChoiceDialog<>(displayNames.get(0), displayNames);
-                        dialog.setTitle("Network Discovery");
-                        dialog.setHeaderText("Available Servers Found");
-                        dialog.setContentText("Choose a server to connect:");
-
-                        Optional<String> result = dialog.showAndWait();
-                        result.ifPresent(selectedDisplayName -> {
-                            String cleanUrl = serverMap.get(selectedDisplayName);
-                            // Extract IP and port from clean URL
-                            String urlWithoutProtocol = cleanUrl.replace("ws://", "");
-                            String[] parts = urlWithoutProtocol.split(":");
-                            if (parts.length >= 2) {
-                                String ip = parts[0];
-                                String port = parts[1];
-                                setServerConfig(ip, port);
-
-                                showAlert(Alert.AlertType.INFORMATION, "Connecting",
-                                        "Connecting to: " + cleanUrl);
-                            }
-                        });
-                    } else {
-                        Alert noServersAlert = new Alert(Alert.AlertType.WARNING);
-                        noServersAlert.setTitle("No Servers Found");
-                        noServersAlert.setHeaderText("No available servers found");
-                        noServersAlert.setContentText("Please check:\n" +
-                                "1. Server is running on host machine\n" +
-                                "2. Both devices are on same network\n" +
-                                "3. Firewall allows port 8887\n" +
-                                "4. Try manual configuration");
-
-                        noServersAlert.showAndWait();
-
-                        // Show manual configuration dialog
-                        showManualConnectionDialog();
-                    }
-                });
-            }).start();
-        });
-    }
-
-    // NEW: Show connection guide
-    public static void showConnectionGuide() {
-        List<String> localIPs = getLocalIPAddresses();
-
-        StringBuilder guide = new StringBuilder();
-        guide.append("🌐 MULTI-DEVICE CONNECTION GUIDE\n");
-        guide.append("================================\n\n");
-
-        if (localIPs.isEmpty()) {
-            guide.append("❌ No network interfaces found!\n");
-            guide.append("   Make sure you're connected to WiFi/Ethernet\n\n");
-        } else {
-            guide.append("✅ Your Server IP Addresses:\n");
-            for (String ip : localIPs) {
-                guide.append("   📍 ").append(ip).append(":8887\n");
-            }
-            guide.append("\n");
-        }
-
-        guide.append("📋 CONNECTION STEPS:\n");
-        guide.append("1. Run the application on Server device\n");
-        guide.append("2. Note the Server IP address from above\n");
-        guide.append("3. On Client device, use 'Manual Connect'\n");
-        guide.append("4. Enter Server IP address\n");
-        guide.append("5. Click Connect\n\n");
-
-        guide.append("🔧 TROUBLESHOOTING:\n");
-        guide.append("• Ensure both devices on same WiFi\n");
-        guide.append("• Disable VPN temporarily\n");
-        guide.append("• Check firewall settings on Server\n");
-        guide.append("• Verify Server application is running\n");
-
-        Platform.runLater(() -> {
-            Alert alert = new Alert(Alert.AlertType.INFORMATION);
-            alert.setTitle("Multi-Device Connection Guide");
-            alert.setHeaderText("How to Connect Different Devices");
-            alert.setContentText(guide.toString());
-            alert.setWidth(500);
-            alert.setHeight(600);
-            alert.showAndWait();
-        });
-    }
-
-    // NEW: Alert helper method
+    // Alert helper method
     public static void showAlert(Alert.AlertType type, String title, String message) {
         Platform.runLater(() -> {
             Alert alert = new Alert(type);
@@ -530,7 +624,7 @@ public class HelloApplication extends Application {
         initializeWebSocketWithUrl(newUrl);
     }
 
-    // NEW: Get all local IP addresses for network discovery
+    // Get all local IP addresses for network discovery
     public static List<String> getLocalIPAddresses() {
         List<String> ips = new ArrayList<>();
         try {
@@ -556,7 +650,7 @@ public class HelloApplication extends Application {
         return ips;
     }
 
-    // NEW: Enhanced network discovery method
+    // Enhanced network discovery method
     public static List<String> discoverAvailableServers() {
         List<String> availableServers = new ArrayList<>();
         List<String> localIPs = getLocalIPAddresses();
@@ -623,13 +717,16 @@ public class HelloApplication extends Application {
         return availableServers;
     }
 
-    // NEW: Test connection to a specific server with better timeout handling
+    // Test connection to a specific server with better timeout handling
     public static boolean testConnection(String serverUrl) {
         try {
+            System.out.println("🔍 Testing connection to: " + serverUrl);
             final boolean[] connectionSuccess = {false};
             final Object lock = new Object();
+            final SimpleWebSocketClient[] testClient = new SimpleWebSocketClient[1];
 
-            SimpleWebSocketClient testClient = new SimpleWebSocketClient(serverUrl, message -> {
+            // Create a test client with shorter timeout
+            testClient[0] = new SimpleWebSocketClient(serverUrl, message -> {
                 System.out.println("🔗 Test connection received: " + message);
                 if (message.contains("Connected") || message.contains("Welcome") || message.contains("SYSTEM")) {
                     synchronized (lock) {
@@ -639,22 +736,70 @@ public class HelloApplication extends Application {
                 }
             });
 
-            // Wait for connection result with timeout
+            // Wait for connection result with shorter timeout
             synchronized (lock) {
                 try {
-                    lock.wait(2000); // Wait up to 2 seconds
+                    lock.wait(1500); // Reduced from 2000 to 1500ms for faster testing
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
             }
 
-            testClient.disconnect();
+            // Clean up test client
+            if (testClient[0] != null) {
+                testClient[0].disconnect();
+            }
+
+            System.out.println("🔍 Connection test result for " + serverUrl + ": " + (connectionSuccess[0] ? "SUCCESS" : "FAILED"));
             return connectionSuccess[0];
 
         } catch (Exception e) {
             System.err.println("❌ Connection test failed for " + serverUrl + ": " + e.getMessage());
             return false;
         }
+    }
+
+    // Show connection guide
+    public static void showConnectionGuide() {
+        List<String> localIPs = getLocalIPAddresses();
+
+        StringBuilder guide = new StringBuilder();
+        guide.append("🌐 MULTI-DEVICE CONNECTION GUIDE\n");
+        guide.append("================================\n\n");
+
+        if (localIPs.isEmpty()) {
+            guide.append("❌ No network interfaces found!\n");
+            guide.append("   Make sure you're connected to WiFi/Ethernet\n\n");
+        } else {
+            guide.append("✅ Your Server IP Addresses:\n");
+            for (String ip : localIPs) {
+                guide.append("   📍 ").append(ip).append(":8887\n");
+            }
+            guide.append("\n");
+        }
+
+        guide.append("📋 CONNECTION STEPS:\n");
+        guide.append("1. Run the application on Server device\n");
+        guide.append("2. Note the Server IP address from above\n");
+        guide.append("3. On Client device, use 'Manual Connect'\n");
+        guide.append("4. Enter Server IP address\n");
+        guide.append("5. Click Connect\n\n");
+
+        guide.append("🔧 TROUBLESHOOTING:\n");
+        guide.append("• Ensure both devices on same WiFi\n");
+        guide.append("• Disable VPN temporarily\n");
+        guide.append("• Check firewall settings on Server\n");
+        guide.append("• Verify Server application is running\n");
+
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.INFORMATION);
+            alert.setTitle("Multi-Device Connection Guide");
+            alert.setHeaderText("How to Connect Different Devices");
+            alert.setContentText(guide.toString());
+            alert.setWidth(500);
+            alert.setHeight(600);
+            alert.showAndWait();
+        });
     }
 
     // Handle incoming WebSocket messages
