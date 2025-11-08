@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Collections;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class HelloApplication extends Application {
 
@@ -55,6 +56,10 @@ public class HelloApplication extends Application {
     private static boolean isRecording = false;
     private static boolean virtualBackgroundEnabled = false;
     private static VideoControlsController videoControlsController;
+
+    // Connection monitoring control
+    private static volatile boolean stopMonitoring = false;
+    private static Thread monitorThread;
 
     // Interface for connection status updates
     public interface ConnectionStatusListener {
@@ -117,6 +122,9 @@ public class HelloApplication extends Application {
     }
 
     public static void logout() throws Exception {
+        // Stop connection monitoring
+        stopConnectionAttempts();
+
         // Remove connection listener before logout
         setConnectionStatusListener(null);
 
@@ -196,7 +204,7 @@ public class HelloApplication extends Application {
                     showManualConnectionDialog();
                 } else if (result.get() == localhostButton) {
                     // Try localhost
-                    initializeWebSocketWithUrl("ws://localhost:8887");
+                    resetConnectionAndRetry("ws://localhost:8887");
                 }
             }
         });
@@ -225,7 +233,8 @@ public class HelloApplication extends Application {
                         String server = availableServers.get(0);
                         String[] parts = server.split(":");
                         if (parts.length >= 2) {
-                            setServerConfig(parts[0], parts[1]);
+                            String serverUrl = "ws://" + server;
+                            resetConnectionAndRetry(serverUrl);
                             showAlert(Alert.AlertType.INFORMATION, "Connected",
                                     "Connected to: " + server);
                         }
@@ -315,6 +324,7 @@ public class HelloApplication extends Application {
             }
 
             connectionInitialized = true;
+            stopMonitoring = false;
 
             // Start connection monitoring
             startConnectionMonitoring();
@@ -327,12 +337,25 @@ public class HelloApplication extends Application {
 
     // Improved connection monitoring with fallback logic
     private static void startConnectionMonitoring() {
-        Thread monitorThread = new Thread(() -> {
+        // Stop any existing monitoring
+        stopMonitoring = true;
+        if (monitorThread != null && monitorThread.isAlive()) {
+            try {
+                monitorThread.join(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        stopMonitoring = false;
+        monitorThread = new Thread(() -> {
             boolean previousConnectedState = isWebSocketConnected();
             int consecutiveFailures = 0;
-            final int MAX_CONSECUTIVE_FAILURES = 3;
+            final int MAX_CONSECUTIVE_FAILURES = 2; // Reduced to 2 failures before fallback
 
-            while (connectionInitialized && loggedInUser != null) {
+            System.out.println("🔍 Starting connection monitoring...");
+
+            while (!stopMonitoring && connectionInitialized && loggedInUser != null) {
                 try {
                     Thread.sleep(5000); // Check every 5 seconds
 
@@ -341,6 +364,7 @@ public class HelloApplication extends Application {
                     // Only notify if connection state actually changed
                     if (currentConnectedState != previousConnectedState) {
                         String status = currentConnectedState ? "🟢 Connected" : "🔴 Disconnected";
+                        System.out.println("🔗 Connection state changed: " + status);
 
                         // Notify listener if connection status changed
                         if (connectionStatusListener != null) {
@@ -359,7 +383,7 @@ public class HelloApplication extends Application {
                     }
 
                     // Attempt reconnection if disconnected
-                    if (!currentConnectedState && webSocketClient != null) {
+                    if (!currentConnectedState) {
                         consecutiveFailures++;
                         System.out.println("🔄 Attempting to reconnect... (Failure #" + consecutiveFailures + ")");
 
@@ -373,7 +397,7 @@ public class HelloApplication extends Application {
 
                             // Reset counter and wait longer before next attempt
                             consecutiveFailures = 0;
-                            Thread.sleep(15000); // Wait 15 seconds before next attempt
+                            Thread.sleep(10000); // Wait 10 seconds before next attempt
                             continue;
                         }
 
@@ -391,8 +415,11 @@ public class HelloApplication extends Application {
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
+                } catch (Exception e) {
+                    System.err.println("❌ Error in connection monitoring: " + e.getMessage());
                 }
             }
+            System.out.println("🛑 Connection monitoring stopped");
         });
         monitorThread.setDaemon(true);
         monitorThread.setName("WebSocket-Monitor");
@@ -423,7 +450,7 @@ public class HelloApplication extends Application {
                     showManualConnectionDialog();
                 } else if (result.get() == localhostButton) {
                     // Try localhost instead
-                    setServerConfig("localhost", "8887");
+                    resetConnectionAndRetry("ws://localhost:8887");
                 }
                 // If user chooses "Continue Retrying", just continue with normal retry logic
             }
@@ -539,6 +566,8 @@ public class HelloApplication extends Application {
 
     // NEW: Stop all connection attempts and monitoring
     public static void stopConnectionAttempts() {
+        System.out.println("🛑 Stopping all connection attempts...");
+        stopMonitoring = true;
         connectionInitialized = false;
 
         if (webSocketClient != null) {
@@ -546,12 +575,34 @@ public class HelloApplication extends Application {
             webSocketClient = null;
         }
 
+        if (monitorThread != null && monitorThread.isAlive()) {
+            try {
+                monitorThread.join(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
         System.out.println("🛑 All connection attempts stopped");
     }
 
     // NEW: Call this when switching to manual connection or discovery
     public static void resetConnectionAndRetry(String newUrl) {
+        System.out.println("🔄 Resetting connection and retrying with: " + newUrl);
         stopConnectionAttempts();
+
+        // Extract IP and port from URL
+        String urlWithoutProtocol = newUrl.replace("ws://", "");
+        String[] parts = urlWithoutProtocol.split(":");
+        if (parts.length >= 2) {
+            serverIp = parts[0];
+            serverPort = parts[1];
+
+            // Save to database if user is logged in
+            if (loggedInUser != null) {
+                Database.saveServerConfig(loggedInUser, serverIp, serverPort);
+            }
+        }
 
         // Small delay before new connection attempt
         new Thread(() -> {
@@ -604,7 +655,7 @@ public class HelloApplication extends Application {
 
         // Reinitialize WebSocket with new configuration
         if (loggedInUser != null) {
-            initializeWebSocketWithUrl(getCurrentServerUrl());
+            resetConnectionAndRetry(getCurrentServerUrl());
         }
     }
 
@@ -621,7 +672,7 @@ public class HelloApplication extends Application {
     }
 
     public static void reinitializeWebSocket(String newUrl) {
-        initializeWebSocketWithUrl(newUrl);
+        resetConnectionAndRetry(newUrl);
     }
 
     // Get all local IP addresses for network discovery
@@ -675,7 +726,7 @@ public class HelloApplication extends Application {
             // Add common IP ranges in the same subnet
             if (localIp.contains(".")) {
                 String baseIp = localIp.substring(0, localIp.lastIndexOf('.') + 1);
-                for (int i = 1; i <= 50; i++) { // Test first 50 IPs for broader discovery
+                for (int i = 1; i <= 20; i++) { // Reduced to 20 IPs for faster discovery
                     String testIp = baseIp + i;
                     if (!testIp.equals(localIp) && !ipsToTest.contains(testIp)) {
                         ipsToTest.add(testIp);
@@ -705,7 +756,7 @@ public class HelloApplication extends Application {
         // Wait for all threads to complete
         for (Thread thread : threads) {
             try {
-                thread.join(1500); // Wait max 1.5 seconds per thread
+                thread.join(1000); // Reduced to 1 second per thread
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
@@ -717,44 +768,65 @@ public class HelloApplication extends Application {
         return availableServers;
     }
 
-    // Test connection to a specific server with better timeout handling
+    // FIXED: Test connection to a specific server with proper message filtering
     public static boolean testConnection(String serverUrl) {
+        final AtomicBoolean connectionSuccess = new AtomicBoolean(false);
+        final AtomicBoolean receivedDisconnect = new AtomicBoolean(false);
+        final Object lock = new Object();
+        SimpleWebSocketClient testClient = null;
+
         try {
             System.out.println("🔍 Testing connection to: " + serverUrl);
-            final boolean[] connectionSuccess = {false};
-            final Object lock = new Object();
-            final SimpleWebSocketClient[] testClient = new SimpleWebSocketClient[1];
 
-            // Create a test client with shorter timeout
-            testClient[0] = new SimpleWebSocketClient(serverUrl, message -> {
+            testClient = new SimpleWebSocketClient(serverUrl, message -> {
                 System.out.println("🔗 Test connection received: " + message);
-                if (message.contains("Connected") || message.contains("Welcome") || message.contains("SYSTEM")) {
+
+                // Check for successful connection messages
+                if (message.contains("Connected") || message.contains("Welcome") ||
+                        message.contains("WELCOME") || message.contains("connected")) {
                     synchronized (lock) {
-                        connectionSuccess[0] = true;
+                        connectionSuccess.set(true);
+                        receivedDisconnect.set(false);
+                        lock.notifyAll();
+                    }
+                }
+                // Check for disconnect or error messages
+                else if (message.contains("DISCONNECTED") || message.contains("ERROR") ||
+                        message.contains("Failed") || message.contains("disconnected")) {
+                    synchronized (lock) {
+                        receivedDisconnect.set(true);
                         lock.notifyAll();
                     }
                 }
             });
 
-            // Wait for connection result with shorter timeout
+            // Wait for connection result with timeout
             synchronized (lock) {
                 try {
-                    lock.wait(1500); // Reduced from 2000 to 1500ms for faster testing
+                    lock.wait(2000); // Wait up to 2 seconds
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
             }
 
             // Clean up test client
-            if (testClient[0] != null) {
-                testClient[0].disconnect();
+            if (testClient != null) {
+                testClient.disconnect();
             }
 
-            System.out.println("🔍 Connection test result for " + serverUrl + ": " + (connectionSuccess[0] ? "SUCCESS" : "FAILED"));
-            return connectionSuccess[0];
+            boolean success = connectionSuccess.get() && !receivedDisconnect.get();
+            System.out.println("🔍 Connection test result for " + serverUrl + ": " +
+                    (success ? "SUCCESS" : "FAILED") +
+                    " [Connected: " + connectionSuccess.get() +
+                    ", Disconnected: " + receivedDisconnect.get() + "]");
+
+            return success;
 
         } catch (Exception e) {
             System.err.println("❌ Connection test failed for " + serverUrl + ": " + e.getMessage());
+            if (testClient != null) {
+                testClient.disconnect();
+            }
             return false;
         }
     }
@@ -807,15 +879,15 @@ public class HelloApplication extends Application {
         System.out.println("📨 Application received: " + message);
 
         // Handle connection status messages first
-        if (message.contains("Connected") || message.contains("Welcome")) {
+        if (message.contains("Connected") || message.contains("Welcome") || message.contains("WELCOME")) {
             System.out.println("✅ WebSocket connection confirmed");
             if (connectionStatusListener != null) {
                 Platform.runLater(() -> {
                     connectionStatusListener.onConnectionStatusChanged(true, "🟢 Connected");
                 });
             }
-        } else if (message.contains("ERROR") || message.contains("Failed")) {
-            System.out.println("❌ WebSocket error received");
+        } else if (message.contains("ERROR") || message.contains("Failed") || message.contains("DISCONNECTED")) {
+            System.out.println("❌ WebSocket error/disconnect received");
             if (connectionStatusListener != null) {
                 Platform.runLater(() -> {
                     connectionStatusListener.onConnectionStatusChanged(false, "🔴 Connection error");
@@ -1627,6 +1699,9 @@ public class HelloApplication extends Application {
 
     @Override
     public void stop() throws Exception {
+        // Stop connection monitoring
+        stopConnectionAttempts();
+
         // Leave current meeting if any
         leaveCurrentMeeting();
 
