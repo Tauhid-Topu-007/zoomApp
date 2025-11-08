@@ -19,6 +19,10 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
     @FXML
     private Label connectionInfoLabel;
 
+    // Track connection state to prevent repeated popups
+    private boolean wasConnected = false;
+    private boolean initialConnectionCheck = true;
+
     @FXML
     public void initialize() {
         // Always pull the logged-in user from HelloApplication
@@ -31,17 +35,39 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
 
             // Update connection info immediately
             updateConnectionInfo();
+
+            // Set initial connection state
+            wasConnected = HelloApplication.isWebSocketConnected();
+
+            // Auto-trigger network discovery if not connected
+            if (!HelloApplication.isWebSocketConnected()) {
+                Platform.runLater(() -> {
+                    // Small delay to let UI initialize properly
+                    new Thread(() -> {
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                        Platform.runLater(() -> {
+                            showPopup("Connection Required",
+                                    "You are not connected to a server. " +
+                                            "Please use 'Quick Connect' to find and connect to a server on your network.");
+                        });
+                    }).start();
+                });
+            }
         }
     }
 
     public void updateConnectionInfo() {
         if (connectionInfoLabel != null) {
-            String status = getConnectionStatus();
+            String status = HelloApplication.getConnectionStatusShort();
             String serverUrl = HelloApplication.getCurrentServerUrl();
 
             connectionInfoLabel.setText(status + " | " + serverUrl.replace("ws://", ""));
 
-            if (isWebSocketConnected()) {
+            if (HelloApplication.isWebSocketConnected()) {
                 connectionInfoLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-size: 12px; -fx-padding: 5; -fx-background-color: #34495e; -fx-background-radius: 5;");
             } else {
                 connectionInfoLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-size: 12px; -fx-padding: 5; -fx-background-color: #34495e; -fx-background-radius: 5;");
@@ -52,8 +78,48 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
     // Implement ConnectionStatusListener interface
     @Override
     public void onConnectionStatusChanged(boolean connected, String status) {
+        System.out.println("🔗 Connection status changed: " + connected + " - " + status);
+
         // Update the connection info when status changes
         updateConnectionInfo();
+
+        // Only show popup when connection state actually changes (not on repeated checks)
+        if (connected && !wasConnected) {
+            // Connection was established (previously disconnected)
+            Platform.runLater(() -> {
+                showConnectionSuccessPopup();
+            });
+        } else if (!connected && wasConnected) {
+            // Connection was lost (previously connected)
+            Platform.runLater(() -> {
+                showConnectionLostPopup();
+            });
+        }
+
+        // Update the previous connection state
+        wasConnected = connected;
+
+        // Mark that initial check is done
+        if (initialConnectionCheck) {
+            initialConnectionCheck = false;
+        }
+    }
+
+    private void showConnectionSuccessPopup() {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("Connection Established");
+        alert.setHeaderText("✅ Successfully connected to server!");
+        alert.setContentText("You are now connected to: " + HelloApplication.getCurrentServerUrl());
+        alert.showAndWait();
+    }
+
+    private void showConnectionLostPopup() {
+        Alert alert = new Alert(Alert.AlertType.WARNING);
+        alert.setTitle("Connection Lost");
+        alert.setHeaderText("🔴 Disconnected from server");
+        alert.setContentText("The connection to the server has been lost. " +
+                "The app will attempt to reconnect automatically.");
+        alert.showAndWait();
     }
 
     @FXML
@@ -119,6 +185,14 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
 
     @FXML
     protected void onNewMeetingClick() throws Exception {
+        // Check WebSocket connection before creating meeting
+        if (!HelloApplication.isWebSocketConnected()) {
+            showPopup("Connection Required",
+                    "You need to be connected to a server to create a meeting. " +
+                            "Please use 'Quick Connect' first to find and connect to a server.");
+            return;
+        }
+
         // Ensure WebSocket is connected before creating meeting
         HelloApplication.ensureWebSocketConnection();
 
@@ -130,8 +204,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         if (client != null && client.isConnected()) {
             String username = HelloApplication.getLoggedInUser();
             client.sendMessage("MEETING_CREATED", meetingId, username, "created and joined meeting");
-        } else {
-            showPopup("Connection Issue", "Not connected to server. Some features may not work.");
         }
 
         HelloApplication.setRoot("new-meeting-view.fxml");
@@ -139,6 +211,14 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
 
     @FXML
     protected void onJoinClick() throws Exception {
+        // Check WebSocket connection before joining
+        if (!HelloApplication.isWebSocketConnected()) {
+            showPopup("Connection Required",
+                    "You need to be connected to a server to join a meeting. " +
+                            "Please use 'Quick Connect' first to find and connect to a server.");
+            return;
+        }
+
         // Ensure WebSocket is connected before joining
         HelloApplication.ensureWebSocketConnection();
         HelloApplication.setRoot("join-view.fxml");
@@ -160,6 +240,13 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
     @FXML
     protected void onShareScreenClick() throws Exception {
         // Check WebSocket connection before sharing screen
+        if (!HelloApplication.isWebSocketConnected()) {
+            showPopup("Connection Required",
+                    "You need to be connected to a server to share screen. " +
+                            "Please use 'Quick Connect' first to find and connect to a server.");
+            return;
+        }
+
         SimpleWebSocketClient client = HelloApplication.getWebSocketClient();
         if (client != null && client.isConnected()) {
             HelloApplication.setRoot("share-screen-view.fxml");
@@ -231,13 +318,8 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
 
     @FXML
     protected void onQuickConnectClick() {
-        Stage currentStage = (Stage) welcomeLabel.getScene().getWindow();
-        ServerConfigDialog dialog = ServerConfigDialog.showDialog(currentStage);
-
-        if (dialog != null && dialog.isConnected()) {
-            updateConnectionInfo();
-            showPopup("Success", "Connected to: " + dialog.getServerUrl());
-        }
+        // Use the enhanced network discovery method
+        HelloApplication.discoverAndConnectToServer();
     }
 
     @FXML
@@ -247,7 +329,9 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         if (client != null && client.isConnected()) {
             showPopup("Connection Status", "✅ Connected to server: " + HelloApplication.getCurrentServerUrl());
         } else {
-            showPopup("Connection Status", "❌ Not connected to server. Please check your connection settings.");
+            showPopup("Connection Status",
+                    "❌ Not connected to server.\n\n" +
+                            "Click 'Quick Connect' to automatically find and connect to available servers on your network.");
         }
         updateConnectionInfo();
     }
@@ -266,27 +350,12 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
     }
 
     private void showPopup(String title, String message) {
-        javafx.application.Platform.runLater(() -> {
+        Platform.runLater(() -> {
             Alert alert = new Alert(Alert.AlertType.INFORMATION);
             alert.setTitle(title);
             alert.setHeaderText(null);
             alert.setContentText(message);
             alert.showAndWait();
         });
-    }
-
-    // Method to check WebSocket connection status
-    public boolean isWebSocketConnected() {
-        SimpleWebSocketClient client = HelloApplication.getWebSocketClient();
-        return client != null && client.isConnected();
-    }
-
-    // Method to get connection status message
-    public String getConnectionStatus() {
-        if (isWebSocketConnected()) {
-            return "🟢 Connected";
-        } else {
-            return "🔴 Disconnected";
-        }
     }
 }
