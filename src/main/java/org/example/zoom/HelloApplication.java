@@ -307,6 +307,7 @@ public class HelloApplication extends Application {
     }
 
     // NEW: Enhanced network discovery and connection method
+    // NEW: Enhanced network discovery and connection method
     public static void discoverAndConnectToServer() {
         Platform.runLater(() -> {
             // Show searching dialog
@@ -319,21 +320,38 @@ public class HelloApplication extends Application {
             // Run discovery in background thread
             new Thread(() -> {
                 List<String> availableServers = discoverAvailableServers();
+                List<String> localIPs = getLocalIPAddresses();
 
                 Platform.runLater(() -> {
                     searchingAlert.close();
 
                     if (!availableServers.isEmpty()) {
+                        // Create display names with descriptions but store clean URLs
+                        List<String> displayNames = new ArrayList<>();
+                        Map<String, String> serverMap = new HashMap<>(); // Display name -> Clean URL
+
+                        for (String server : availableServers) {
+                            String cleanUrl = "ws://" + server;
+                            String displayName = server;
+                            if (localIPs.contains(server.split(":")[0])) {
+                                displayName = server + " (Your Computer)";
+                            }
+                            displayNames.add(displayName);
+                            serverMap.put(displayName, cleanUrl);
+                        }
+
                         // Let user choose from available servers
-                        ChoiceDialog<String> dialog = new ChoiceDialog<>(availableServers.get(0), availableServers);
+                        ChoiceDialog<String> dialog = new ChoiceDialog<>(displayNames.get(0), displayNames);
                         dialog.setTitle("Network Discovery");
                         dialog.setHeaderText("Available Servers Found");
                         dialog.setContentText("Choose a server to connect:");
 
                         Optional<String> result = dialog.showAndWait();
-                        result.ifPresent(server -> {
-                            // Extract IP from server string (format: "192.168.1.100:8887")
-                            String[] parts = server.split(":");
+                        result.ifPresent(selectedDisplayName -> {
+                            String cleanUrl = serverMap.get(selectedDisplayName);
+                            // Extract IP and port from clean URL
+                            String urlWithoutProtocol = cleanUrl.replace("ws://", "");
+                            String[] parts = urlWithoutProtocol.split(":");
                             if (parts.length >= 2) {
                                 String ip = parts[0];
                                 String port = parts[1];
@@ -342,7 +360,7 @@ public class HelloApplication extends Application {
                                 Alert successAlert = new Alert(Alert.AlertType.INFORMATION);
                                 successAlert.setTitle("Connection");
                                 successAlert.setHeaderText("Connecting to server...");
-                                successAlert.setContentText("Connecting to: " + server);
+                                successAlert.setContentText("Connecting to: " + cleanUrl);
                                 successAlert.show();
                             }
                         });
@@ -437,6 +455,7 @@ public class HelloApplication extends Application {
     }
 
     // NEW: Enhanced network discovery method
+    // NEW: Enhanced network discovery method
     public static List<String> discoverAvailableServers() {
         List<String> availableServers = new ArrayList<>();
         List<String> localIPs = getLocalIPAddresses();
@@ -446,7 +465,7 @@ public class HelloApplication extends Application {
 
         // Always check localhost first
         if (testConnection("ws://localhost:8887")) {
-            availableServers.add("localhost:8887 (This Computer)");
+            availableServers.add("localhost:8887");
         }
 
         // Check all local IPs and common network ranges
@@ -475,16 +494,14 @@ public class HelloApplication extends Application {
         // Test all IPs in parallel for faster discovery
         List<Thread> threads = new ArrayList<>();
         List<String> discoveredServers = Collections.synchronizedList(new ArrayList<>());
+        List<String> discoveredServerIPs = Collections.synchronizedList(new ArrayList<>());
 
         for (String ip : ipsToTest) {
             Thread thread = new Thread(() -> {
                 String testUrl = "ws://" + ip + ":8887";
                 if (testConnection(testUrl)) {
-                    String serverInfo = ip + ":8887";
-                    if (localIPs.contains(ip)) {
-                        serverInfo += " (Your Computer)";
-                    }
-                    discoveredServers.add(serverInfo);
+                    discoveredServers.add(ip + ":8887");
+                    discoveredServerIPs.add(ip);
                     System.out.println("✅ Found server: " + testUrl);
                 }
             });
