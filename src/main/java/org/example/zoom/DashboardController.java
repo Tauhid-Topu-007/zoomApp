@@ -140,7 +140,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
                     message.append("1. Ensure server is running on host computer\n");
                     message.append("2. Check if both devices are on same WiFi\n");
                     message.append("3. Disable VPN and firewall temporarily\n");
-                    message.append("4. Use 'Quick Connect' with host IP manually\n");
+                    message.append("4. Use 'Manual Connect' with host IP manually\n");
                     message.append("5. Restart server and try again");
                 } else {
                     message.append("✅ Found ").append(servers.size()).append(" server(s):\n");
@@ -189,7 +189,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         if (!HelloApplication.isWebSocketConnected()) {
             showPopup("Connection Required",
                     "You need to be connected to a server to create a meeting. " +
-                            "Please use 'Quick Connect' first to find and connect to a server.");
+                            "Please use 'Quick Connect' or 'Manual Connect' first to find and connect to a server.");
             return;
         }
 
@@ -215,7 +215,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         if (!HelloApplication.isWebSocketConnected()) {
             showPopup("Connection Required",
                     "You need to be connected to a server to join a meeting. " +
-                            "Please use 'Quick Connect' first to find and connect to a server.");
+                            "Please use 'Quick Connect' or 'Manual Connect' first to find and connect to a server.");
             return;
         }
 
@@ -243,7 +243,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         if (!HelloApplication.isWebSocketConnected()) {
             showPopup("Connection Required",
                     "You need to be connected to a server to share screen. " +
-                            "Please use 'Quick Connect' first to find and connect to a server.");
+                            "Please use 'Quick Connect' or 'Manual Connect' first to find and connect to a server.");
             return;
         }
 
@@ -323,6 +323,18 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
     }
 
     @FXML
+    protected void onManualConnectClick() {
+        // Show manual connection dialog
+        HelloApplication.showManualConnectionDialog();
+    }
+
+    @FXML
+    protected void onConnectionGuideClick() {
+        // Show connection guide
+        HelloApplication.showConnectionGuide();
+    }
+
+    @FXML
     protected void onTestConnectionClick() {
         // Test the current connection
         SimpleWebSocketClient client = HelloApplication.getWebSocketClient();
@@ -331,7 +343,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         } else {
             showPopup("Connection Status",
                     "❌ Not connected to server.\n\n" +
-                            "Click 'Quick Connect' to automatically find and connect to available servers on your network.");
+                            "Click 'Quick Connect' to automatically find servers or 'Manual Connect' to enter server IP manually.");
         }
         updateConnectionInfo();
     }

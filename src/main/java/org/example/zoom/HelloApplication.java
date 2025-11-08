@@ -9,6 +9,7 @@ import org.example.zoom.websocket.SimpleWebSocketClient;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ChoiceDialog;
+import javafx.scene.control.TextInputDialog;
 
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -201,14 +202,13 @@ public class HelloApplication extends Application {
     }
 
     // Start monitoring connection status
-    // Start monitoring connection status
     private static void startConnectionMonitoring() {
         Thread monitorThread = new Thread(() -> {
             boolean previousConnectedState = isWebSocketConnected();
 
             while (connectionInitialized && loggedInUser != null) {
                 try {
-                    Thread.sleep(5000); // Check every 5 seconds (increased from 3)
+                    Thread.sleep(5000); // Check every 5 seconds
 
                     boolean currentConnectedState = isWebSocketConnected();
 
@@ -297,16 +297,70 @@ public class HelloApplication extends Application {
             if (result.get() == discoverButton) {
                 discoverAndConnectToServer();
             } else if (result.get() == manualButton) {
-                ServerConfigDialog dialog = ServerConfigDialog.showDialog(primaryStage);
-                if (dialog != null && dialog.isConnected()) {
-                    System.out.println("✅ User configured new server: " + dialog.getServerUrl());
-                    initializeWebSocketWithUrl(dialog.getServerUrl());
-                }
+                showManualConnectionDialog();
             }
         }
     }
 
-    // NEW: Enhanced network discovery and connection method
+    // NEW: Manual connection dialog
+    public static void showManualConnectionDialog() {
+        TextInputDialog ipDialog = new TextInputDialog("192.168.1.");
+        ipDialog.setTitle("Manual Server Connection");
+        ipDialog.setHeaderText("Connect to Server on Different Device");
+        ipDialog.setContentText("Enter server IP address:");
+
+        Optional<String> ipResult = ipDialog.showAndWait();
+        if (ipResult.isPresent() && !ipResult.get().trim().isEmpty()) {
+            String ip = ipResult.get().trim();
+
+            TextInputDialog portDialog = new TextInputDialog("8887");
+            portDialog.setTitle("Server Port");
+            portDialog.setHeaderText("Server Port Configuration");
+            portDialog.setContentText("Enter server port:");
+
+            Optional<String> portResult = portDialog.showAndWait();
+            String port = portResult.isPresent() ? portResult.get().trim() : "8887";
+
+            if (port.isEmpty()) {
+                port = "8887";
+            }
+
+            // Validate and connect
+            connectToServerManual(ip, port);
+        }
+    }
+
+    // NEW: Manual connection method
+    public static void connectToServerManual(String ip, String port) {
+        if (ip == null || ip.trim().isEmpty()) {
+            showAlert(Alert.AlertType.ERROR, "Invalid IP", "Please enter a valid IP address");
+            return;
+        }
+
+        if (port == null || port.trim().isEmpty()) {
+            port = "8887";
+        }
+
+        // Validate IP format
+        if (!isValidIPAddress(ip) && !ip.equals("localhost")) {
+            showAlert(Alert.AlertType.ERROR, "Invalid IP", "Please enter a valid IP address (e.g., 192.168.1.100)");
+            return;
+        }
+
+        String serverUrl = "ws://" + ip + ":" + port;
+        System.out.println("🔗 Attempting manual connection to: " + serverUrl);
+
+        // Test connection first
+        showAlert(Alert.AlertType.INFORMATION, "Connecting", "Attempting to connect to: " + serverUrl);
+        initializeWebSocketWithUrl(serverUrl);
+    }
+
+    // NEW: IP validation method
+    public static boolean isValidIPAddress(String ip) {
+        String ipPattern = "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$";
+        return ip.matches(ipPattern);
+    }
+
     // NEW: Enhanced network discovery and connection method
     public static void discoverAndConnectToServer() {
         Platform.runLater(() -> {
@@ -357,11 +411,8 @@ public class HelloApplication extends Application {
                                 String port = parts[1];
                                 setServerConfig(ip, port);
 
-                                Alert successAlert = new Alert(Alert.AlertType.INFORMATION);
-                                successAlert.setTitle("Connection");
-                                successAlert.setHeaderText("Connecting to server...");
-                                successAlert.setContentText("Connecting to: " + cleanUrl);
-                                successAlert.show();
+                                showAlert(Alert.AlertType.INFORMATION, "Connecting",
+                                        "Connecting to: " + cleanUrl);
                             }
                         });
                     } else {
@@ -377,13 +428,64 @@ public class HelloApplication extends Application {
                         noServersAlert.showAndWait();
 
                         // Show manual configuration dialog
-                        ServerConfigDialog manualDialog = ServerConfigDialog.showDialog(primaryStage);
-                        if (manualDialog != null && manualDialog.isConnected()) {
-                            initializeWebSocketWithUrl(manualDialog.getServerUrl());
-                        }
+                        showManualConnectionDialog();
                     }
                 });
             }).start();
+        });
+    }
+
+    // NEW: Show connection guide
+    public static void showConnectionGuide() {
+        List<String> localIPs = getLocalIPAddresses();
+
+        StringBuilder guide = new StringBuilder();
+        guide.append("🌐 MULTI-DEVICE CONNECTION GUIDE\n");
+        guide.append("================================\n\n");
+
+        if (localIPs.isEmpty()) {
+            guide.append("❌ No network interfaces found!\n");
+            guide.append("   Make sure you're connected to WiFi/Ethernet\n\n");
+        } else {
+            guide.append("✅ Your Server IP Addresses:\n");
+            for (String ip : localIPs) {
+                guide.append("   📍 ").append(ip).append(":8887\n");
+            }
+            guide.append("\n");
+        }
+
+        guide.append("📋 CONNECTION STEPS:\n");
+        guide.append("1. Run the application on Server device\n");
+        guide.append("2. Note the Server IP address from above\n");
+        guide.append("3. On Client device, use 'Manual Connect'\n");
+        guide.append("4. Enter Server IP address\n");
+        guide.append("5. Click Connect\n\n");
+
+        guide.append("🔧 TROUBLESHOOTING:\n");
+        guide.append("• Ensure both devices on same WiFi\n");
+        guide.append("• Disable VPN temporarily\n");
+        guide.append("• Check firewall settings on Server\n");
+        guide.append("• Verify Server application is running\n");
+
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.INFORMATION);
+            alert.setTitle("Multi-Device Connection Guide");
+            alert.setHeaderText("How to Connect Different Devices");
+            alert.setContentText(guide.toString());
+            alert.setWidth(500);
+            alert.setHeight(600);
+            alert.showAndWait();
+        });
+    }
+
+    // NEW: Alert helper method
+    public static void showAlert(Alert.AlertType type, String title, String message) {
+        Platform.runLater(() -> {
+            Alert alert = new Alert(type);
+            alert.setTitle(title);
+            alert.setHeaderText(null);
+            alert.setContentText(message);
+            alert.showAndWait();
         });
     }
 
@@ -455,7 +557,6 @@ public class HelloApplication extends Application {
     }
 
     // NEW: Enhanced network discovery method
-    // NEW: Enhanced network discovery method
     public static List<String> discoverAvailableServers() {
         List<String> availableServers = new ArrayList<>();
         List<String> localIPs = getLocalIPAddresses();
@@ -494,14 +595,12 @@ public class HelloApplication extends Application {
         // Test all IPs in parallel for faster discovery
         List<Thread> threads = new ArrayList<>();
         List<String> discoveredServers = Collections.synchronizedList(new ArrayList<>());
-        List<String> discoveredServerIPs = Collections.synchronizedList(new ArrayList<>());
 
         for (String ip : ipsToTest) {
             Thread thread = new Thread(() -> {
                 String testUrl = "ws://" + ip + ":8887";
                 if (testConnection(testUrl)) {
                     discoveredServers.add(ip + ":8887");
-                    discoveredServerIPs.add(ip);
                     System.out.println("✅ Found server: " + testUrl);
                 }
             });
@@ -1457,7 +1556,7 @@ public class HelloApplication extends Application {
 
         // NEW: Show comprehensive network information
         public static void showNetworkInfo() {
-            List<String> localIPs = getLocalIPAddresses();
+            List<String> localIPs = HelloApplication.getLocalIPAddresses();
             System.out.println("🌐 NETWORK CONNECTION GUIDE:");
             System.out.println("=================================");
 

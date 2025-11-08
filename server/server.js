@@ -1,6 +1,7 @@
 // server/server.js
 import { WebSocketServer } from 'ws';
 import { networkInterfaces } from 'os';
+import { createServer } from 'http';
 
 const PORT = 8887;
 
@@ -11,7 +12,8 @@ function getLocalIPs() {
 
     for (const name of Object.keys(interfaces)) {
         for (const net of interfaces[name]) {
-            if (net.family === 'IPv4' && !net.internal) {
+            // Include both IPv4 and IPv6, exclude internal addresses
+            if ((net.family === 'IPv4' || net.family === 4) && !net.internal) {
                 ips.push(net.address);
             }
         }
@@ -19,29 +21,77 @@ function getLocalIPs() {
     return ips;
 }
 
-// Allow connections from any IP address
+// Create HTTP server for health checks
+const httpServer = createServer((req, res) => {
+    if (req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            status: 'healthy',
+            clients: clients.size,
+            meetings: meetings.size,
+            uptime: process.uptime()
+        }));
+    } else {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('Zoom WebSocket Server is running\n');
+    }
+});
+
+// WebSocket server
 const wss = new WebSocketServer({
-    port: PORT,
+    server: httpServer,
     host: '0.0.0.0'  // This allows connections from any IP
 });
 
 const clients = new Map();
 const meetings = new Map();
 
-const localIPs = getLocalIPs();
-console.log(`✅ WebSocket Server started on port ${PORT}`);
-console.log(`🌐 Server is accessible via:`);
-console.log(`   - Local: ws://localhost:${PORT}`);
-localIPs.forEach(ip => {
-    console.log(`   - Network: ws://${ip}:${PORT}`);
-});
-console.log(`   - Any device: ws://YOUR_LOCAL_IP:${PORT}`);
+// Start both HTTP and WebSocket servers
+httpServer.listen(PORT, '0.0.0.0', () => {
+    const localIPs = getLocalIPs();
 
+    console.log(`\n🚀 ZOOM WEB SOCKET SERVER STARTED`);
+    console.log(`=========================================`);
+    console.log(`✅ Server Status: RUNNING`);
+    console.log(`📍 Port: ${PORT}`);
+    console.log(`🌐 Bind Address: 0.0.0.0 (All interfaces)`);
+    console.log(`\n🔗 CONNECTION URLs:`);
+    console.log(`   Local Access:`);
+    console.log(`   - ws://localhost:${PORT}`);
+    console.log(`   - http://localhost:${PORT}/health`);
+
+    console.log(`\n   Network Access:`);
+    localIPs.forEach(ip => {
+        console.log(`   - ws://${ip}:${PORT}`);
+        console.log(`   - http://${ip}:${PORT}/health`);
+    });
+
+    console.log(`\n📊 Server Info:`);
+    console.log(`   - Max Connections: Unlimited`);
+    console.log(`   - Ping Interval: 15 seconds`);
+    console.log(`   - Timeout: 30 seconds`);
+    console.log(`   - Protocol: WebSocket`);
+
+    console.log(`\n🎯 Multi-Device Setup Instructions:`);
+    console.log(`   1. Note your IP address: ${localIPs[0] || 'Check network settings'}`);
+    console.log(`   2. On client devices, connect to: ws://YOUR_IP:${PORT}`);
+    console.log(`   3. Ensure firewall allows port ${PORT}`);
+    console.log(`   4. For internet access, forward port ${PORT} on router`);
+
+    console.log(`\n🔧 Testing:`);
+    console.log(`   - Health check: http://${localIPs[0] || 'localhost'}:${PORT}/health`);
+    console.log(`   - Test connection: Open browser console and run:`);
+    console.log(`     var ws = new WebSocket("ws://${localIPs[0] || 'localhost'}:${PORT}")`);
+
+    console.log(`\n⏳ Waiting for client connections...\n`);
+});
+
+// ... (rest of your existing server code remains the same)
 // Connection timeout handling
 const CONNECTION_TIMEOUT = 30000; // 30 seconds
 
 wss.on('connection', (ws, req) => {
-    const clientIp = req.socket.remoteAddress;
+    const clientIp = req.socket.remoteAddress.replace(/^.*:/, ''); // Remove IPv6 prefix
     const clientPort = req.socket.remotePort;
     console.log(`🔗 New client connected from: ${clientIp}:${clientPort}`);
 
@@ -184,6 +234,7 @@ wss.on('connection', (ws, req) => {
     });
 });
 
+// ... (keep all your existing handler functions the same)
 // Message Handlers
 function handleChatMessage(ws, userId, meetingId, content) {
     console.log(`💬 ${userId} in meeting ${meetingId}: ${content}`);
@@ -460,26 +511,3 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
-
-console.log('\n🔧 Multi-Device Connection Guide:');
-console.log('   1. Find your local IP:');
-localIPs.forEach(ip => {
-    console.log(`      - Your IP: ${ip}`);
-});
-console.log('   2. On other devices, use: ws://YOUR_IP:' + PORT);
-console.log('   3. Make sure your firewall allows port ' + PORT);
-console.log('   4. For internet access, forward port ' + PORT + ' on your router');
-
-console.log('\n🎯 Supported message types:');
-console.log('   • CHAT|meetingId|username|message');
-console.log('   • MEETING_CREATED|meetingId|username|description');
-console.log('   • USER_JOINED|meetingId|username|status');
-console.log('   • USER_LEFT|meetingId|username|status');
-console.log('   • MEETING_ENDED|meetingId|username|reason');
-console.log('   • AUDIO_STATUS|meetingId|username|status');
-console.log('   • VIDEO_STATUS|meetingId|username|status');
-console.log('   • AUDIO_CONTROL|meetingId|username|command');
-console.log('   • VIDEO_CONTROL|meetingId|username|command');
-console.log('   • PING|meetingId|username|timestamp (for keep-alive)');
-
-console.log('\n🚀 Server is ready for multi-device connections!');
