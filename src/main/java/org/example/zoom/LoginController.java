@@ -21,11 +21,22 @@ public class LoginController {
     private Label serverInfoLabel;
     @FXML
     private CheckBox rememberMe;
+    @FXML
+    private ScrollPane mainScrollPane;
 
     private SimpleWebSocketClient testClient;
 
     @FXML
     public void initialize() {
+        // Configure scroll pane
+        if (mainScrollPane != null) {
+            mainScrollPane.setFitToWidth(true);
+            mainScrollPane.setFitToHeight(true);
+            mainScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+            mainScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+            mainScrollPane.setStyle("-fx-background: #2c3e50; -fx-border-color: #2c3e50;");
+        }
+
         // Update connection status when the login screen loads
         updateConnectionStatus();
 

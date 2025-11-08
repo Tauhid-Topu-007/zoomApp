@@ -4,46 +4,131 @@
 <?import javafx.scene.layout.*?>
 <?import javafx.geometry.Insets?>
 
-<VBox xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1"
-      fx:controller="org.example.zoom.RecordingsController" spacing="15" style="-fx-padding: 20;">
+<ScrollPane xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="org.example.zoom.RecordingsController"
+            fx:id="mainScrollPane"
+            style="-fx-background: #2c3e50; -fx-border-color: #2c3e50;"
+            fitToWidth="true" fitToHeight="true"
+            hbarPolicy="NEVER" vbarPolicy="AS_NEEDED">
 
-    <padding><Insets top="20" right="20" bottom="20" left="20"/></padding>
+    <content>
+        <VBox spacing="20" style="-fx-background-color: #2c3e50; -fx-padding: 20; -fx-min-width: 600;">
 
-    <!-- Header -->
-    <Label text="📁 Meeting Recordings" style="-fx-font-size: 24px; -fx-font-weight: bold;"/>
+            <!-- Main Header -->
+            <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 15;">
+                <Label text="🎥 Recordings Manager" style="-fx-text-fill: white; -fx-font-size: 28px; -fx-font-weight: bold;"/>
+                <Label text="Manage and play your recorded meetings" style="-fx-text-fill: #ecf0f1; -fx-font-size: 14px;"/>
+            </VBox>
 
-    <!-- Controls -->
-    <HBox spacing="10" alignment="CENTER_LEFT">
-        <Label text="Found recordings: " style="-fx-font-weight: bold;"/>
-        <Label fx:id="recordingsCountLabel" text="0" style="-fx-font-weight: bold; -fx-text-fill: #3498db;"/>
-        <Region HBox.hgrow="ALWAYS"/>
-        <Button text="🔄 Refresh" onAction="#onRefreshClick"
-                style="-fx-background-color: #3498db; -fx-text-fill: white;"/>
-        <Button text="📁 Open Folder" onAction="#onOpenFolderClick"
-                style="-fx-background-color: #95a5a6; -fx-text-fill: white;"/>
-    </HBox>
+            <!-- Control Panel -->
+            <HBox spacing="15" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 15;">
+                <Button text="🔄 Refresh" onAction="#onRefreshClick"
+                        style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 8; -fx-padding: 10 20;"/>
+                <Button text="▶ Play" onAction="#onPlayClick"
+                        style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 8; -fx-padding: 10 20;"/>
+                <Button text="⬇ Download" onAction="#onDownloadClick"
+                        style="-fx-background-color: #f39c12; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 8; -fx-padding: 10 20;"/>
+                <Button text="🗑 Delete" onAction="#onDeleteClick"
+                        style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 8; -fx-padding: 10 20;"/>
+                <Button text="📁 Open Folder" onAction="#onOpenFolderClick"
+                        style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 8; -fx-padding: 10 20;"/>
+            </HBox>
 
-    <!-- Recordings List -->
-    <VBox spacing="5">
-        <Label text="Available Recordings:" style="-fx-font-weight: bold;"/>
-        <ListView fx:id="recordingsList" VBox.vgrow="ALWAYS"
-                  style="-fx-border-color: #bdc3c7; -fx-border-radius: 5;"/>
-    </VBox>
+            <!-- Recordings List Section -->
+            <VBox spacing="10" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 15;">
+                <Label text="📋 Your Recordings" style="-fx-text-fill: white; -fx-font-size: 18px; -fx-font-weight: bold;"/>
 
-    <!-- Action Buttons -->
-    <HBox spacing="15" alignment="CENTER">
-        <Button text="▶ Play" onAction="#onPlayClick"
-                style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-min-width: 100;"/>
-        <Button text="⬇ Download" onAction="#onDownloadClick"
-                style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold; -fx-min-width: 100;"/>
-        <Button text="🗑 Delete" onAction="#onDeleteClick"
-                style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-min-width: 100;"/>
-    </HBox>
+                <!-- Scrollable ListView Container -->
+                <VBox spacing="5" style="-fx-background-color: #2c3e50; -fx-padding: 10; -fx-background-radius: 8; -fx-border-color: #3498db; -fx-border-width: 2; -fx-border-radius: 8;">
+                    <ListView fx:id="recordingsList"
+                              style="-fx-background-color: transparent; -fx-border-color: transparent;"
+                              prefHeight="300"
+                              maxHeight="400"/>
+                </VBox>
 
-    <!-- Back Button -->
-    <HBox alignment="CENTER">
-        <Button text="← Back to Dashboard" onAction="#onBackClick"
-                style="-fx-background-color: #7f8c8d; -fx-text-fill: white; -fx-min-width: 150;"/>
-    </HBox>
+                <Label text="💡 Double-click any recording to play it instantly"
+                       style="-fx-text-fill: #bdc3c7; -fx-font-size: 12px; -fx-font-style: italic; -fx-padding: 5 0 0 0;"/>
+            </VBox>
 
-</VBox>
+            <!-- Recording Details Panel -->
+            <VBox spacing="15" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 15;">
+                <Label text="📊 Recording Details" style="-fx-text-fill: white; -fx-font-size: 18px; -fx-font-weight: bold;"/>
+
+                <GridPane hgap="15" vgap="10" alignment="CENTER_LEFT">
+                    <columnConstraints>
+                        <ColumnConstraints prefWidth="120"/>
+                        <ColumnConstraints prefWidth="300"/>
+                    </columnConstraints>
+
+                    <rowConstraints>
+                        <RowConstraints prefHeight="30"/>
+                        <RowConstraints prefHeight="30"/>
+                        <RowConstraints prefHeight="30"/>
+                        <RowConstraints prefHeight="30"/>
+                    </rowConstraints>
+
+                    <!-- File Name -->
+                    <Label text="File Name:" style="-fx-text-fill: #bdc3c7; -fx-font-weight: bold;" GridPane.rowIndex="0" GridPane.columnIndex="0"/>
+                    <Label fx:id="fileNameLabel" text="No recording selected" style="-fx-text-fill: white;" GridPane.rowIndex="0" GridPane.columnIndex="1"/>
+
+                    <!-- File Size -->
+                    <Label text="File Size:" style="-fx-text-fill: #bdc3c7; -fx-font-weight: bold;" GridPane.rowIndex="1" GridPane.columnIndex="0"/>
+                    <Label fx:id="fileSizeLabel" text="-" style="-fx-text-fill: white;" GridPane.rowIndex="1" GridPane.columnIndex="1"/>
+
+                    <!-- Creation Date -->
+                    <Label text="Created:" style="-fx-text-fill: #bdc3c7; -fx-font-weight: bold;" GridPane.rowIndex="2" GridPane.columnIndex="0"/>
+                    <Label fx:id="creationDateLabel" text="-" style="-fx-text-fill: white;" GridPane.rowIndex="2" GridPane.columnIndex="1"/>
+
+                    <!-- Duration -->
+                    <Label text="Duration:" style="-fx-text-fill: #bdc3c7; -fx-font-weight: bold;" GridPane.rowIndex="3" GridPane.columnIndex="0"/>
+                    <Label fx:id="durationLabel" text="-" style="-fx-text-fill: white;" GridPane.rowIndex="3" GridPane.columnIndex="1"/>
+                </GridPane>
+            </VBox>
+
+            <!-- Quick Actions -->
+            <VBox spacing="15" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 15;">
+                <Label text="⚡ Quick Actions" style="-fx-text-fill: white; -fx-font-size: 18px; -fx-font-weight: bold;"/>
+
+                <HBox spacing="20" alignment="CENTER">
+                    <VBox spacing="8" alignment="CENTER" style="-fx-padding: 15; -fx-background-color: #27ae60; -fx-background-radius: 10;">
+                        <Label text="🎬" style="-fx-font-size: 20px; -fx-text-fill: white;"/>
+                        <Button text="Quick Play" onAction="#onPlayClick"
+                                style="-fx-background-color: white; -fx-text-fill: #27ae60; -fx-font-weight: bold; -fx-background-radius: 6; -fx-padding: 8 15;"/>
+                        <Label text="Play selected" style="-fx-text-fill: white; -fx-font-size: 11px;"/>
+                    </VBox>
+
+                    <VBox spacing="8" alignment="CENTER" style="-fx-padding: 15; -fx-background-color: #f39c12; -fx-background-radius: 10;">
+                        <Label text="📁" style="-fx-font-size: 20px; -fx-text-fill: white;"/>
+                        <Button text="Show in Folder" onAction="#onOpenFolderClick"
+                                style="-fx-background-color: white; -fx-text-fill: #f39c12; -fx-font-weight: bold; -fx-background-radius: 6; -fx-padding: 8 15;"/>
+                        <Label text="Open location" style="-fx-text-fill: white; -fx-font-size: 11px;"/>
+                    </VBox>
+
+                    <VBox spacing="8" alignment="CENTER" style="-fx-padding: 15; -fx-background-color: #3498db; -fx-background-radius: 10;">
+                        <Label text="🔄" style="-fx-font-size: 20px; -fx-text-fill: white;"/>
+                        <Button text="Refresh List" onAction="#onRefreshClick"
+                                style="-fx-background-color: white; -fx-text-fill: #3498db; -fx-font-weight: bold; -fx-background-radius: 6; -fx-padding: 8 15;"/>
+                        <Label text="Reload files" style="-fx-text-fill: white; -fx-font-size: 11px;"/>
+                    </VBox>
+                </HBox>
+            </VBox>
+
+            <!-- Navigation -->
+            <HBox spacing="20" alignment="CENTER" style="-fx-padding: 10;">
+                <Button text="🏠 Dashboard" onAction="#onBackClick"
+                        style="-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 8; -fx-padding: 12 25;"/>
+                <Button text="❌ Close" onAction="#onBackClick"
+                        style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 8; -fx-padding: 12 25;"/>
+            </HBox>
+
+            <!-- Footer -->
+            <VBox alignment="CENTER" spacing="5" style="-fx-padding: 10;">
+                <Label text="💡 Tip: Recordings are automatically saved in your ZoomRecordings folder"
+                       style="-fx-text-fill: #bdc3c7; -fx-font-size: 12px; -fx-font-style: italic;"/>
+                <Label text="Zoom Recordings Manager v1.0 | Secure Local Storage"
+                       style="-fx-text-fill: #95a5a6; -fx-font-size: 10px;"/>
+            </VBox>
+
+        </VBox>
+    </content>
+</ScrollPane>

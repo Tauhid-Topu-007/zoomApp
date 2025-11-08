@@ -35,6 +35,16 @@ public class SimpleWebSocketClient implements Listener {
             new CompletableFuture<>()
     );
 
+    // ✅ Connection Listener for connection status updates
+    private ConnectionListener connectionListener;
+
+    // ✅ Connection Listener Interface
+    public interface ConnectionListener {
+        void onConnected();
+        void onDisconnected();
+        void onError(String error);
+    }
+
     // ✅ Constructor
     public SimpleWebSocketClient(String serverUrl, Consumer<String> messageHandler) {
         this.serverUrl = serverUrl;
@@ -49,6 +59,46 @@ public class SimpleWebSocketClient implements Listener {
         // Start message processor
         startMessageProcessor();
         connect();
+    }
+
+    // ✅ Set connection listener
+    public void setConnectionListener(ConnectionListener listener) {
+        this.connectionListener = listener;
+        System.out.println("🔗 Connection listener set");
+    }
+
+    // ✅ Notify connection listener methods
+    private void notifyConnected() {
+        if (connectionListener != null) {
+            try {
+                connectionListener.onConnected();
+                System.out.println("🔗 Notified connection listener: Connected");
+            } catch (Exception e) {
+                System.err.println("❌ Error notifying connection listener: " + e.getMessage());
+            }
+        }
+    }
+
+    private void notifyDisconnected() {
+        if (connectionListener != null) {
+            try {
+                connectionListener.onDisconnected();
+                System.out.println("🔗 Notified connection listener: Disconnected");
+            } catch (Exception e) {
+                System.err.println("❌ Error notifying connection listener: " + e.getMessage());
+            }
+        }
+    }
+
+    private void notifyError(String error) {
+        if (connectionListener != null) {
+            try {
+                connectionListener.onError(error);
+                System.out.println("🔗 Notified connection listener: Error - " + error);
+            } catch (Exception e) {
+                System.err.println("❌ Error notifying connection listener: " + e.getMessage());
+            }
+        }
     }
 
     // ✅ Connect to WebSocket server with timeout
@@ -79,6 +129,7 @@ public class SimpleWebSocketClient implements Listener {
                         if (messageHandler != null) {
                             messageHandler.accept("SYSTEM|global|Client|ERROR|Connection failed: " + e.getMessage());
                         }
+                        notifyError("Connection failed: " + e.getMessage());
                         scheduleReconnect();
                         return null;
                     });
@@ -92,6 +143,7 @@ public class SimpleWebSocketClient implements Listener {
             if (messageHandler != null) {
                 messageHandler.accept("SYSTEM|global|Client|ERROR|Connection error: " + e.getMessage());
             }
+            notifyError("Connection error: " + e.getMessage());
             scheduleReconnect();
         }
     }
@@ -110,6 +162,9 @@ public class SimpleWebSocketClient implements Listener {
             currentReady.complete(null);
             System.out.println("✅ Connection marked as ready for messaging");
         }
+
+        // Notify connection listener
+        notifyConnected();
 
         // Start heartbeat
         startHeartbeat();
@@ -167,6 +222,9 @@ public class SimpleWebSocketClient implements Listener {
         // Stop heartbeat
         stopHeartbeat();
 
+        // Notify connection listener
+        notifyDisconnected();
+
         // Notify message handler
         if (messageHandler != null) {
             messageHandler.accept("SYSTEM|global|Server|DISCONNECTED|Connection closed: " + reason);
@@ -187,6 +245,9 @@ public class SimpleWebSocketClient implements Listener {
 
         // Stop heartbeat
         stopHeartbeat();
+
+        // Notify connection listener
+        notifyError("WebSocket error: " + error.getMessage());
 
         // Notify message handler
         if (messageHandler != null) {
@@ -454,6 +515,9 @@ public class SimpleWebSocketClient implements Listener {
 
         // Clear message queue
         messageQueue.clear();
+
+        // Notify connection listener
+        notifyDisconnected();
 
         if (messageHandler != null) {
             messageHandler.accept("SYSTEM|global|Server|DISCONNECTED|Disconnected from server: " + serverUrl);

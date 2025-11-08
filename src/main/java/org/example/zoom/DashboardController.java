@@ -6,10 +6,12 @@ import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.stage.Stage;
 import org.example.zoom.websocket.SimpleWebSocketClient;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DashboardController implements HelloApplication.ConnectionStatusListener {
 
@@ -19,12 +21,25 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
     @FXML
     private Label connectionInfoLabel;
 
-    // Track connection state to prevent repeated popups
+    @FXML
+    private ScrollPane mainScrollPane;
+
     private boolean wasConnected = false;
-    private boolean initialConnectionCheck = true;
+    private AtomicBoolean alertInProgress = new AtomicBoolean(false);
+    private long lastConnectionChangeTime = 0;
+    private static final long MIN_ALERT_INTERVAL = 3000;
 
     @FXML
     public void initialize() {
+        // Configure scroll pane
+        if (mainScrollPane != null) {
+            mainScrollPane.setFitToWidth(true);
+            mainScrollPane.setFitToHeight(true);
+            mainScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+            mainScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+            mainScrollPane.setStyle("-fx-background: #2c3e50; -fx-border-color: #2c3e50;");
+        }
+
         // Always pull the logged-in user from HelloApplication
         String user = HelloApplication.getLoggedInUser();
         if (user != null) {
@@ -39,24 +54,40 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
             // Set initial connection state
             wasConnected = HelloApplication.isWebSocketConnected();
 
-            // Auto-trigger network discovery if not connected
+            // Auto-connect to Node.js server if not connected
             if (!HelloApplication.isWebSocketConnected()) {
                 Platform.runLater(() -> {
-                    // Small delay to let UI initialize properly
                     new Thread(() -> {
                         try {
-                            Thread.sleep(1000);
+                            Thread.sleep(1500); // Wait for UI to initialize
+                            Platform.runLater(this::autoConnectToServer);
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
                         }
-                        Platform.runLater(() -> {
-                            showPopup("Connection Required",
-                                    "You are not connected to a server. " +
-                                            "Please use 'Quick Connect' to find and connect to a server on your network.");
-                        });
                     }).start();
                 });
             }
+        }
+    }
+
+    /**
+     * Auto-connect to server on startup
+     */
+    private void autoConnectToServer() {
+        System.out.println("🔄 Auto-connecting to server...");
+
+        if (isNodeJSServerRunning()) {
+            System.out.println("✅ Node.js server detected, connecting...");
+            HelloApplication.discoverAndConnectToServer(); // Use existing method
+        } else {
+            showPopup("Server Not Running",
+                    "🚨 Node.js WebSocket Server is not running!\n\n" +
+                            "To start the server:\n" +
+                            "1. Open terminal in your 'server' folder\n" +
+                            "2. Run: node server.js\n" +
+                            "3. Look for 'SERVER STARTED' message\n" +
+                            "4. Then click 'Quick Connect'\n\n" +
+                            "💡 Keep the server terminal open!");
         }
     }
 
@@ -75,79 +106,85 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         }
     }
 
-    // Implement ConnectionStatusListener interface
     @Override
     public void onConnectionStatusChanged(boolean connected, String status) {
         System.out.println("🔗 Connection status changed: " + connected + " - " + status);
-
-        // Update the connection info when status changes
         updateConnectionInfo();
+        handleConnectionStateChange(connected, status);
+    }
 
-        // Only show popup when connection state actually changes (not on repeated checks)
+    private void handleConnectionStateChange(boolean connected, String status) {
+        long currentTime = System.currentTimeMillis();
+
+        if (alertInProgress.get() || (currentTime - lastConnectionChangeTime < MIN_ALERT_INTERVAL)) {
+            return;
+        }
+
         if (connected && !wasConnected) {
-            // Connection was established (previously disconnected)
-            Platform.runLater(() -> {
-                showConnectionSuccessPopup();
-            });
+            showConnectionSuccessPopup();
+            lastConnectionChangeTime = currentTime;
         } else if (!connected && wasConnected) {
-            // Connection was lost (previously connected)
-            Platform.runLater(() -> {
-                showConnectionLostPopup();
-            });
+            showConnectionLostPopup();
+            lastConnectionChangeTime = currentTime;
         }
 
-        // Update the previous connection state
         wasConnected = connected;
-
-        // Mark that initial check is done
-        if (initialConnectionCheck) {
-            initialConnectionCheck = false;
-        }
     }
 
     private void showConnectionSuccessPopup() {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle("Connection Established");
-        alert.setHeaderText("✅ Successfully connected to server!");
-        alert.setContentText("You are now connected to: " + HelloApplication.getCurrentServerUrl());
-        alert.showAndWait();
+        if (!alertInProgress.compareAndSet(false, true)) return;
+
+        Platform.runLater(() -> {
+            try {
+                Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                alert.setTitle("Connection Established");
+                alert.setHeaderText("✅ Successfully connected to server!");
+                alert.setContentText("You are now connected to: " + HelloApplication.getCurrentServerUrl());
+                alert.setOnHidden(e -> alertInProgress.set(false));
+                alert.showAndWait();
+            } catch (Exception e) {
+                alertInProgress.set(false);
+            }
+        });
     }
 
     private void showConnectionLostPopup() {
-        Alert alert = new Alert(Alert.AlertType.WARNING);
-        alert.setTitle("Connection Lost");
-        alert.setHeaderText("🔴 Disconnected from server");
-        alert.setContentText("The connection to the server has been lost. " +
-                "The app will attempt to reconnect automatically.");
-        alert.showAndWait();
+        if (!alertInProgress.compareAndSet(false, true)) return;
+
+        Platform.runLater(() -> {
+            try {
+                Alert alert = new Alert(Alert.AlertType.WARNING);
+                alert.setTitle("Connection Lost");
+                alert.setHeaderText("🔴 Disconnected from server");
+                alert.setContentText("Connection to the server has been lost. Reconnecting...");
+                alert.setOnHidden(e -> alertInProgress.set(false));
+                alert.showAndWait();
+            } catch (Exception e) {
+                alertInProgress.set(false);
+            }
+        });
     }
 
     @FXML
     protected void onNetworkDiagnosticClick() {
-        // Show local network information first
-        showLocalNetworkInfo();
-
         new Thread(() -> {
+            boolean serverRunning = isNodeJSServerRunning();
             List<String> servers = HelloApplication.discoverAvailableServers();
 
             Platform.runLater(() -> {
                 StringBuilder message = new StringBuilder();
                 message.append("🔍 Network Diagnostic Results:\n\n");
+                message.append("Node.js Server: ").append(serverRunning ? "✅ RUNNING" : "❌ NOT RUNNING").append("\n\n");
 
                 if (servers.isEmpty()) {
                     message.append("❌ No servers found\n\n");
-                    message.append("Troubleshooting Steps:\n");
-                    message.append("1. Ensure server is running on host computer\n");
-                    message.append("2. Check if both devices are on same WiFi\n");
-                    message.append("3. Disable VPN and firewall temporarily\n");
-                    message.append("4. Use 'Manual Connect' with host IP manually\n");
-                    message.append("5. Restart server and try again");
+                    message.append("To fix:\n");
+                    message.append("1. Start server: 'node server.js'\n");
+                    message.append("2. Use 'Manual Connect' with ws://localhost:8887");
                 } else {
                     message.append("✅ Found ").append(servers.size()).append(" server(s):\n");
-                    for (String server : servers) {
-                        message.append("• ").append(server).append("\n");
-                    }
-                    message.append("\nClick 'Quick Connect' to connect to any server above");
+                    servers.forEach(server -> message.append("• ").append(server).append("\n"));
+                    message.append("\nClick 'Quick Connect' to connect");
                 }
 
                 showPopup("Network Diagnostic", message.toString());
@@ -155,31 +192,14 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         }).start();
     }
 
-    // New method to show local network information
-    private void showLocalNetworkInfo() {
-        List<String> localIPs = HelloApplication.getLocalIPAddresses();
-
-        if (localIPs.isEmpty()) {
-            System.out.println("❌ No network interfaces found!");
-            System.out.println("   Make sure you're connected to WiFi/Ethernet");
-        } else {
-            System.out.println("🌐 NETWORK CONNECTION GUIDE:");
-            System.out.println("=================================");
-            System.out.println("✅ Your computer's IP addresses:");
-            for (String ip : localIPs) {
-                System.out.println("   📍 " + ip + ":8887");
-            }
-            System.out.println("\n🔗 Other devices should use:");
-            for (String ip : localIPs) {
-                System.out.println("   ws://" + ip + ":8887");
-            }
-
-            System.out.println("\n🔧 TROUBLESHOOTING:");
-            System.out.println("   1. Make sure all devices are on same WiFi");
-            System.out.println("   2. Turn off VPN if using one");
-            System.out.println("   3. Check firewall settings");
-            System.out.println("   4. Try different IP addresses from the list above");
-            System.out.println("   5. Ensure server is running on the host computer");
+    /**
+     * Check if Node.js server is running
+     */
+    private boolean isNodeJSServerRunning() {
+        try (java.net.Socket socket = new java.net.Socket("localhost", 8887)) {
+            return true;
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -188,8 +208,11 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         // Check WebSocket connection before creating meeting
         if (!HelloApplication.isWebSocketConnected()) {
             showPopup("Connection Required",
-                    "You need to be connected to a server to create a meeting. " +
-                            "Please use 'Quick Connect' or 'Manual Connect' first to find and connect to a server.");
+                    "You need to be connected to the Node.js server to create a meeting.\n\n" +
+                            "To fix this:\n" +
+                            "1. Make sure Node.js server is running\n" +
+                            "2. Use 'Quick Connect' or 'Manual Connect'\n" +
+                            "3. Try connecting to: ws://localhost:8887");
             return;
         }
 
@@ -204,6 +227,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         if (client != null && client.isConnected()) {
             String username = HelloApplication.getLoggedInUser();
             client.sendMessage("MEETING_CREATED", meetingId, username, "created and joined meeting");
+            System.out.println("📨 Sent MEETING_CREATED to Node.js server");
         }
 
         HelloApplication.setRoot("new-meeting-view.fxml");
@@ -214,8 +238,11 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         // Check WebSocket connection before joining
         if (!HelloApplication.isWebSocketConnected()) {
             showPopup("Connection Required",
-                    "You need to be connected to a server to join a meeting. " +
-                            "Please use 'Quick Connect' or 'Manual Connect' first to find and connect to a server.");
+                    "You need to be connected to the Node.js server to join a meeting.\n\n" +
+                            "Make sure:\n" +
+                            "• Node.js server is running\n" +
+                            "• You're connected via WebSocket\n" +
+                            "• Server URL: ws://localhost:8887");
             return;
         }
 
@@ -242,8 +269,8 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         // Check WebSocket connection before sharing screen
         if (!HelloApplication.isWebSocketConnected()) {
             showPopup("Connection Required",
-                    "You need to be connected to a server to share screen. " +
-                            "Please use 'Quick Connect' or 'Manual Connect' first to find and connect to a server.");
+                    "You need to be connected to the Node.js server to share screen.\n\n" +
+                            "Server must be running and connected via WebSocket.");
             return;
         }
 
@@ -251,7 +278,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         if (client != null && client.isConnected()) {
             HelloApplication.setRoot("share-screen-view.fxml");
         } else {
-            showPopup("Connection Required", "Please check your internet connection. Screen sharing requires active server connection.");
+            showPopup("Connection Required", "Please check your connection to the Node.js server.");
         }
     }
 
@@ -263,6 +290,12 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
     @FXML
     protected void onChatClick() throws Exception {
         try {
+            // Check connection first
+            if (!HelloApplication.isWebSocketConnected()) {
+                showPopup("Connection Required", "Connect to Node.js server first to use chat.");
+                return;
+            }
+
             FXMLLoader loader = new FXMLLoader(getClass().getResource("chat-view.fxml"));
             Scene scene = new Scene(loader.load(), 800, 600);
 
@@ -274,6 +307,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
                 SimpleWebSocketClient client = HelloApplication.getWebSocketClient();
                 controller.setWebSocketClient(client);
                 controller.setCurrentUser(HelloApplication.getLoggedInUser());
+                System.out.println("💬 Chat connected to Node.js server");
             }
 
             Stage stage = (Stage) welcomeLabel.getScene().getWindow();
@@ -282,7 +316,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
 
         } catch (Exception e) {
             e.printStackTrace();
-            showPopup("Error", "Failed to open Chat!");
+            showPopup("Error", "Failed to open Chat! " + e.getMessage());
         }
     }
 
@@ -318,20 +352,41 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
 
     @FXML
     protected void onQuickConnectClick() {
+        // Enhanced Quick Connect that prioritizes Node.js server
+        showPopup("Quick Connect",
+                "🔗 Connecting to Node.js WebSocket Server...\n\n" +
+                        "This will automatically find and connect to your\n" +
+                        "Node.js server running on port 8887.");
+
         // Use the enhanced network discovery method
         HelloApplication.discoverAndConnectToServer();
     }
 
     @FXML
     protected void onManualConnectClick() {
-        // Show manual connection dialog
+        // Show manual connection dialog - it should handle the connection
         HelloApplication.showManualConnectionDialog();
     }
 
     @FXML
     protected void onConnectionGuideClick() {
-        // Show connection guide
-        HelloApplication.showConnectionGuide();
+        showConnectionGuide();
+    }
+
+    private void showConnectionGuide() {
+        showPopup("Node.js Server Connection Guide",
+                "🚀 HOW TO CONNECT TO NODE.JS SERVER:\n\n" +
+                        "1. Start Node.js Server:\n" +
+                        "   • Open terminal in server folder\n" +
+                        "   • Run: node server.js\n" +
+                        "   • Look for 'SERVER STARTED' message\n\n" +
+                        "2. Connect Java Client:\n" +
+                        "   • Use 'Quick Connect' (automatic)\n" +
+                        "   • Or 'Manual Connect' with: ws://localhost:8887\n\n" +
+                        "3. Verify Connection:\n" +
+                        "   • Green connection status = ✅ Connected\n" +
+                        "   • Server console shows new connections\n\n" +
+                        "💡 Tip: Keep the Node.js server terminal open!");
     }
 
     @FXML
@@ -339,13 +394,34 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         // Test the current connection
         SimpleWebSocketClient client = HelloApplication.getWebSocketClient();
         if (client != null && client.isConnected()) {
-            showPopup("Connection Status", "✅ Connected to server: " + HelloApplication.getCurrentServerUrl());
+            showPopup("Connection Status",
+                    "✅ Connected to Node.js Server!\n\n" +
+                            "Server: " + HelloApplication.getCurrentServerUrl() + "\n" +
+                            "Status: Active and Ready\n" +
+                            "You can now create/join meetings!");
         } else {
             showPopup("Connection Status",
-                    "❌ Not connected to server.\n\n" +
-                            "Click 'Quick Connect' to automatically find servers or 'Manual Connect' to enter server IP manually.");
+                    "❌ Not connected to Node.js server.\n\n" +
+                            "To fix this:\n" +
+                            "1. Start Node.js server: 'node server.js'\n" +
+                            "2. Use 'Quick Connect' or 'Manual Connect'\n" +
+                            "3. Ensure port 8887 is available");
         }
         updateConnectionInfo();
+    }
+
+    @FXML
+    protected void onStartServerClick() {
+        showPopup("Start Node.js Server",
+                "🚀 START NODE.JS SERVER:\n\n" +
+                        "1. Open terminal/command prompt\n" +
+                        "2. Navigate to server folder:\n" +
+                        "   cd path/to/your/server/folder\n" +
+                        "3. Start the server:\n" +
+                        "   node server.js\n\n" +
+                        "✅ Look for this message:\n" +
+                        "   'ZOOM WEB SOCKET SERVER STARTED'\n\n" +
+                        "Then use 'Quick Connect' in the Java client!");
     }
 
     @FXML
@@ -357,6 +433,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         SimpleWebSocketClient client = HelloApplication.getWebSocketClient();
         if (client != null) {
             client.disconnect();
+            System.out.println("🔴 Disconnected from Node.js server");
         }
         HelloApplication.logout();
     }
@@ -369,5 +446,12 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
             alert.setContentText(message);
             alert.showAndWait();
         });
+    }
+
+    // Clean up method to be called when controller is being destroyed
+    public void cleanup() {
+        // Remove the connection listener
+        HelloApplication.setConnectionStatusListener(null);
+        alertInProgress.set(false);
     }
 }

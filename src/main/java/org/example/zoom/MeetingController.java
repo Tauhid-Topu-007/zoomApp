@@ -41,6 +41,9 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
 
+import static org.example.zoom.HelloApplication.MeetingInfo.initializeWebSocketConnection;
+import static org.example.zoom.HelloApplication.isWebSocketConnected;
+
 public class MeetingController {
 
     @FXML private Button audioButton;
@@ -1334,7 +1337,7 @@ public class MeetingController {
             }
 
             // Send via WebSocket with correct username
-            if (HelloApplication.isWebSocketConnected() && HelloApplication.getActiveMeetingId() != null) {
+            if (isWebSocketConnected() && HelloApplication.getActiveMeetingId() != null) {
                 HelloApplication.sendWebSocketMessage("CHAT", HelloApplication.getActiveMeetingId(), msg);
             }
         }
@@ -1769,6 +1772,37 @@ public class MeetingController {
      */
     public AudioControlsController getAudioControlsController() {
         return audioControlsController;
+    }
+
+    /**
+     * Connect to a specific server URL with retry logic
+     * This method is called from MeetingInfo.connectToServer()
+     */
+    public static boolean connectToServer(String serverUrl) {
+        try {
+            System.out.println("🔗 Attempting to connect to: " + serverUrl);
+
+            initializeWebSocketConnection(serverUrl);
+
+            // Wait for connection to establish (with timeout)
+            int attempts = 0;
+            while (attempts < 10 && !isWebSocketConnected()) {
+                Thread.sleep(500);
+                attempts++;
+            }
+
+            if (isWebSocketConnected()) {
+                System.out.println("✅ Successfully connected to: " + serverUrl);
+                return true;
+            } else {
+                System.out.println("❌ Failed to connect to: " + serverUrl);
+                return false;
+            }
+
+        } catch (Exception e) {
+            System.err.println("❌ Connection error: " + e.getMessage());
+            return false;
+        }
     }
 
     /**

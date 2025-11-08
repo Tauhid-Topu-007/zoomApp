@@ -1917,6 +1917,32 @@ public class HelloApplication extends Application {
             });
         }
 
+        // Add this method to your HelloApplication class
+        public static boolean connectToServer(String serverUrl) {
+            try {
+                System.out.println("🔗 Attempting to connect to: " + serverUrl);
+
+                // Initialize WebSocket connection
+                initializeWebSocketConnection(serverUrl);
+
+                // Wait a moment for connection to establish
+                Thread.sleep(1000);
+
+                // Check if connection was successful
+                SimpleWebSocketClient client = getWebSocketClient();
+                if (client != null && client.isConnected()) {
+                    System.out.println("✅ Successfully connected to: " + serverUrl);
+                    return true;
+                } else {
+                    System.out.println("❌ Failed to connect to: " + serverUrl);
+                    return false;
+                }
+            } catch (Exception e) {
+                System.err.println("❌ Connection error: " + e.getMessage());
+                return false;
+            }
+        }
+
         // NEW: Handle localhost connection failure and suggest alternatives
         public static void handleLocalhostFailure() {
             Platform.runLater(() -> {
@@ -1956,6 +1982,99 @@ public class HelloApplication extends Application {
                     }
                 }
             });
+        }
+
+        /**
+         * Initialize WebSocket connection to a specific server URL
+         * This is the missing method that was causing the compilation error
+         */
+        public static void initializeWebSocketConnection(String serverUrl) {
+            try {
+                System.out.println("🔗 Initializing WebSocket connection to: " + serverUrl);
+
+                // Close existing connection if any
+                if (webSocketClient != null) {
+                    webSocketClient.disconnect();
+                    webSocketClient = null;
+                }
+
+                // Create new WebSocket client
+                webSocketClient = new SimpleWebSocketClient(serverUrl, HelloApplication::handleWebSocketMessage);
+
+                // Set current user if logged in
+                if (loggedInUser != null) {
+                    webSocketClient.setCurrentUser(loggedInUser);
+                }
+
+                // Set connection listeners
+                webSocketClient.setConnectionListener(new SimpleWebSocketClient.ConnectionListener() {
+                    @Override
+                    public void onConnected() {
+                        System.out.println("✅ WebSocket connected to: " + serverUrl);
+                        connectionInitialized = true;
+
+                        // Extract and save server configuration
+                        String urlWithoutProtocol = serverUrl.replace("ws://", "");
+                        String[] parts = urlWithoutProtocol.split(":");
+                        if (parts.length >= 2) {
+                            serverIp = parts[0];
+                            serverPort = parts[1];
+
+                            // Save to database if user is logged in
+                            if (loggedInUser != null) {
+                                Database.saveServerConfig(loggedInUser, serverIp, serverPort);
+                            }
+                        }
+
+                        // Notify connection status listener
+                        if (connectionStatusListener != null) {
+                            Platform.runLater(() -> {
+                                connectionStatusListener.onConnectionStatusChanged(true, "Connected to " + serverUrl);
+                            });
+                        }
+                    }
+
+                    @Override
+                    public void onDisconnected() {
+                        System.out.println("🔴 WebSocket disconnected from: " + serverUrl);
+                        connectionInitialized = false;
+
+                        // Notify connection status listener
+                        if (connectionStatusListener != null) {
+                            Platform.runLater(() -> {
+                                connectionStatusListener.onConnectionStatusChanged(false, "Disconnected");
+                            });
+                        }
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        System.err.println("❌ WebSocket error: " + error);
+                        connectionInitialized = false;
+
+                        // Notify connection status listener
+                        if (connectionStatusListener != null) {
+                            Platform.runLater(() -> {
+                                connectionStatusListener.onConnectionStatusChanged(false, "Error: " + error);
+                            });
+                        }
+                    }
+                });
+
+                // Connect to the server
+                webSocketClient.connect();
+
+            } catch (Exception e) {
+                System.err.println("❌ Failed to initialize WebSocket connection: " + e.getMessage());
+                connectionInitialized = false;
+
+                // Notify about connection failure
+                if (connectionStatusListener != null) {
+                    Platform.runLater(() -> {
+                        connectionStatusListener.onConnectionStatusChanged(false, "Connection failed: " + e.getMessage());
+                    });
+                }
+            }
         }
 
         @Override

@@ -3,74 +3,64 @@
 <?import javafx.geometry.Insets?>
 <?import javafx.scene.layout.*?>
 <?import javafx.scene.control.*?>
-<?import javafx.scene.text.Font?>
 
-<BorderPane xmlns:fx="http://javafx.com/fxml"
+<ScrollPane xmlns:fx="http://javafx.com/fxml"
             fx:controller="org.example.zoom.ContactController"
-            prefWidth="700" prefHeight="500"
-            style="-fx-background-color: #f5f6fa;">
+            fx:id="mainScrollPane"
+            style="-fx-background: #2c3e50; -fx-border-color: #2c3e50;"
+            fitToWidth="true" fitToHeight="true"
+            hbarPolicy="NEVER" vbarPolicy="AS_NEEDED">
 
-    <top>
-        <VBox spacing="10" style="-fx-padding: 20;">
-            <HBox alignment="CENTER_LEFT" spacing="15">
+    <content>
+        <VBox spacing="20" alignment="TOP_CENTER"
+              style="-fx-background-color: #2c3e50; -fx-padding: 25; -fx-min-width: 700;">
+
+            <!-- Header -->
+            <HBox alignment="CENTER_LEFT" spacing="15" style="-fx-padding: 0 0 10 0;">
                 <Button text="← Back" onAction="#onBackClick"
-                        style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold;"/>
-                <Label text="📒 Contact Manager"
-                       style="-fx-font-size: 24px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;"/>
+                        style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 5; -fx-padding: 8 15;"/>
+                <VBox>
+                    <Label text="👥 Contacts" style="-fx-font-size: 24px; -fx-font-weight: bold; -fx-text-fill: white;"/>
+                    <Label text="Manage your contact list" style="-fx-text-fill: #bdc3c7; -fx-font-size: 12px;"/>
+                </VBox>
             </HBox>
-            <Label text="Manage your contacts"
-                   style="-fx-text-fill: #7f8c8d; -fx-font-size: 14px;"/>
-        </VBox>
-    </top>
 
-    <center>
-        <VBox spacing="15" style="-fx-padding: 20;">
             <!-- Contact List -->
-            <Label text="Your Contacts:"
-                   style="-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;"/>
-            <ListView fx:id="contactList" prefHeight="250" prefWidth="650"
-                      style="-fx-border-color: #bdc3c7; -fx-border-radius: 5; -fx-background-radius: 5;"/>
+            <VBox spacing="10" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;">
+                <Label text="Contact List" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+                <ListView fx:id="contactList" prefHeight="200" prefWidth="650"
+                          style="-fx-background-color: #2c3e50; -fx-border-color: #4a6572; -fx-border-radius: 5; -fx-background-radius: 5; -fx-text-fill: white;"/>
+            </VBox>
 
             <!-- Contact Form -->
-            <Label text="Add/Edit Contact:"
-                   style="-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: #2c3e50; -fx-padding: 10 0 0 0;"/>
-            <HBox spacing="15" alignment="CENTER_LEFT">
-                <VBox spacing="5">
-                    <Label text="Name *" style="-fx-font-weight: bold; -fx-text-fill: #2c3e50;"/>
-                    <TextField fx:id="nameField" promptText="Full Name"
-                               prefWidth="200" prefHeight="35"
-                               style="-fx-background-radius: 5; -fx-border-radius: 5;"/>
-                </VBox>
-                <VBox spacing="5">
-                    <Label text="Email" style="-fx-font-weight: bold; -fx-text-fill: #2c3e50;"/>
-                    <TextField fx:id="emailField" promptText="email@example.com"
-                               prefWidth="200" prefHeight="35"
-                               style="-fx-background-radius: 5; -fx-border-radius: 5;"/>
-                </VBox>
-                <VBox spacing="5">
-                    <Label text="Phone" style="-fx-font-weight: bold; -fx-text-fill: #2c3e50;"/>
-                    <TextField fx:id="phoneField" promptText="Phone Number"
-                               prefWidth="150" prefHeight="35"
-                               style="-fx-background-radius: 5; -fx-border-radius: 5;"/>
-                </VBox>
-            </HBox>
-        </VBox>
-    </center>
+            <VBox spacing="15" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;">
+                <Label text="Contact Details" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+                <HBox spacing="15" alignment="CENTER_LEFT">
+                    <TextField fx:id="nameField" promptText="Name" prefWidth="180"
+                               style="-fx-background-color: #2c3e50; -fx-text-fill: white; -fx-prompt-text-fill: #95a5a6; -fx-border-color: #4a6572; -fx-border-radius: 5;"/>
+                    <TextField fx:id="emailField" promptText="Email" prefWidth="180"
+                               style="-fx-background-color: #2c3e50; -fx-text-fill: white; -fx-prompt-text-fill: #95a5a6; -fx-border-color: #4a6572; -fx-border-radius: 5;"/>
+                    <TextField fx:id="phoneField" promptText="Phone" prefWidth="150"
+                               style="-fx-background-color: #2c3e50; -fx-text-fill: white; -fx-prompt-text-fill: #95a5a6; -fx-border-color: #4a6572; -fx-border-radius: 5;"/>
+                </HBox>
+            </VBox>
 
-    <bottom>
-        <VBox spacing="10" style="-fx-padding: 20; -fx-background-color: #ecf0f1;">
-            <HBox spacing="15" alignment="CENTER">
-                <Button text="➕ Add Contact" onAction="#onAddClick"
-                        style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 120; -fx-pref-height: 35; -fx-background-radius: 5;"/>
-                <Button text="✏️ Update Contact" onAction="#onUpdateClick"
-                        style="-fx-background-color: #f39c12; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 120; -fx-pref-height: 35; -fx-background-radius: 5;"/>
-                <Button text="🗑️ Delete Contact" onAction="#onDeleteClick"
-                        style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 120; -fx-pref-height: 35; -fx-background-radius: 5;"/>
+            <!-- Action Buttons -->
+            <HBox spacing="15" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;">
+                <Button text="➕ Add" onAction="#onAddClick"
+                        style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 100; -fx-background-radius: 5;"/>
+                <Button text="✏️ Update" onAction="#onUpdateClick"
+                        style="-fx-background-color: #f39c12; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 100; -fx-background-radius: 5;"/>
+                <Button text="🗑️ Delete" onAction="#onDeleteClick"
+                        style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 100; -fx-background-radius: 5;"/>
                 <Button text="🧹 Clear" onAction="#onClearClick"
-                        style="-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 80; -fx-pref-height: 35; -fx-background-radius: 5;"/>
+                        style="-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 80; -fx-background-radius: 5;"/>
             </HBox>
+
+            <!-- Instructions -->
             <Label text="* Click on a contact to edit, then use Update button"
-                   style="-fx-text-fill: #7f8c8d; -fx-font-size: 12px; -fx-alignment: center;"/>
+                   style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px; -fx-alignment: center;"/>
+
         </VBox>
-    </bottom>
-</BorderPane>
+    </content>
+</ScrollPane>

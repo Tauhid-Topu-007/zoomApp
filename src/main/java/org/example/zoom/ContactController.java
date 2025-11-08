@@ -4,6 +4,8 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
+import javafx.scene.layout.VBox;
+import javafx.scene.control.ScrollPane;
 
 import java.util.List;
 
@@ -14,6 +16,8 @@ public class ContactController {
     @FXML private TextField phoneField;
     @FXML private ListView<String> contactList;
     @FXML private Button backButton;
+    @FXML private ScrollPane mainScrollPane;
+    @FXML private VBox mainContent;
 
     private String loggedInUser;
     private ObservableList<String> contactsObservable = FXCollections.observableArrayList();
@@ -22,6 +26,15 @@ public class ContactController {
 
     @FXML
     public void initialize() {
+        // Configure scroll pane
+        if (mainScrollPane != null) {
+            mainScrollPane.setFitToWidth(true);
+            mainScrollPane.setFitToHeight(true);
+            mainScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+            mainScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+            mainScrollPane.setStyle("-fx-background: #2c3e50; -fx-border-color: #2c3e50;");
+        }
+
         // Get the actual logged-in user from HelloApplication
         loggedInUser = HelloApplication.getLoggedInUser();
         if (loggedInUser == null) {
@@ -78,14 +91,14 @@ public class ContactController {
 
         if (!name.isEmpty()) {
             if (Database.addContact(loggedInUser, name, email, phone)) {
-                showAlert(Alert.AlertType.INFORMATION, "Contact added successfully!");
+                showAlert(Alert.AlertType.INFORMATION, "✅ Contact added successfully!");
                 clearFields();
                 loadContacts();
             } else {
-                showAlert(Alert.AlertType.ERROR, "Failed to add contact. Please try again.");
+                showAlert(Alert.AlertType.ERROR, "❌ Failed to add contact. Please try again.");
             }
         } else {
-            showAlert(Alert.AlertType.WARNING, "Name is required!");
+            showAlert(Alert.AlertType.WARNING, "⚠️ Name is required!");
         }
     }
 
@@ -96,17 +109,17 @@ public class ContactController {
             try {
                 int id = Integer.parseInt(selected.split(" - ")[0]);
                 if (Database.deleteContact(id)) {
-                    showAlert(Alert.AlertType.INFORMATION, "Contact deleted successfully!");
+                    showAlert(Alert.AlertType.INFORMATION, "✅ Contact deleted successfully!");
                     clearFields();
                     loadContacts();
                 } else {
-                    showAlert(Alert.AlertType.ERROR, "Failed to delete contact.");
+                    showAlert(Alert.AlertType.ERROR, "❌ Failed to delete contact.");
                 }
             } catch (NumberFormatException e) {
-                showAlert(Alert.AlertType.ERROR, "Invalid contact selection.");
+                showAlert(Alert.AlertType.ERROR, "❌ Invalid contact selection.");
             }
         } else {
-            showAlert(Alert.AlertType.WARNING, "Please select a contact to delete.");
+            showAlert(Alert.AlertType.WARNING, "⚠️ Please select a contact to delete.");
         }
     }
 
@@ -119,18 +132,18 @@ public class ContactController {
 
             if (!name.isEmpty()) {
                 if (Database.updateContact(selectedContactId, name, email, phone)) {
-                    showAlert(Alert.AlertType.INFORMATION, "Contact updated successfully!");
+                    showAlert(Alert.AlertType.INFORMATION, "✅ Contact updated successfully!");
                     clearFields();
                     loadContacts();
                     selectedContactId = -1; // reset after update
                 } else {
-                    showAlert(Alert.AlertType.ERROR, "Failed to update contact.");
+                    showAlert(Alert.AlertType.ERROR, "❌ Failed to update contact.");
                 }
             } else {
-                showAlert(Alert.AlertType.WARNING, "Name is required!");
+                showAlert(Alert.AlertType.WARNING, "⚠️ Name is required!");
             }
         } else {
-            showAlert(Alert.AlertType.WARNING, "Please select a contact to update.");
+            showAlert(Alert.AlertType.WARNING, "⚠️ Please select a contact to update.");
         }
     }
 
@@ -143,6 +156,18 @@ public class ContactController {
     @FXML
     protected void onBackClick() throws Exception {
         HelloApplication.setRoot("dashboard-view.fxml");
+    }
+
+    @FXML
+    protected void onSearchClick() {
+        // Optional: Add search functionality
+        showAlert(Alert.AlertType.INFORMATION, "🔍 Search functionality coming soon!");
+    }
+
+    @FXML
+    protected void onExportClick() {
+        // Optional: Add export functionality
+        showAlert(Alert.AlertType.INFORMATION, "📤 Export functionality coming soon!");
     }
 
     private void clearFields() {

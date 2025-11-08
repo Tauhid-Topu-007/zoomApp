@@ -4,7 +4,9 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.control.Alert;
+import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.cell.TextFieldListCell;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
@@ -26,6 +28,21 @@ public class RecordingsController {
 
     @FXML
     private ListView<RecordingFile> recordingsList;
+
+    @FXML
+    private Label fileNameLabel;
+
+    @FXML
+    private Label fileSizeLabel;
+
+    @FXML
+    private Label creationDateLabel;
+
+    @FXML
+    private Label durationLabel;
+
+    @FXML
+    private ScrollPane mainScrollPane;
 
     private ObservableList<RecordingFile> recordings;
     private Stage stage;
@@ -81,8 +98,26 @@ public class RecordingsController {
 
     @FXML
     public void initialize() {
+        // Configure scroll pane
+        if (mainScrollPane != null) {
+            mainScrollPane.setFitToWidth(true);
+            mainScrollPane.setFitToHeight(true);
+            mainScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+            mainScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+            mainScrollPane.setStyle("-fx-background: #2c3e50; -fx-border-color: #2c3e50;");
+        }
+
         recordings = FXCollections.observableArrayList();
         recordingsList.setItems(recordings);
+
+        // Make ListView scrollable with fixed height
+        recordingsList.setPrefHeight(300);
+        recordingsList.setMaxHeight(Double.MAX_VALUE);
+
+        // Set up selection listener to update details
+        recordingsList.getSelectionModel().selectedItemProperty().addListener(
+                (observable, oldValue, newValue) -> updateRecordingDetails(newValue)
+        );
 
         // Custom cell factory for better display
         recordingsList.setCellFactory(param -> new TextFieldListCell<RecordingFile>() {
@@ -91,6 +126,8 @@ public class RecordingsController {
                 super.updateItem(item, empty);
                 if (empty || item == null) {
                     setText(null);
+                    setTooltip(null);
+                    setStyle("");
                 } else {
                     setText(item.toString());
                     setTooltip(new javafx.scene.control.Tooltip(
@@ -100,16 +137,47 @@ public class RecordingsController {
                                     item.getCreationDate(),
                                     item.getDuration())
                     ));
+                    // Alternate row colors for better readability
+                    int index = getIndex();
+                    if (index % 2 == 0) {
+                        setStyle("-fx-background-color: #2c3e50; -fx-text-fill: white; -fx-padding: 10;");
+                    } else {
+                        setStyle("-fx-background-color: #34495e; -fx-text-fill: white; -fx-padding: 10;");
+                    }
                 }
+            }
+        });
+
+        // Enable double-click to play
+        recordingsList.setOnMouseClicked(event -> {
+            if (event.getClickCount() == 2) {
+                onPlayClick();
             }
         });
 
         // Load recordings on initialization
         loadRecordings();
+
+        // Initialize details labels
+        updateRecordingDetails(null);
     }
 
     public void setStage(Stage stage) {
         this.stage = stage;
+    }
+
+    private void updateRecordingDetails(RecordingFile recording) {
+        if (recording == null) {
+            fileNameLabel.setText("No recording selected");
+            fileSizeLabel.setText("-");
+            creationDateLabel.setText("-");
+            durationLabel.setText("-");
+        } else {
+            fileNameLabel.setText(recording.getDisplayName());
+            fileSizeLabel.setText(recording.getFormattedFileSize());
+            creationDateLabel.setText(recording.getCreationDate());
+            durationLabel.setText(recording.getDuration());
+        }
     }
 
     private void loadRecordings() {
@@ -120,6 +188,8 @@ public class RecordingsController {
 
         if (recordingFiles.isEmpty()) {
             System.out.println("📁 No recording files found");
+            // Add a placeholder message
+            recordingsList.setPlaceholder(new Label("No recordings found. Recordings will appear here after you record meetings."));
             return;
         }
 
@@ -151,7 +221,8 @@ public class RecordingsController {
                         name.toLowerCase().endsWith(".mp4") ||
                                 name.toLowerCase().endsWith(".avi") ||
                                 name.toLowerCase().endsWith(".mov") ||
-                                name.toLowerCase().endsWith(".mkv")
+                                name.toLowerCase().endsWith(".mkv") ||
+                                name.toLowerCase().endsWith(".wmv")
                 );
 
                 if (files != null) {
