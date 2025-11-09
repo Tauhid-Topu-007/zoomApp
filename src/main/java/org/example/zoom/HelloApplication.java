@@ -25,6 +25,9 @@ import java.util.Collections;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import javafx.scene.image.Image;
+
+
 public class HelloApplication extends Application {
 
     private static Stage primaryStage;
@@ -1067,6 +1070,107 @@ public class HelloApplication extends Application {
         });
     }
 
+    /**
+     * Send video frame to all participants
+     */
+    public static void sendVideoFrame(Image image) {
+        if (!isWebSocketConnected() || getActiveMeetingId() == null || !isVideoOn()) {
+            return;
+        }
+
+        try {
+            // Convert Image to base64 for WebSocket transmission
+            String base64Image = convertImageToBase64(image);
+            if (base64Image != null && !base64Image.isEmpty()) {
+                sendWebSocketMessage("VIDEO_FRAME", getActiveMeetingId(), base64Image);
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error sending video frame: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Convert JavaFX Image to Base64 string
+     */
+    private static String convertImageToBase64(Image image) {
+        try {
+            // Convert Image to BufferedImage first
+            java.awt.image.BufferedImage bufferedImage = convertToBufferedImage(image);
+            if (bufferedImage == null) return null;
+
+            // Convert to base64
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(bufferedImage, "jpg", baos);
+            byte[] imageBytes = baos.toByteArray();
+            return java.util.Base64.getEncoder().encodeToString(imageBytes);
+
+        } catch (Exception e) {
+            System.err.println("❌ Error converting image to base64: " + e.getMessage());
+            return null;
+        }
+    }
+
+
+    /**
+     * Convert JavaFX Image to BufferedImage
+     */
+    private static java.awt.image.BufferedImage convertToBufferedImage(Image image) {
+        try {
+            int width = (int) image.getWidth();
+            int height = (int) image.getHeight();
+
+            java.awt.image.BufferedImage bufferedImage = new java.awt.image.BufferedImage(
+                    width, height, java.awt.image.BufferedImage.TYPE_INT_RGB);
+
+            java.awt.Graphics2D g2d = bufferedImage.createGraphics();
+
+            // Convert JavaFX Image to AWT Image
+            java.awt.Image awtImage = javafx.embed.swing.SwingFXUtils.fromFXImage(image, null);
+            g2d.drawImage(awtImage, 0, 0, null);
+            g2d.dispose();
+
+            return bufferedImage;
+        } catch (Exception e) {
+            System.err.println("❌ Error converting to BufferedImage: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Handle incoming video frames from other participants
+     */
+    private static void handleVideoFrame(String username, String base64Image) {
+        try {
+            // Convert base64 back to Image
+            Image videoFrame = convertBase64ToImage(base64Image);
+            if (videoFrame != null) {
+                Platform.runLater(() -> {
+                    // Update the UI with the received video frame
+                    MeetingController meetingController = MeetingController.getInstance();
+                    if (meetingController != null) {
+                        meetingController.displayVideoFrame(username, videoFrame);
+                    }
+                });
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error handling video frame: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Convert Base64 string to JavaFX Image
+     */
+    public static Image convertBase64ToImage(String base64Image) {
+        try {
+            byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Image);
+            java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(imageBytes);
+            return new Image(bis);
+        } catch (Exception e) {
+            System.err.println("❌ Error converting base64 to image: " + e.getMessage());
+            return null;
+        }
+    }
+
     // Handle incoming WebSocket messages
     private static void handleWebSocketMessage(String message) {
         System.out.println("📨 Application received: " + message);
@@ -1097,6 +1201,9 @@ public class HelloApplication extends Application {
             String content = parts[3];
 
             switch (type) {
+                case "VIDEO_FRAME":
+                    handleVideoFrame(username, content);
+                    break;
                 case "USER_JOINED":
                     addParticipantToMeeting(meetingId, username);
                     updateMeetingParticipants(meetingId, username, true);
@@ -1128,6 +1235,15 @@ public class HelloApplication extends Application {
                     break;
                 case "VIDEO_CONTROL":
                     handleVideoControlMessage(username, content);
+                    break;
+                case "CHAT":
+                    // Forward chat messages to MeetingController
+                    Platform.runLater(() -> {
+                        MeetingController meetingController = MeetingController.getInstance();
+                        if (meetingController != null && meetingId.equals(getActiveMeetingId())) {
+                            meetingController.handleWebSocketMessage(message);
+                        }
+                    });
                     break;
             }
         }
@@ -1940,6 +2056,8 @@ public class HelloApplication extends Application {
     public static void addSystemMessage(String message) {
         System.out.println("🔊 System: " + message);
     }
+
+
 
     @Override
     public void stop() throws Exception {

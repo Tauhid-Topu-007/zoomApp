@@ -54,7 +54,7 @@ public class Device1_Host extends Application {
                             // Get the controller and simulate auto-login
                             Object controller = loader.getController();
                             if (controller instanceof LoginController) {
-                                ((LoginController) controller).simulateAutoLogin("host_user");
+                                ((LoginController) controller).simulateAutoLogin("Topu");
                             }
                         } catch (Exception e) {
                             System.err.println("❌ Auto-login failed: " + e.getMessage());

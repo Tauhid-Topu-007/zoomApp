@@ -47,6 +47,9 @@ import java.util.Date;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
+import javafx.embed.swing.SwingFXUtils;
+import javax.imageio.ImageIO;
+import java.util.Base64;
 
 import static org.example.zoom.HelloApplication.MeetingInfo.initializeWebSocketConnection;
 import static org.example.zoom.HelloApplication.isWebSocketConnected;
@@ -709,7 +712,7 @@ public class MeetingController {
         }
 
         try {
-            System.out.println("📷 Starting camera...");
+            System.out.println("📷 Starting camera with streaming...");
 
             if (!webcam.isOpen()) {
                 webcam.open();
@@ -724,13 +727,15 @@ public class MeetingController {
                 }
                 if (videoDisplay != null) {
                     videoDisplay.setVisible(true);
-                    videoDisplay.setImage(null); // Clear any previous image
+                    videoDisplay.setImage(null);
                 }
             });
 
             cameraRunning = true;
             cameraThread = new Thread(() -> {
-                System.out.println("📷 Camera thread started");
+                System.out.println("📷 Camera streaming thread started");
+                int frameCount = 0;
+
                 while (cameraRunning && webcam.isOpen()) {
                     try {
                         java.awt.image.BufferedImage awtImage = webcam.getImage();
@@ -748,10 +753,10 @@ public class MeetingController {
                                     }
                                 });
 
-                                // In a real implementation, you would stream this frame to other participants
-                                // For now, we'll just simulate it with periodic status updates
-                                if (System.currentTimeMillis() % 5000 < 100) { // Every 5 seconds
-                                    System.out.println("📹 Streaming video frame to participants (simulated)");
+                                // Stream video frame to other participants (every 3rd frame to reduce bandwidth)
+                                frameCount++;
+                                if (frameCount % 3 == 0 && HelloApplication.isMeetingHost()) {
+                                    HelloApplication.sendVideoFrame(fxImage);
                                 }
                             }
                         }
@@ -761,18 +766,45 @@ public class MeetingController {
                         break;
                     }
                 }
-                System.out.println("📷 Camera thread stopped");
+                System.out.println("📷 Camera streaming thread stopped");
             });
             cameraThread.setDaemon(true);
             cameraThread.start();
 
-            System.out.println("✅ Camera started successfully");
+            System.out.println("✅ Camera started with streaming");
 
         } catch (Exception e) {
             System.err.println("❌ Failed to start camera: " + e.getMessage());
             e.printStackTrace();
             showCameraError();
         }
+    }
+
+    /**
+     * Display video frame from other participants
+     */
+    public void displayVideoFrame(String username, Image videoFrame) {
+        Platform.runLater(() -> {
+            if (!HelloApplication.isMeetingHost()) { // Only clients display host video
+                System.out.println("🎥 Received video frame from: " + username);
+
+                // Update the main video display with actual video
+                if (videoDisplay != null) {
+                    videoDisplay.setImage(videoFrame);
+                    videoDisplay.setVisible(true);
+                }
+
+                // Hide placeholder
+                if (videoPlaceholder != null) {
+                    videoPlaceholder.setVisible(false);
+                }
+
+                // Update status
+                if (videoControlsController != null) {
+                    videoControlsController.updateVideoPreview(videoFrame);
+                }
+            }
+        });
     }
 
     /**
@@ -923,16 +955,20 @@ public class MeetingController {
             String content = parts[3];
 
             if (!meetingId.equals(HelloApplication.getActiveMeetingId())) {
-                return; // Not for this meeting
+                return;
             }
 
             Platform.runLater(() -> {
                 switch (type) {
+                    case "VIDEO_FRAME":
+                        // Handle actual video frames
+                        Image videoFrame = HelloApplication.convertBase64ToImage(content);
+                        if (videoFrame != null) {
+                            displayVideoFrame(username, videoFrame);
+                        }
+                        break;
                     case "CHAT":
-                        // Add chat message from other user with THEIR username
                         addUserMessage(username + ": " + content);
-
-                        // Save to database with the correct username
                         Database.saveChatMessage(meetingId, username, content, "USER");
                         break;
 
@@ -991,53 +1027,30 @@ public class MeetingController {
     }
 
     /**
-     * Show/hide host video indicator in the main video display area
+     * Show/hide host video indicator
      */
     public void showHostVideoIndicator(boolean show) {
         Platform.runLater(() -> {
             if (show) {
-                // Create a host video placeholder for the main display
-                Canvas canvas = new Canvas(640, 480);
-                GraphicsContext gc = canvas.getGraphicsContext2D();
-                gc.setFill(Color.DARKBLUE);
-                gc.fillRect(0, 0, 640, 480);
-                gc.setFill(Color.WHITE);
-                gc.setFont(new Font(20));
-                gc.fillText("HOST VIDEO STREAM", 200, 200);
-                gc.fillText("Waiting for video feed...", 180, 230);
-                gc.setFill(Color.RED);
-                gc.fillOval(300, 250, 20, 20);
-                gc.setFill(Color.WHITE);
-                gc.fillText("LIVE", 325, 265);
+                // Just show a temporary placeholder until video frames arrive
+                addSystemMessage("🎥 Host is now sharing video - waiting for stream...");
 
-                WritableImage hostVideoImage = new WritableImage(640, 480);
-                canvas.snapshot(null, hostVideoImage);
-
-                // Update the main video display
+                // The actual video will be displayed via displayVideoFrame method
                 if (videoDisplay != null) {
-                    videoDisplay.setImage(hostVideoImage);
                     videoDisplay.setVisible(true);
                 }
-
-                // Hide placeholder if visible
                 if (videoPlaceholder != null) {
                     videoPlaceholder.setVisible(false);
                 }
-
-                addSystemMessage("🎥 Host is now sharing video");
-
             } else {
-                // Hide host video and show placeholder
+                // Clear video when host stops
                 if (videoDisplay != null) {
                     videoDisplay.setImage(null);
                     videoDisplay.setVisible(false);
                 }
-
-                // Show placeholder again
                 if (videoPlaceholder != null) {
                     videoPlaceholder.setVisible(true);
                 }
-
                 addSystemMessage("Host stopped sharing video");
             }
         });

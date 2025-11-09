@@ -595,6 +595,21 @@ public class VideoControlsController implements Initializable {
         }
     }
 
+    /**
+     * Display received video frame in the preview
+     */
+    public void displayVideoFrame(Image videoFrame) {
+        if (realCameraPreview != null && videoFrame != null) {
+            Platform.runLater(() -> {
+                realCameraPreview.setImage(videoFrame);
+                realCameraPreview.setVisible(true);
+                if (simulatedCameraPreview != null) {
+                    simulatedCameraPreview.setVisible(false);
+                }
+            });
+        }
+    }
+
     // Method called when joining/leaving a meeting
     public void onMeetingStateChanged(boolean inMeeting) {
         if (inMeeting) {
