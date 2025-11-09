@@ -7,10 +7,9 @@ import java.util.List;
 public class Database {
 
     // ✅ Updated connection info for zoom_user
-    private static final String URL =
-            "jdbc:mysql://localhost:3306/zoom_app?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true";
-    private static final String USER = "zoom_user";      // ✅ new MySQL user
-    private static final String PASSWORD = "zoom123";    // ✅ new MySQL password
+    public static final String URL = "jdbc:mysql://localhost:3306/zoom_app?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true";
+    public static final String USER = "zoom_user";
+    public static final String PASSWORD = "zoom123";
 
     static {
         try {

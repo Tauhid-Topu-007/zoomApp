@@ -2,11 +2,11 @@ package org.example.zoom;
 
 import javafx.fxml.FXML;
 import javafx.event.ActionEvent;
+import javafx.scene.Node;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
-import javafx.stage.FileChooser;
-import javafx.stage.Stage;
+import javafx.stage.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.media.Media;
@@ -14,11 +14,9 @@ import javafx.scene.media.MediaPlayer;
 import javafx.scene.media.MediaView;
 import javafx.animation.PauseTransition;
 import javafx.util.Duration;
-import javafx.stage.StageStyle;
 import javafx.scene.input.MouseEvent;
 import javafx.application.Platform;
 import javafx.geometry.Rectangle2D;
-import javafx.stage.Screen;
 import javafx.fxml.FXMLLoader;
 import javafx.geometry.Pos;
 import javafx.scene.media.AudioClip;
@@ -195,21 +193,64 @@ public class MeetingController {
         updateButtonStyles();
         startMeetingTimer();
 
-        // Get the stage from the scene
+        // FIXED: Use a delayed approach to get the stage after scene is fully initialized
         Platform.runLater(() -> {
-            Stage currentStage = (Stage) (chatBox != null ? chatBox.getScene().getWindow() : null);
-            if (currentStage != null) {
-                setStage(currentStage);
-            }
+            try {
+                // Wait for scene to be fully initialized
+                Stage currentStage = getStageFromAnyComponent();
+                if (currentStage != null) {
+                    setStage(currentStage);
+                    System.out.println("✅ Stage set successfully in delayed initialization");
+                } else {
+                    System.err.println("⚠️ Could not get stage in delayed initialization");
+                }
 
-            // Notify controllers about meeting state
-            if (audioControlsController != null) {
-                audioControlsController.onMeetingStateChanged(true);
-            }
-            if (videoControlsController != null) {
-                videoControlsController.onMeetingStateChanged(true);
+                // Notify controllers about meeting state
+                if (audioControlsController != null) {
+                    audioControlsController.onMeetingStateChanged(true);
+                }
+                if (videoControlsController != null) {
+                    videoControlsController.onMeetingStateChanged(true);
+                }
+            } catch (Exception e) {
+                System.err.println("❌ Error in delayed initialization: " + e.getMessage());
             }
         });
+    }
+
+    /**
+     * FIXED: Safely get stage from any available component
+     */
+    private Stage getStageFromAnyComponent() {
+        // Try multiple components to find one with a scene
+        Node[] components = {chatBox, videoArea, titleBar, participantsList, chatInput, meetingIdLabel};
+
+        for (Node component : components) {
+            if (component != null) {
+                Scene scene = component.getScene();
+                if (scene != null) {
+                    Window window = scene.getWindow();
+                    if (window instanceof Stage) {
+                        System.out.println("✅ Found stage from: " + component.getClass().getSimpleName());
+                        return (Stage) window;
+                    }
+                }
+            }
+        }
+
+        // Last resort: try the primary stage
+        try {
+            Stage primaryStage = HelloApplication.getPrimaryStage();
+            if (primaryStage != null) {
+                System.out.println("✅ Using primary stage as fallback");
+                return primaryStage;
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Could not get primary stage: " + e.getMessage());
+        }
+
+        System.err.println("❌ Could not find stage from any component");
+        return null;
     }
 
     /**
@@ -731,9 +772,52 @@ public class MeetingController {
 
     @FXML
     private void onMinimizeButton() {
+        System.out.println("🗔 Minimize button clicked - Direct approach");
+
+        try {
+            // Direct approach: get window from any component
+            Node source = (Node) minimizeButton;
+            Stage currentStage = (Stage) source.getScene().getWindow();
+
+            if (currentStage != null) {
+                System.out.println("✅ Minimizing stage directly: " + currentStage.getTitle());
+                currentStage.setIconified(true);
+            } else {
+                System.err.println("❌ Could not get stage from button scene");
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error minimizing window: " + e.getMessage());
+            e.printStackTrace();
+
+            // Last resort: try all possible components
+            tryMinimizeAllApproaches();
+        }
+    }
+
+    private void tryMinimizeAllApproaches() {
+        System.out.println("🔄 Trying all minimize approaches...");
+
+        // Try approach 1: Use stored stage
         if (stage != null) {
             stage.setIconified(true);
+            System.out.println("✅ Minimized using stored stage");
+            return;
         }
+
+        // Try approach 2: Get from any available component
+        Node[] components = {chatBox, videoArea, titleBar, minimizeButton};
+        for (Node component : components) {
+            if (component != null && component.getScene() != null) {
+                Stage currentStage = (Stage) component.getScene().getWindow();
+                if (currentStage != null) {
+                    currentStage.setIconified(true);
+                    System.out.println("✅ Minimized using component: " + component.getClass().getSimpleName());
+                    return;
+                }
+            }
+        }
+
+        System.err.println("❌ All minimize approaches failed");
     }
 
     @FXML

@@ -61,6 +61,9 @@ public class HelloApplication extends Application {
     private static volatile boolean stopMonitoring = false;
     private static Thread monitorThread;
 
+    // Stage management
+    private static volatile boolean stageReady = false;
+
     // Interface for connection status updates
     public interface ConnectionStatusListener {
         void onConnectionStatusChanged(boolean connected, String status);
@@ -69,6 +72,7 @@ public class HelloApplication extends Application {
     @Override
     public void start(Stage stage) throws Exception {
         primaryStage = stage;
+        stageReady = true;
 
         // Initialize database tables
         Database.initializeDatabase();
@@ -76,34 +80,167 @@ public class HelloApplication extends Application {
         setRoot("login-view.fxml");
         stage.setTitle("Zoom Project");
         stage.show();
+
+        System.out.println("✅ Primary stage initialized and ready");
     }
+
+    // ==================== STAGE MANAGEMENT METHODS ====================
+
+    /**
+     * Set primary stage explicitly (for Device classes)
+     */
+    public static void setPrimaryStage(Stage stage) {
+        primaryStage = stage;
+        stageReady = true;
+        System.out.println("✅ Primary stage set in HelloApplication: " + (stage != null ? "VALID" : "NULL"));
+    }
+
+    public static Stage getPrimaryStage() {
+        return primaryStage;
+    }
+
+    public static boolean isStageReady() {
+        return stageReady && primaryStage != null;
+    }
+
+    // NEW: Wait for stage to be ready
+    public static void waitForStageReady(Runnable callback) {
+        new Thread(() -> {
+            int attempts = 0;
+            while (!stageReady && attempts < 50) { // Wait up to 5 seconds
+                try {
+                    Thread.sleep(100);
+                    attempts++;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+
+            if (stageReady) {
+                Platform.runLater(callback);
+            } else {
+                System.err.println("❌ Stage never became ready after 5 seconds");
+            }
+        }).start();
+    }
+
+    // ==================== NAVIGATION METHODS ====================
 
     public static void setRoot(String fxml) throws Exception {
+        if (primaryStage == null) {
+            System.err.println("❌ Cannot set root: primaryStage is null");
+            throw new IllegalStateException("Primary stage is not initialized");
+        }
+
         FXMLLoader loader = new FXMLLoader(HelloApplication.class.getResource(fxml));
         Scene scene = new Scene(loader.load());
-        primaryStage.setScene(scene);
 
-        // Fullscreen only for meeting
-        primaryStage.setFullScreen("meeting-view.fxml".equals(fxml));
+        Platform.runLater(() -> {
+            try {
+                primaryStage.setScene(scene);
 
-        // Pass stage reference to controllers that need it
-        Object controller = loader.getController();
-        if (controller instanceof ChatController) {
-            ((ChatController) controller).setStage(primaryStage);
-        } else if (controller instanceof SettingsController) {
-            ((SettingsController) controller).setStage(primaryStage);
-        } else if (controller instanceof AudioControlsController) {
-            audioControlsController = (AudioControlsController) controller;
-        } else if (controller instanceof VideoControlsController) {
-            videoControlsController = (VideoControlsController) controller;
-        } else if (controller instanceof DashboardController) {
-            // DashboardController now implements ConnectionStatusListener
-            DashboardController dashboardController = (DashboardController) controller;
-            // Register as connection status listener
-            setConnectionStatusListener(dashboardController);
-            System.out.println("✅ Dashboard controller loaded and registered for connection updates");
+                // Fullscreen only for meeting
+                primaryStage.setFullScreen("meeting-view.fxml".equals(fxml));
+
+                // Pass stage reference to controllers that need it
+                Object controller = loader.getController();
+                if (controller instanceof ChatController) {
+                    ((ChatController) controller).setStage(primaryStage);
+                } else if (controller instanceof SettingsController) {
+                    ((SettingsController) controller).setStage(primaryStage);
+                } else if (controller instanceof AudioControlsController) {
+                    audioControlsController = (AudioControlsController) controller;
+                } else if (controller instanceof VideoControlsController) {
+                    videoControlsController = (VideoControlsController) controller;
+                } else if (controller instanceof DashboardController) {
+                    // DashboardController now implements ConnectionStatusListener
+                    DashboardController dashboardController = (DashboardController) controller;
+                    // Register as connection status listener
+                    setConnectionStatusListener(dashboardController);
+                    System.out.println("✅ Dashboard controller loaded and registered for connection updates");
+                }
+
+                System.out.println("✅ Root set to: " + fxml);
+            } catch (Exception e) {
+                System.err.println("❌ Error setting root: " + e.getMessage());
+                e.printStackTrace();
+            }
+        });
+    }
+
+    // NEW: Safe method to set root with stage validation
+    public static void setRootSafe(String fxml) {
+        if (!stageReady || primaryStage == null) {
+            System.err.println("❌ Stage not ready, cannot set root to: " + fxml);
+            return;
+        }
+
+        Platform.runLater(() -> {
+            try {
+                setRoot(fxml);
+            } catch (Exception e) {
+                System.err.println("❌ Failed to set root: " + e.getMessage());
+                e.printStackTrace();
+            }
+        });
+    }
+
+    /**
+     * Navigate to dashboard with proper stage readiness checks
+     */
+    public static void navigateToDashboard() {
+        if (!stageReady || primaryStage == null) {
+            System.err.println("❌ Stage not ready for navigation, waiting...");
+            waitForStageReady(() -> {
+                try {
+                    setRoot("dashboard-view.fxml");
+                    System.out.println("✅ Successfully navigated to dashboard after wait");
+                } catch (Exception e) {
+                    System.err.println("❌ Failed to navigate to dashboard: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            });
+        } else {
+            try {
+                setRoot("dashboard-view.fxml");
+                System.out.println("✅ Successfully navigated to dashboard");
+            } catch (Exception e) {
+                System.err.println("❌ Failed to navigate to dashboard: " + e.getMessage());
+                e.printStackTrace();
+            }
         }
     }
+
+    /**
+     * Navigate with fallback mechanism
+     */
+    public static void navigateWithFallback(String fxml, Runnable fallback) {
+        if (isStageReady()) {
+            try {
+                setRoot(fxml);
+            } catch (Exception e) {
+                System.err.println("❌ Navigation failed: " + e.getMessage());
+                if (fallback != null) {
+                    fallback.run();
+                }
+            }
+        } else {
+            System.out.println("⏳ Stage not ready, waiting...");
+            waitForStageReady(() -> {
+                try {
+                    setRoot(fxml);
+                } catch (Exception e) {
+                    System.err.println("❌ Navigation failed after wait: " + e.getMessage());
+                    if (fallback != null) {
+                        fallback.run();
+                    }
+                }
+            });
+        }
+    }
+
+    // ==================== USER MANAGEMENT ====================
 
     public static void setLoggedInUser(String username) {
         loggedInUser = username;
@@ -155,17 +292,12 @@ public class HelloApplication extends Application {
         virtualBackgroundEnabled = false;
         videoControlsController = null;
 
-        setRoot("login-view.fxml");
+        // Use safe method to set root
+        setRootSafe("login-view.fxml");
     }
 
-    public static Stage getPrimaryStage() {
-        return primaryStage;
-    }
+    // ==================== CONNECTION MANAGEMENT ====================
 
-    // ==================== ENHANCED CONNECTION INITIALIZATION ====================
-
-    // Enhanced connection initialization with fallback
-// ENHANCED: Connection initialization with localhost handling
     public static void initializeWebSocket(String username) {
         String savedUrl = getCurrentServerUrl();
         System.out.println("🎯 Attempting connection to saved server: " + savedUrl);
@@ -221,7 +353,6 @@ public class HelloApplication extends Application {
     }
 
     // Enhanced network discovery that shows results
-// ENHANCED: Network discovery with better user guidance
     public static void discoverAndConnectToServer() {
         Platform.runLater(() -> {
             Alert searchingAlert = new Alert(Alert.AlertType.INFORMATION);
@@ -317,28 +448,6 @@ public class HelloApplication extends Application {
                         "❌ Cannot connect to server at:\n" + currentUrl +
                                 "\n\nPlease check if the server is running and accessible.");
             }
-        }
-    }
-
-    // Dialog when no servers are found
-    private static void showNoServersFoundDialog() {
-        Alert alert = new Alert(Alert.AlertType.WARNING);
-        alert.setTitle("No Servers Found");
-        alert.setHeaderText("No Zoom servers found on your network");
-        alert.setContentText("Please make sure:\n\n" +
-                "• The Zoom server is running on another device\n" +
-                "• Both devices are on the same WiFi network\n" +
-                "• Firewall allows port 8887\n\n" +
-                "Would you like to enter the server IP manually?");
-
-        ButtonType manualButton = new ButtonType("Enter IP Manually");
-        ButtonType cancelButton = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
-
-        alert.getButtonTypes().setAll(manualButton, cancelButton);
-
-        Optional<ButtonType> result = alert.showAndWait();
-        if (result.isPresent() && result.get() == manualButton) {
-            showManualConnectionDialog();
         }
     }
 
@@ -1808,12 +1917,13 @@ public class HelloApplication extends Application {
         }
 
         connectionInitialized = false;
+        stageReady = false;
 
         super.stop();
     }
 
     public static void main(String[] args) {
-        launch();
+        launch(args);
     }
 
     // Inner class for meeting information
