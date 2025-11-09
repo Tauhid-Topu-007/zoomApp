@@ -1152,18 +1152,56 @@ public class HelloApplication extends Application {
     }
 
     // Handle video status messages from other users
-    private static void handleVideoStatusMessage(String username, String status) {
-        System.out.println("🎥 Video status from " + username + ": " + status);
+    private static void handleVideoStatusMessage(String username, String content) {
+        System.out.println("🎥 Video status from " + username + ": " + content);
 
-        // Update UI if video controls are active
-        if (videoControlsController != null) {
-            Platform.runLater(() -> {
-                videoControlsController.updateFromServer(status);
-            });
-        }
+        Platform.runLater(() -> {
+            switch (content) {
+                case "HOST_VIDEO_STARTED":
+                    if (!isMeetingHost()) {
+                        addSystemMessage("Host started video");
+                        // Show host video indicator on client
+                        showHostVideoIndicator(true);
+                    }
+                    break;
 
-        // Add system message for video status changes
-        addSystemMessage(username + " " + status);
+                case "HOST_VIDEO_STOPPED":
+                    if (!isMeetingHost()) {
+                        addSystemMessage("Host stopped video");
+                        // Hide host video indicator on client
+                        showHostVideoIndicator(false);
+                    }
+                    break;
+
+                case "started video":
+                    addSystemMessage(username + " started their video");
+                    break;
+
+                case "stopped video":
+                    addSystemMessage(username + " stopped their video");
+                    break;
+            }
+
+            // Update video controls UI
+            if (videoControlsController != null) {
+                videoControlsController.updateFromServer(content);
+            }
+        });
+    }
+
+    private static void showHostVideoIndicator(boolean show) {
+        Platform.runLater(() -> {
+            // This would typically update the UI to show host video status
+            MeetingController meetingController = MeetingController.getInstance();
+            if (meetingController != null) {
+                if (show) {
+                    meetingController.addSystemMessage("🔴 Host is sharing video");
+                    // In a real implementation, you would show the host's video feed here
+                } else {
+                    meetingController.addSystemMessage("Host video stopped");
+                }
+            }
+        });
     }
 
     // Handle audio control messages (mute all, deafen, etc.)
@@ -1785,20 +1823,33 @@ public class HelloApplication extends Application {
 
     // ==================== VIDEO CONTROLS MANAGEMENT ====================
     public static void toggleVideo() {
-        videoOn = !videoOn;
+        boolean newVideoState = !videoOn;
+        videoOn = newVideoState;
 
-        if (videoOn) {
+        // Update global state
+        HelloApplication.videoOn = newVideoState;
+
+        if (newVideoState) {
             addSystemMessage("You started your video");
-            if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("VIDEO_STATUS", getActiveMeetingId(), "started video");
+            System.out.println("🎥 Video STARTED");
+
+            // Start camera on host
+            if (isMeetingHost() && getActiveMeetingId() != null) {
+                // Notify all participants that host started video
+                sendWebSocketMessage("VIDEO_STATUS", getActiveMeetingId(), "HOST_VIDEO_STARTED");
             }
         } else {
             addSystemMessage("You stopped your video");
-            if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("VIDEO_STATUS", getActiveMeetingId(), "stopped video");
+            System.out.println("🎥 Video STOPPED");
+
+            // Stop camera on host
+            if (isMeetingHost() && getActiveMeetingId() != null) {
+                // Notify all participants that host stopped video
+                sendWebSocketMessage("VIDEO_STATUS", getActiveMeetingId(), "HOST_VIDEO_STOPPED");
             }
         }
 
+        // Update UI controllers
         if (videoControlsController != null) {
             Platform.runLater(() -> {
                 videoControlsController.syncWithGlobalState();

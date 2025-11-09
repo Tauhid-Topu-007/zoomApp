@@ -321,6 +321,34 @@ public class AudioControlsController implements Initializable {
         }
     }
 
+    // NEW: Handle host muting all participants
+    public void onHostMutedAll() {
+        System.out.println("🔊 Host muted all participants - updating UI");
+        allMuted = true;
+        updateMuteAllButton();
+        updateStatusLabel();
+
+        // If this user is not the host, also mute their audio
+        if (!HelloApplication.isMeetingHost()) {
+            if (!audioMuted) {
+                // Mute this participant's audio
+                HelloApplication.muteAudio();
+                audioMuted = true;
+                updateButtonStyles();
+            }
+        }
+    }
+
+    // NEW: Handle host unmuting all participants
+    public void onHostUnmutedAll() {
+        System.out.println("🔊 Host unmuted all participants - updating UI");
+        allMuted = false;
+        updateMuteAllButton();
+        updateStatusLabel();
+
+        // Note: Participants remain muted individually unless they unmute themselves
+    }
+
     // Method called when meeting host status changes
     public void onHostStatusChanged(boolean isHost) {
         updateMuteAllButton();

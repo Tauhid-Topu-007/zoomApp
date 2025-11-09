@@ -194,6 +194,24 @@ wss.on('connection', (ws, req) => {
                     // Handle ping from client
                     ws.send(`PONG|${meetingId}|Server|${Date.now()}`);
                     break;
+                   case 'VIDEO_STATUS':
+                       console.log(`🎥 ${userId} video status: ${content}`);
+
+                       // Broadcast video status to all meeting participants
+                       broadcastToMeeting(`VIDEO_STATUS|${meetingId}|${userId}|${content}`, meetingId, ws);
+
+                       // Broadcast system message for important video events
+                       if (content.includes('HOST_VIDEO_STARTED') || content.includes('HOST_VIDEO_STOPPED')) {
+                           broadcastToMeeting(`SYSTEM|${meetingId}|Server|VIDEO_STATUS|${userId}|${content}`, meetingId);
+                       }
+                       break;
+
+                     case 'VIDEO_FRAME':
+                         console.log(`🎥 ${userId} sending video frame (${content.length} bytes)`);
+
+                         // Broadcast video frame to all other participants in the meeting
+                         broadcastToMeeting(`VIDEO_FRAME|${meetingId}|${userId}|${content}`, meetingId, ws);
+                         break;
                 default:
                     // Default broadcast for unknown message types
                     broadcast(msg, ws);

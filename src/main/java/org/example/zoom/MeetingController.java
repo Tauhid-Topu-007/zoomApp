@@ -4,7 +4,12 @@ import javafx.fxml.FXML;
 import javafx.event.ActionEvent;
 import javafx.scene.Node;
 import javafx.scene.canvas.Canvas;
+import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.*;
+import javafx.scene.control.Button;
+import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TextField;
 import javafx.scene.layout.*;
 import javafx.stage.*;
 import javafx.scene.image.Image;
@@ -13,6 +18,7 @@ import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
 import javafx.scene.media.MediaView;
 import javafx.animation.PauseTransition;
+import javafx.stage.Window;
 import javafx.util.Duration;
 import javafx.scene.input.MouseEvent;
 import javafx.application.Platform;
@@ -21,11 +27,14 @@ import javafx.fxml.FXMLLoader;
 import javafx.geometry.Pos;
 import javafx.scene.media.AudioClip;
 import javafx.scene.Scene;
+import javafx.scene.text.Font;
+import javafx.scene.image.WritableImage;
 
 import com.github.sarxos.webcam.Webcam;
 import com.github.sarxos.webcam.WebcamPanel;
 import com.github.sarxos.webcam.WebcamResolution;
 import javax.sound.sampled.*;
+import javafx.scene.paint.Color;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -133,6 +142,9 @@ public class MeetingController {
     // Singleton instance
     private static MeetingController instance;
 
+    // Participant tracking
+    private List<String> currentParticipants = new ArrayList<>();
+
     @FXML
     public void initialize() {
         instance = this;
@@ -187,6 +199,9 @@ public class MeetingController {
         setupScrollableChat();
         setupScrollableParticipants();
 
+        // Initialize participant tracking
+        initializeParticipantTracking();
+
         updateParticipantsList();
         setupChat();
         updateMeetingInfo();
@@ -216,6 +231,28 @@ public class MeetingController {
                 System.err.println("❌ Error in delayed initialization: " + e.getMessage());
             }
         });
+    }
+
+    /**
+     * NEW: Initialize participant tracking from database
+     */
+    private void initializeParticipantTracking() {
+        String meetingId = HelloApplication.getActiveMeetingId();
+        if (meetingId != null) {
+            // Load existing participants from database
+            List<String> participants = Database.getParticipants(meetingId);
+            currentParticipants.clear();
+            currentParticipants.addAll(participants);
+
+            System.out.println("👥 Loaded " + participants.size() + " participants from database: " + participants);
+
+            // Add host if not already in list
+            String host = HelloApplication.getLoggedInUser();
+            if (host != null && !currentParticipants.contains(host)) {
+                currentParticipants.add(host);
+                System.out.println("👑 Added host to participants: " + host);
+            }
+        }
     }
 
     /**
@@ -371,6 +408,297 @@ public class MeetingController {
     }
 
     /**
+     * FIXED: Enhanced participant list update with real-time tracking
+     */
+    private void updateParticipantsList() {
+        if (participantsList == null) return;
+
+        String meetingId = HelloApplication.getActiveMeetingId();
+        if (meetingId == null) return;
+
+        // Get actual participants from database AND current tracking
+        List<String> databaseParticipants = Database.getParticipants(meetingId);
+
+        // Merge database participants with current tracking
+        for (String participant : databaseParticipants) {
+            if (!currentParticipants.contains(participant)) {
+                currentParticipants.add(participant);
+            }
+        }
+
+        participantsList.getItems().clear();
+
+        if (!currentParticipants.isEmpty()) {
+            // Add host indicator to the actual host
+            String hostUsername = HelloApplication.getLoggedInUser();
+            for (String participant : currentParticipants) {
+                if (participant.equals(hostUsername) && HelloApplication.isMeetingHost()) {
+                    participantsList.getItems().add("👑 " + participant + " (Host)");
+                } else {
+                    participantsList.getItems().add("👤 " + participant);
+                }
+            }
+        }
+
+        // Update participants count
+        int count = currentParticipants.size();
+        if (participantsCountLabel != null) {
+            participantsCountLabel.setText("Participants: " + count);
+        }
+
+        System.out.println("👥 Updated participants list: " + currentParticipants);
+    }
+
+    /**
+     * FIXED: Add participant with proper tracking
+     */
+    public void addParticipant(String username) {
+        if (username != null && !currentParticipants.contains(username)) {
+            currentParticipants.add(username);
+
+            String meetingId = HelloApplication.getActiveMeetingId();
+            if (meetingId != null) {
+                // Add to database
+                Database.addParticipant(meetingId, username);
+            }
+
+            Platform.runLater(() -> {
+                updateParticipantsList();
+                addSystemMessage(username + " joined the meeting");
+            });
+
+            System.out.println("✅ Participant added: " + username);
+        }
+    }
+
+    /**
+     * FIXED: Remove participant with proper tracking
+     */
+    public void removeParticipant(String username) {
+        if (currentParticipants.remove(username)) {
+            String meetingId = HelloApplication.getActiveMeetingId();
+            if (meetingId != null) {
+                // Remove from database
+                Database.removeParticipant(meetingId, username);
+            }
+
+            Platform.runLater(() -> {
+                updateParticipantsList();
+                addSystemMessage(username + " left the meeting");
+            });
+
+            System.out.println("✅ Participant removed: " + username);
+        }
+    }
+
+    private void setupChat() {
+        if (chatInput == null) return;
+
+        chatInput.setOnKeyPressed(event -> {
+            switch (event.getCode()) {
+                case ENTER -> onSendChat();
+            }
+        });
+
+        // Load previous chat messages from database
+        loadChatHistory();
+
+        // Add welcome message to chat
+        addSystemMessage("Welcome to the meeting! Meeting ID: " + HelloApplication.getActiveMeetingId());
+
+        if (HelloApplication.isMeetingHost()) {
+            addSystemMessage("You are the host of this meeting. You can start recordings.");
+        }
+    }
+
+    /**
+     * Load chat history from database for this meeting
+     */
+    private void loadChatHistory() {
+        String meetingId = HelloApplication.getActiveMeetingId();
+        if (meetingId == null) return;
+
+        System.out.println("📖 Loading chat history for meeting: " + meetingId);
+        List<Database.ChatMessage> chatHistory = Database.getChatMessages(meetingId);
+
+        if (chatHistory.isEmpty()) {
+            System.out.println("💬 No previous chat history found");
+        } else {
+            System.out.println("💬 Loading " + chatHistory.size() + " previous chat messages");
+        }
+
+        for (Database.ChatMessage chatMessage : chatHistory) {
+            if ("SYSTEM".equals(chatMessage.getMessageType())) {
+                addSystemMessage(chatMessage.getMessage());
+            } else {
+                addUserMessage(chatMessage.getUsername() + ": " + chatMessage.getMessage());
+            }
+        }
+
+        // Scroll to bottom after loading history
+        scrollToBottom();
+    }
+
+    // ---------------- Chat ----------------
+    @FXML
+    protected void onSendChat() {
+        if (chatInput == null) return;
+
+        String msg = chatInput.getText().trim();
+        if (!msg.isEmpty()) {
+            String username = HelloApplication.getLoggedInUser();
+            if (username == null) username = "Me";
+
+            // Use actual username for the message
+            addUserMessage(username + ": " + msg);
+            chatInput.clear();
+
+            // Save to database with correct username
+            String meetingId = HelloApplication.getActiveMeetingId();
+            if (meetingId != null) {
+                boolean saved = Database.saveChatMessage(meetingId, username, msg, "USER");
+                if (saved) {
+                    System.out.println("✅ Chat message saved to database for user: " + username);
+                } else {
+                    System.err.println("❌ Failed to save chat message to database");
+                }
+            }
+
+            // Send via WebSocket with correct username
+            if (isWebSocketConnected() && HelloApplication.getActiveMeetingId() != null) {
+                HelloApplication.sendWebSocketMessage("CHAT", HelloApplication.getActiveMeetingId(), username, msg);
+                System.out.println("📤 Sent chat message via WebSocket: " + msg);
+            }
+        }
+    }
+
+    private void addUserMessage(String text) {
+        addChatMessage(text, "#3498db", "white", "-fx-alignment: center-left; -fx-background-insets: 5;");
+    }
+
+    /**
+     * FIXED: Changed from private to public to allow access from MP4RecordingController
+     */
+    public void addSystemMessage(String text) {
+        addChatMessage("💬 " + text, "#2c3e50", "white", "-fx-alignment: center; -fx-font-style: italic; -fx-background-insets: 5;");
+
+        // Save system message to database
+        String meetingId = HelloApplication.getActiveMeetingId();
+        String username = HelloApplication.getLoggedInUser();
+        if (meetingId != null && username != null) {
+            Database.saveChatMessage(meetingId, username, text, "SYSTEM");
+        }
+    }
+
+    private void addChatMessage(String text, String bgColor, String textColor, String additionalStyle) {
+        if (chatBox == null) return;
+
+        Label messageLabel = new Label(text);
+        messageLabel.setWrapText(true);
+        messageLabel.setMaxWidth(380); // Increased max width for better readability
+        messageLabel.setStyle(String.format(
+                "-fx-background-color: %s; -fx-text-fill: %s; -fx-padding: 10 15; -fx-background-radius: 15; -fx-font-size: 13px; %s",
+                bgColor, textColor, additionalStyle));
+
+        // Add some spacing between messages
+        VBox.setMargin(messageLabel, new javafx.geometry.Insets(2, 5, 2, 5));
+
+        chatBox.getChildren().add(messageLabel);
+        scrollToBottom();
+    }
+
+    private void scrollToBottom() {
+        if (chatScroll == null) return;
+
+        Platform.runLater(() -> {
+            chatScroll.applyCss();
+            chatScroll.layout();
+            chatScroll.setVvalue(1.0);
+        });
+    }
+
+    // ---------------- REAL Audio / Video Controls ----------------
+    @FXML
+    protected void toggleAudio() {
+        if (audioMuted) {
+            // Unmute - start capturing audio
+            audioMuted = false;
+            startMicrophone();
+            addSystemMessage("You unmuted your audio");
+            System.out.println("🎤 Audio UNMUTED - microphone started");
+        } else {
+            // Mute - stop capturing audio
+            audioMuted = true;
+            stopMicrophone();
+            addSystemMessage("You muted your audio");
+            System.out.println("🎤 Audio MUTED - microphone stopped");
+        }
+
+        updateButtonStyles();
+
+        // Send status via WebSocket
+        if (HelloApplication.getActiveMeetingId() != null) {
+            String status = audioMuted ? "muted their audio" : "unmuted their audio";
+            HelloApplication.sendWebSocketMessage("AUDIO_STATUS", HelloApplication.getActiveMeetingId(), status);
+        }
+    }
+
+    @FXML
+    protected void toggleVideo() {
+        if (!videoOn) {
+            // Start video - turn on camera
+            videoOn = true;
+            startCamera();
+
+            // Send video status via WebSocket
+            if (HelloApplication.getActiveMeetingId() != null) {
+                String username = HelloApplication.getLoggedInUser();
+                if (HelloApplication.isMeetingHost()) {
+                    // Host-specific video message
+                    HelloApplication.sendWebSocketMessage("VIDEO_STATUS",
+                            HelloApplication.getActiveMeetingId(), "HOST_VIDEO_STARTED");
+                } else {
+                    // Participant video message
+                    HelloApplication.sendWebSocketMessage("VIDEO_STATUS",
+                            HelloApplication.getActiveMeetingId(), username + " started video");
+                }
+            }
+
+            addSystemMessage("You started your video");
+            System.out.println("📷 Video STARTED - camera activated");
+
+        } else {
+            // Stop video - turn off camera
+            videoOn = false;
+            stopCamera();
+
+            // Send video status via WebSocket
+            if (HelloApplication.getActiveMeetingId() != null) {
+                String username = HelloApplication.getLoggedInUser();
+                if (HelloApplication.isMeetingHost()) {
+                    // Host-specific video message
+                    HelloApplication.sendWebSocketMessage("VIDEO_STATUS",
+                            HelloApplication.getActiveMeetingId(), "HOST_VIDEO_STOPPED");
+                } else {
+                    // Participant video message
+                    HelloApplication.sendWebSocketMessage("VIDEO_STATUS",
+                            HelloApplication.getActiveMeetingId(), username + " stopped video");
+                }
+            }
+
+            addSystemMessage("You stopped your video");
+            System.out.println("📷 Video STOPPED - camera deactivated");
+        }
+
+        updateButtonStyles();
+
+        // Update video controls
+        if (videoControlsController != null) {
+            videoControlsController.syncWithGlobalState();
+        }
+    }
+
+    /**
      * Start camera capture
      */
     private void startCamera() {
@@ -419,6 +747,12 @@ public class MeetingController {
                                         videoControlsController.updateVideoPreview(fxImage);
                                     }
                                 });
+
+                                // In a real implementation, you would stream this frame to other participants
+                                // For now, we'll just simulate it with periodic status updates
+                                if (System.currentTimeMillis() % 5000 < 100) { // Every 5 seconds
+                                    System.out.println("📹 Streaming video frame to participants (simulated)");
+                                }
                             }
                         }
                         Thread.sleep(33); // ~30 FPS
@@ -578,151 +912,171 @@ public class MeetingController {
         }
     }
 
-    private void showCameraError() {
-        Platform.runLater(() -> {
-            if (videoDisplay != null) {
-                // Create error placeholder
-                Canvas canvas = new Canvas(320, 240);
-                javafx.scene.canvas.GraphicsContext gc = canvas.getGraphicsContext2D();
-                gc.setFill(javafx.scene.paint.Color.LIGHTGRAY);
-                gc.fillRect(0, 0, 320, 240);
-                gc.setFill(javafx.scene.paint.Color.RED);
-                gc.fillText("Camera Error", 120, 120);
-                gc.fillText("No camera available", 110, 140);
+    // Method to handle WebSocket messages (for chat integration)
+    public void handleWebSocketMessage(String message) {
+        // Parse message: "TYPE|MEETING_ID|USERNAME|CONTENT"
+        String[] parts = message.split("\\|", 4);
+        if (parts.length >= 4) {
+            String type = parts[0];
+            String meetingId = parts[1];
+            String username = parts[2];
+            String content = parts[3];
 
-                javafx.scene.image.WritableImage writableImage = new javafx.scene.image.WritableImage(320, 240);
-                canvas.snapshot(null, writableImage);
-                videoDisplay.setImage(writableImage);
+            if (!meetingId.equals(HelloApplication.getActiveMeetingId())) {
+                return; // Not for this meeting
+            }
+
+            Platform.runLater(() -> {
+                switch (type) {
+                    case "CHAT":
+                        // Add chat message from other user with THEIR username
+                        addUserMessage(username + ": " + content);
+
+                        // Save to database with the correct username
+                        Database.saveChatMessage(meetingId, username, content, "USER");
+                        break;
+
+                    case "USER_JOINED":
+                        // Add participant to database and update UI
+                        addParticipant(username);
+                        break;
+
+                    case "USER_LEFT":
+                        // Remove participant from database and update UI
+                        removeParticipant(username);
+                        break;
+
+                    case "AUDIO_STATUS":
+                        addSystemMessage(username + " " + content);
+                        // Update audio controls if needed
+                        if (audioControlsController != null) {
+                            audioControlsController.updateFromServer(content);
+                        }
+                        break;
+
+                    case "VIDEO_STATUS":
+                        handleVideoStatusMessage(username, content);
+                        break;
+
+                    case "AUDIO_CONTROL":
+                        if ("MUTE_ALL".equals(content)) {
+                            addSystemMessage("Host muted all participants");
+                            if (audioControlsController != null) {
+                                audioControlsController.onHostMutedAll();
+                            }
+                        } else if ("UNMUTE_ALL".equals(content)) {
+                            addSystemMessage("Host unmuted all participants");
+                            if (audioControlsController != null) {
+                                audioControlsController.onHostUnmutedAll();
+                            }
+                        }
+                        break;
+
+                    case "VIDEO_CONTROL":
+                        if ("START_RECORDING".equals(content)) {
+                            addSystemMessage("Host started recording");
+                            if (videoControlsController != null) {
+                                videoControlsController.onHostStartedRecording();
+                            }
+                        } else if ("STOP_RECORDING".equals(content)) {
+                            addSystemMessage("Host stopped recording");
+                            if (videoControlsController != null) {
+                                videoControlsController.onHostStoppedRecording();
+                            }
+                        }
+                        break;
+                }
+            });
+        }
+    }
+
+    /**
+     * Show/hide host video indicator in the main video display area
+     */
+    public void showHostVideoIndicator(boolean show) {
+        Platform.runLater(() -> {
+            if (show) {
+                // Create a host video placeholder for the main display
+                Canvas canvas = new Canvas(640, 480);
+                GraphicsContext gc = canvas.getGraphicsContext2D();
+                gc.setFill(Color.DARKBLUE);
+                gc.fillRect(0, 0, 640, 480);
+                gc.setFill(Color.WHITE);
+                gc.setFont(new Font(20));
+                gc.fillText("HOST VIDEO STREAM", 200, 200);
+                gc.fillText("Waiting for video feed...", 180, 230);
+                gc.setFill(Color.RED);
+                gc.fillOval(300, 250, 20, 20);
+                gc.setFill(Color.WHITE);
+                gc.fillText("LIVE", 325, 265);
+
+                WritableImage hostVideoImage = new WritableImage(640, 480);
+                canvas.snapshot(null, hostVideoImage);
+
+                // Update the main video display
+                if (videoDisplay != null) {
+                    videoDisplay.setImage(hostVideoImage);
+                    videoDisplay.setVisible(true);
+                }
+
+                // Hide placeholder if visible
+                if (videoPlaceholder != null) {
+                    videoPlaceholder.setVisible(false);
+                }
+
+                addSystemMessage("🎥 Host is now sharing video");
+
+            } else {
+                // Hide host video and show placeholder
+                if (videoDisplay != null) {
+                    videoDisplay.setImage(null);
+                    videoDisplay.setVisible(false);
+                }
+
+                // Show placeholder again
+                if (videoPlaceholder != null) {
+                    videoPlaceholder.setVisible(true);
+                }
+
+                addSystemMessage("Host stopped sharing video");
             }
         });
     }
 
-    // Add these methods for fallback controls
-    private void setupFallbackAudioControls() {
-        System.out.println("🔄 Setting up fallback audio controls");
-        if (audioControlsContainer != null) {
-            // Create simple audio controls
-            HBox fallbackAudioControls = new HBox(10);
-            fallbackAudioControls.setAlignment(Pos.CENTER_LEFT);
-            fallbackAudioControls.setStyle("-fx-padding: 10; -fx-background-color: #2c3e50; -fx-border-radius: 5;");
-
-            Button muteButton = new Button("🎤 Mute");
-            muteButton.setOnAction(e -> toggleAudio());
-            muteButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white;");
-
-            Button deafenButton = new Button("🔇 Deafen");
-            deafenButton.setOnAction(e -> toggleDeafen());
-            deafenButton.setStyle("-fx-background-color: #e67e22; -fx-text-fill: white;");
-
-            fallbackAudioControls.getChildren().addAll(muteButton, deafenButton);
-            audioControlsContainer.getChildren().add(fallbackAudioControls);
-        }
-    }
-
-    private void setupFallbackVideoControls() {
-        System.out.println("🔄 Setting up fallback video controls");
-        if (videoControlsContainer != null) {
-            // Create simple video controls
-            HBox fallbackVideoControls = new HBox(10);
-            fallbackVideoControls.setAlignment(Pos.CENTER_LEFT);
-            fallbackVideoControls.setStyle("-fx-padding: 10; -fx-background-color: #2c3e50; -fx-border-radius: 5;");
-
-            Button videoToggle = new Button("📹 Start Video");
-            videoToggle.setOnAction(e -> toggleVideo());
-            videoToggle.setStyle("-fx-background-color: #2980b9; -fx-text-fill: white;");
-
-            Button recordButton = new Button("⏺ Record");
-            recordButton.setOnAction(e -> onToggleRecording());
-            recordButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white;");
-
-            fallbackVideoControls.getChildren().addAll(videoToggle, recordButton);
-            videoControlsContainer.getChildren().add(fallbackVideoControls);
-        }
-    }
-
-    private void setupAllFallbackControls() {
-        System.out.println("🔄 Setting up all fallback controls");
-        // Ensure basic controls are visible and functional
-        if (audioButton != null) {
-            audioButton.setVisible(true);
-            audioButton.setDisable(false);
-        }
-        if (videoButton != null) {
-            videoButton.setVisible(true);
-            videoButton.setDisable(false);
-        }
-        if (recordButton != null) {
-            recordButton.setVisible(true);
-            recordButton.setDisable(!HelloApplication.isMeetingHost());
-        }
-    }
-
-    // Add these methods for toggling controls visibility
-    @FXML
-    protected void toggleAudioControls() {
-        if (audioControlsContainer != null) {
-            audioControlsVisible = !audioControlsVisible;
-            audioControlsContainer.setVisible(audioControlsVisible);
-            audioControlsContainer.setManaged(audioControlsVisible);
-            System.out.println("🔊 Audio controls " + (audioControlsVisible ? "shown" : "hidden"));
-
-            // Update button text
-            if (audioControlsButton != null) {
-                if (audioControlsVisible) {
-                    audioControlsButton.setText("🔊 Hide Audio Controls");
-                    audioControlsButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white;");
-                } else {
-                    audioControlsButton.setText("🔊 Show Audio Controls");
-                    audioControlsButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
+    private void handleVideoStatusMessage(String username, String content) {
+        switch (content) {
+            case "HOST_VIDEO_STARTED":
+                if (!HelloApplication.isMeetingHost()) {
+                    addSystemMessage("🎥 Host started sharing video");
+                    showHostVideoIndicator(true);
                 }
-            }
-        }
-    }
+                break;
 
-    @FXML
-    protected void toggleVideoControls() {
-        if (videoControlsContainer != null) {
-            videoControlsVisible = !videoControlsVisible;
-            videoControlsContainer.setVisible(videoControlsVisible);
-            videoControlsContainer.setManaged(videoControlsVisible);
-            System.out.println("🎥 Video controls " + (videoControlsVisible ? "shown" : "hidden"));
-
-            // Update button text
-            if (videoControlsButton != null) {
-                if (videoControlsVisible) {
-                    videoControlsButton.setText("🎥 Hide Video Controls");
-                    videoControlsButton.setStyle("-fx-background-color: #2980b9; -fx-text-fill: white;");
-                } else {
-                    videoControlsButton.setText("🎥 Show Video Controls");
-                    videoControlsButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
+            case "HOST_VIDEO_STOPPED":
+                if (!HelloApplication.isMeetingHost()) {
+                    addSystemMessage("Host stopped video");
+                    showHostVideoIndicator(false);
                 }
-            }
+                break;
+
+            default:
+                if (content.contains("started video")) {
+                    addSystemMessage("🎥 " + username + " started their video");
+                } else if (content.contains("stopped video")) {
+                    addSystemMessage(username + " stopped their video");
+                }
+                break;
+        }
+
+        // Update video controls
+        if (videoControlsController != null) {
+            videoControlsController.updateFromServer(content);
         }
     }
 
-    // Add the missing toggleDeafen method
-    @FXML
-    protected void toggleDeafen() {
-        // Use centralized deafen control from HelloApplication
-        HelloApplication.toggleDeafen();
 
-        boolean isDeafened = HelloApplication.isDeafened();
-        if (isDeafened) {
-            addSystemMessage("You deafened yourself");
-        } else {
-            addSystemMessage("You undeafened yourself");
-        }
-
-        updateButtonStyles();
-    }
-
-    private void setupFallbackControls() {
-        System.out.println("🔄 Using fallback audio/video controls");
-        // Ensure basic controls are visible
-        if (audioButton != null) audioButton.setVisible(true);
-        if (videoButton != null) videoButton.setVisible(true);
-        if (recordButton != null) recordButton.setVisible(true);
-    }
+    // ... (rest of your existing methods remain the same, including updateMeetingInfo,
+    // startMeetingTimer, updateButtonStyles, setupWindowControls, etc.)
 
     public void setStage(Stage stage) {
         this.stage = stage;
@@ -912,87 +1266,6 @@ public class MeetingController {
         }
     }
 
-    /**
-     * FIXED: Updated to use database participants instead of just active participants
-     */
-    private void updateParticipantsList() {
-        if (participantsList == null) return;
-
-        String meetingId = HelloApplication.getActiveMeetingId();
-        if (meetingId == null) return;
-
-        // Get actual participants from database
-        List<String> participants = HelloApplication.getMeetingParticipants(meetingId);
-
-        participantsList.getItems().clear();
-
-        if (!participants.isEmpty()) {
-            // Add host indicator to the actual host
-            String hostUsername = HelloApplication.getLoggedInUser();
-            for (String participant : participants) {
-                if (participant.equals(hostUsername) && HelloApplication.isMeetingHost()) {
-                    participantsList.getItems().add("👑 " + participant + " (Host)");
-                } else {
-                    participantsList.getItems().add("👤 " + participant);
-                }
-            }
-        }
-
-        // Update participants count
-        int count = participants.size();
-        if (participantsCountLabel != null) {
-            participantsCountLabel.setText("Participants: " + count);
-        }
-    }
-
-    private void setupChat() {
-        if (chatInput == null) return;
-
-        chatInput.setOnKeyPressed(event -> {
-            switch (event.getCode()) {
-                case ENTER -> onSendChat();
-            }
-        });
-
-        // Load previous chat messages from database
-        loadChatHistory();
-
-        // Add welcome message to chat
-        addSystemMessage("Welcome to the meeting! Meeting ID: " + HelloApplication.getActiveMeetingId());
-
-        if (HelloApplication.isMeetingHost()) {
-            addSystemMessage("You are the host of this meeting. You can start recordings.");
-        }
-    }
-
-    /**
-     * Load chat history from database for this meeting
-     */
-    private void loadChatHistory() {
-        String meetingId = HelloApplication.getActiveMeetingId();
-        if (meetingId == null) return;
-
-        System.out.println("📖 Loading chat history for meeting: " + meetingId);
-        List<Database.ChatMessage> chatHistory = Database.getChatMessages(meetingId);
-
-        if (chatHistory.isEmpty()) {
-            System.out.println("💬 No previous chat history found");
-        } else {
-            System.out.println("💬 Loading " + chatHistory.size() + " previous chat messages");
-        }
-
-        for (Database.ChatMessage chatMessage : chatHistory) {
-            if ("SYSTEM".equals(chatMessage.getMessageType())) {
-                addSystemMessage(chatMessage.getMessage());
-            } else {
-                addUserMessage(chatMessage.getUsername() + ": " + chatMessage.getMessage());
-            }
-        }
-
-        // Scroll to bottom after loading history
-        scrollToBottom();
-    }
-
     private void startMeetingTimer() {
         meetingTimer = new javafx.animation.Timeline(
                 new javafx.animation.KeyFrame(Duration.seconds(1), e -> updateTimer())
@@ -1156,57 +1429,6 @@ public class MeetingController {
             chatPanel.setManaged(chatVisible);
         }
         updateButtonStyles();
-    }
-
-    // ---------------- REAL Audio / Video Controls ----------------
-    @FXML
-    protected void toggleAudio() {
-        if (audioMuted) {
-            // Unmute - start capturing audio
-            audioMuted = false;
-            startMicrophone();
-            addSystemMessage("You unmuted your audio");
-            System.out.println("🎤 Audio UNMUTED - microphone started");
-        } else {
-            // Mute - stop capturing audio
-            audioMuted = true;
-            stopMicrophone();
-            addSystemMessage("You muted your audio");
-            System.out.println("🎤 Audio MUTED - microphone stopped");
-        }
-
-        updateButtonStyles();
-
-        // Send status via WebSocket
-        if (HelloApplication.getActiveMeetingId() != null) {
-            String status = audioMuted ? "muted their audio" : "unmuted their audio";
-            HelloApplication.sendWebSocketMessage("AUDIO_STATUS", HelloApplication.getActiveMeetingId(), status);
-        }
-    }
-
-    @FXML
-    protected void toggleVideo() {
-        if (!videoOn) {
-            // Start video - turn on camera
-            videoOn = true;
-            startCamera();
-            addSystemMessage("You started your video");
-            System.out.println("📷 Video STARTED - camera activated");
-        } else {
-            // Stop video - turn off camera
-            videoOn = false;
-            stopCamera();
-            addSystemMessage("You stopped your video");
-            System.out.println("📷 Video STOPPED - camera deactivated");
-        }
-
-        updateButtonStyles();
-
-        // Send status via WebSocket
-        if (HelloApplication.getActiveMeetingId() != null) {
-            String status = videoOn ? "started video" : "stopped video";
-            HelloApplication.sendWebSocketMessage("VIDEO_STATUS", HelloApplication.getActiveMeetingId(), status);
-        }
     }
 
     // ---------------- ADVANCED MP4 RECORDING ----------------
@@ -1395,38 +1617,6 @@ public class MeetingController {
         }
     }
 
-    // ---------------- Chat ----------------
-    @FXML
-    protected void onSendChat() {
-        if (chatInput == null) return;
-
-        String msg = chatInput.getText().trim();
-        if (!msg.isEmpty()) {
-            String username = HelloApplication.getLoggedInUser();
-            if (username == null) username = "Me";
-
-            // Use actual username for the message
-            addUserMessage(username + ": " + msg);
-            chatInput.clear();
-
-            // Save to database with correct username
-            String meetingId = HelloApplication.getActiveMeetingId();
-            if (meetingId != null) {
-                boolean saved = Database.saveChatMessage(meetingId, username, msg, "USER");
-                if (saved) {
-                    System.out.println("✅ Chat message saved to database for user: " + username);
-                } else {
-                    System.err.println("❌ Failed to save chat message to database");
-                }
-            }
-
-            // Send via WebSocket with correct username
-            if (isWebSocketConnected() && HelloApplication.getActiveMeetingId() != null) {
-                HelloApplication.sendWebSocketMessage("CHAT", HelloApplication.getActiveMeetingId(), msg);
-            }
-        }
-    }
-
     @FXML
     protected void onSendFile() {
         if (stage == null) stage = (Stage) chatBox.getScene().getWindow();
@@ -1559,51 +1749,6 @@ public class MeetingController {
         int exp = (int) (Math.log(bytes) / Math.log(1024));
         String pre = "KMGTPE".charAt(exp-1) + "";
         return String.format("%.1f %sB", bytes / Math.pow(1024, exp), pre);
-    }
-
-    private void addUserMessage(String text) {
-        addChatMessage(text, "#3498db", "white", "-fx-alignment: center-left; -fx-background-insets: 5;");
-    }
-
-    /**
-     * FIXED: Changed from private to public to allow access from MP4RecordingController
-     */
-    public void addSystemMessage(String text) {
-        addChatMessage("💬 " + text, "#2c3e50", "white", "-fx-alignment: center; -fx-font-style: italic; -fx-background-insets: 5;");
-
-        // Save system message to database
-        String meetingId = HelloApplication.getActiveMeetingId();
-        String username = HelloApplication.getLoggedInUser();
-        if (meetingId != null && username != null) {
-            Database.saveChatMessage(meetingId, username, text, "SYSTEM");
-        }
-    }
-
-    private void addChatMessage(String text, String bgColor, String textColor, String additionalStyle) {
-        if (chatBox == null) return;
-
-        Label messageLabel = new Label(text);
-        messageLabel.setWrapText(true);
-        messageLabel.setMaxWidth(380); // Increased max width for better readability
-        messageLabel.setStyle(String.format(
-                "-fx-background-color: %s; -fx-text-fill: %s; -fx-padding: 10 15; -fx-background-radius: 15; -fx-font-size: 13px; %s",
-                bgColor, textColor, additionalStyle));
-
-        // Add some spacing between messages
-        VBox.setMargin(messageLabel, new javafx.geometry.Insets(2, 5, 2, 5));
-
-        chatBox.getChildren().add(messageLabel);
-        scrollToBottom();
-    }
-
-    private void scrollToBottom() {
-        if (chatScroll == null) return;
-
-        Platform.runLater(() -> {
-            chatScroll.applyCss();
-            chatScroll.layout();
-            chatScroll.setVvalue(1.0);
-        });
     }
 
     // ---------------- Helpers ----------------
@@ -1801,54 +1946,150 @@ public class MeetingController {
         }
     }
 
-    // Method to handle WebSocket messages (for chat integration)
-    public void handleWebSocketMessage(String message) {
-        // Parse message: "TYPE|MEETING_ID|USERNAME|CONTENT"
-        String[] parts = message.split("\\|", 4);
-        if (parts.length >= 4) {
-            String type = parts[0];
-            String meetingId = parts[1];
-            String username = parts[2];
-            String content = parts[3];
+    // Add these methods for fallback controls
+    private void setupFallbackAudioControls() {
+        System.out.println("🔄 Setting up fallback audio controls");
+        if (audioControlsContainer != null) {
+            // Create simple audio controls
+            HBox fallbackAudioControls = new HBox(10);
+            fallbackAudioControls.setAlignment(Pos.CENTER_LEFT);
+            fallbackAudioControls.setStyle("-fx-padding: 10; -fx-background-color: #2c3e50; -fx-border-radius: 5;");
 
-            if (!meetingId.equals(HelloApplication.getActiveMeetingId())) {
-                return; // Not for this meeting
-            }
+            Button muteButton = new Button("🎤 Mute");
+            muteButton.setOnAction(e -> toggleAudio());
+            muteButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white;");
 
-            Platform.runLater(() -> {
-                switch (type) {
-                    case "CHAT":
-                        // Add chat message from other user with THEIR username
-                        addUserMessage(username + ": " + content);
+            Button deafenButton = new Button("🔇 Deafen");
+            deafenButton.setOnAction(e -> toggleDeafen());
+            deafenButton.setStyle("-fx-background-color: #e67e22; -fx-text-fill: white;");
 
-                        // Save to database with the correct username
-                        Database.saveChatMessage(meetingId, username, content, "USER");
-                        break;
-
-                    case "USER_JOINED":
-                        // Add participant to database and update UI
-                        HelloApplication.addParticipantToMeeting(meetingId, username);
-                        updateParticipantsList();
-                        addSystemMessage(username + " joined the meeting");
-                        break;
-
-                    case "USER_LEFT":
-                        // Remove participant from database and update UI
-                        HelloApplication.removeParticipantFromMeeting(meetingId, username);
-                        updateParticipantsList();
-                        addSystemMessage(username + " left the meeting");
-                        break;
-
-                    case "AUDIO_STATUS":
-                        addSystemMessage(username + " " + content);
-                        break;
-
-                    case "VIDEO_STATUS":
-                        addSystemMessage(username + " " + content);
-                        break;
-                }
-            });
+            fallbackAudioControls.getChildren().addAll(muteButton, deafenButton);
+            audioControlsContainer.getChildren().add(fallbackAudioControls);
         }
+    }
+
+    private void setupFallbackVideoControls() {
+        System.out.println("🔄 Setting up fallback video controls");
+        if (videoControlsContainer != null) {
+            // Create simple video controls
+            HBox fallbackVideoControls = new HBox(10);
+            fallbackVideoControls.setAlignment(Pos.CENTER_LEFT);
+            fallbackVideoControls.setStyle("-fx-padding: 10; -fx-background-color: #2c3e50; -fx-border-radius: 5;");
+
+            Button videoToggle = new Button("📹 Start Video");
+            videoToggle.setOnAction(e -> toggleVideo());
+            videoToggle.setStyle("-fx-background-color: #2980b9; -fx-text-fill: white;");
+
+            Button recordButton = new Button("⏺ Record");
+            recordButton.setOnAction(e -> onToggleRecording());
+            recordButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white;");
+
+            fallbackVideoControls.getChildren().addAll(videoToggle, recordButton);
+            videoControlsContainer.getChildren().add(fallbackVideoControls);
+        }
+    }
+
+    private void setupAllFallbackControls() {
+        System.out.println("🔄 Setting up all fallback controls");
+        // Ensure basic controls are visible and functional
+        if (audioButton != null) {
+            audioButton.setVisible(true);
+            audioButton.setDisable(false);
+        }
+        if (videoButton != null) {
+            videoButton.setVisible(true);
+            videoButton.setDisable(false);
+        }
+        if (recordButton != null) {
+            recordButton.setVisible(true);
+            recordButton.setDisable(!HelloApplication.isMeetingHost());
+        }
+    }
+
+    // Add these methods for toggling controls visibility
+    @FXML
+    protected void toggleAudioControls() {
+        if (audioControlsContainer != null) {
+            audioControlsVisible = !audioControlsVisible;
+            audioControlsContainer.setVisible(audioControlsVisible);
+            audioControlsContainer.setManaged(audioControlsVisible);
+            System.out.println("🔊 Audio controls " + (audioControlsVisible ? "shown" : "hidden"));
+
+            // Update button text
+            if (audioControlsButton != null) {
+                if (audioControlsVisible) {
+                    audioControlsButton.setText("🔊 Hide Audio Controls");
+                    audioControlsButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white;");
+                } else {
+                    audioControlsButton.setText("🔊 Show Audio Controls");
+                    audioControlsButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
+                }
+            }
+        }
+    }
+
+    @FXML
+    protected void toggleVideoControls() {
+        if (videoControlsContainer != null) {
+            videoControlsVisible = !videoControlsVisible;
+            videoControlsContainer.setVisible(videoControlsVisible);
+            videoControlsContainer.setManaged(videoControlsVisible);
+            System.out.println("🎥 Video controls " + (videoControlsVisible ? "shown" : "hidden"));
+
+            // Update button text
+            if (videoControlsButton != null) {
+                if (videoControlsVisible) {
+                    videoControlsButton.setText("🎥 Hide Video Controls");
+                    videoControlsButton.setStyle("-fx-background-color: #2980b9; -fx-text-fill: white;");
+                } else {
+                    videoControlsButton.setText("🎥 Show Video Controls");
+                    videoControlsButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
+                }
+            }
+        }
+    }
+
+    // Add the missing toggleDeafen method
+    @FXML
+    protected void toggleDeafen() {
+        // Use centralized deafen control from HelloApplication
+        HelloApplication.toggleDeafen();
+
+        boolean isDeafened = HelloApplication.isDeafened();
+        if (isDeafened) {
+            addSystemMessage("You deafened yourself");
+        } else {
+            addSystemMessage("You undeafened yourself");
+        }
+
+        updateButtonStyles();
+    }
+
+    private void setupFallbackControls() {
+        System.out.println("🔄 Using fallback audio/video controls");
+        // Ensure basic controls are visible
+        if (audioButton != null) audioButton.setVisible(true);
+        if (videoButton != null) videoButton.setVisible(true);
+        if (recordButton != null) recordButton.setVisible(true);
+    }
+
+    private void showCameraError() {
+        Platform.runLater(() -> {
+            if (videoDisplay != null) {
+                // Create error placeholder
+                Canvas canvas = new Canvas(320, 240);
+                javafx.scene.canvas.GraphicsContext gc = canvas.getGraphicsContext2D();
+                gc.setFill(javafx.scene.paint.Color.LIGHTGRAY);
+                gc.fillRect(0, 0, 320, 240);
+                gc.setFill(javafx.scene.paint.Color.RED);
+                gc.fillText("Camera Error", 120, 120);
+                gc.fillText("No camera available", 110, 140);
+
+                javafx.scene.image.WritableImage writableImage = new javafx.scene.image.WritableImage(320, 240);
+                canvas.snapshot(null, writableImage);
+                videoDisplay.setImage(writableImage);
+            }
+        });
     }
 
     /**
