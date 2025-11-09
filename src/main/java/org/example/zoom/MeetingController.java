@@ -702,7 +702,22 @@ public class MeetingController {
     }
 
     /**
-     * Start camera capture
+     * Convert AWT BufferedImage to Base64 string for streaming
+     */
+    private String convertImageToBase64(java.awt.image.BufferedImage awtImage) {
+        try {
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(awtImage, "jpg", baos);
+            byte[] imageBytes = baos.toByteArray();
+            return java.util.Base64.getEncoder().encodeToString(imageBytes);
+        } catch (Exception e) {
+            System.err.println("❌ Error converting image to base64: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Start camera capture with actual video streaming
      */
     private void startCamera() {
         if (!cameraAvailable || webcam == null) {
@@ -712,7 +727,7 @@ public class MeetingController {
         }
 
         try {
-            System.out.println("📷 Starting camera with streaming...");
+            System.out.println("📷 Starting camera with REAL streaming...");
 
             if (!webcam.isOpen()) {
                 webcam.open();
@@ -753,10 +768,29 @@ public class MeetingController {
                                     }
                                 });
 
-                                // Stream video frame to other participants (every 3rd frame to reduce bandwidth)
-                                frameCount++;
-                                if (frameCount % 3 == 0 && HelloApplication.isMeetingHost()) {
-                                    HelloApplication.sendVideoFrame(fxImage);
+                                // 🔥 ACTUAL VIDEO STREAMING: Send frame to all participants
+                                if (HelloApplication.isWebSocketConnected() &&
+                                        HelloApplication.getActiveMeetingId() != null &&
+                                        HelloApplication.isMeetingHost()) {
+
+                                    // Send every frame for smooth video (or every 2nd frame to reduce bandwidth)
+                                    if (frameCount % 2 == 0) {
+                                        String base64Frame = convertImageToBase64(awtImage);
+                                        if (base64Frame != null && !base64Frame.isEmpty()) {
+                                            String username = HelloApplication.getLoggedInUser();
+                                            HelloApplication.sendWebSocketMessage(
+                                                    "VIDEO_FRAME",
+                                                    HelloApplication.getActiveMeetingId(),
+                                                    username,
+                                                    base64Frame
+                                            );
+
+                                            if (frameCount % 30 == 0) { // Log every 30 frames
+                                                System.out.println("🎥 Streaming video frame #" + frameCount);
+                                            }
+                                        }
+                                    }
+                                    frameCount++;
                                 }
                             }
                         }
@@ -771,7 +805,7 @@ public class MeetingController {
             cameraThread.setDaemon(true);
             cameraThread.start();
 
-            System.out.println("✅ Camera started with streaming");
+            System.out.println("✅ Camera started with REAL streaming");
 
         } catch (Exception e) {
             System.err.println("❌ Failed to start camera: " + e.getMessage());
