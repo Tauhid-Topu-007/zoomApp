@@ -13,7 +13,7 @@ import java.util.function.Consumer;
 public class SimpleWebSocketClient implements Listener {
 
     private final AtomicReference<WebSocket> webSocket = new AtomicReference<>();
-    private final Consumer<String> messageHandler;
+    private Consumer<String> messageHandler; // Made non-final so it can be changed
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final String serverUrl;
     private final AtomicReference<String> currentUser = new AtomicReference<>();
@@ -59,6 +59,12 @@ public class SimpleWebSocketClient implements Listener {
         // Start message processor
         startMessageProcessor();
         connect();
+    }
+
+    // ✅ NEW: Set message handler after construction
+    public void setMessageHandler(Consumer<String> messageHandler) {
+        this.messageHandler = messageHandler;
+        System.out.println("✅ Message handler updated");
     }
 
     // ✅ Set connection listener
@@ -118,12 +124,10 @@ public class SimpleWebSocketClient implements Listener {
                     .thenAccept(ws -> {
                         this.webSocket.set(ws);
                         System.out.println("✅ WebSocket connection established to: " + serverUrl);
-                        // Connection will be marked as ready in onOpen()
                     })
                     .exceptionally(e -> {
                         System.err.println("❌ Connection failed or timed out: " + e.getMessage());
-                        // Only fail the connection ready if it's still the current one
-                        if (connectionReady.get() == newConnectionReady && !newConnectionReady.isDone()) {
+                        if (!newConnectionReady.isDone()) {
                             newConnectionReady.completeExceptionally(e);
                         }
                         if (messageHandler != null) {
@@ -156,7 +160,7 @@ public class SimpleWebSocketClient implements Listener {
 
         System.out.println("✅ WebSocket connection opened successfully to: " + serverUrl);
 
-        // Mark connection as ready - only if this is still the current connection attempt
+        // Mark connection as ready
         CompletableFuture<Void> currentReady = connectionReady.get();
         if (!currentReady.isDone()) {
             currentReady.complete(null);
@@ -172,20 +176,15 @@ public class SimpleWebSocketClient implements Listener {
         // Send welcome/join message if we have a user
         String user = currentUser.get();
         if (user != null) {
-            // Use a small delay to ensure connection is fully ready
-            scheduleDelayedTask(() -> {
-                sendMessageInternal("USER_JOINED|global|" + user + "|Connected from Java client");
-            }, 500);
+            sendMessageInternal("USER_JOINED|global|" + user + "|Connected from Java client");
         }
 
-        // Process any queued messages with a small delay
-        scheduleDelayedTask(this::processQueuedMessages, 1000);
+        // Process any queued messages
+        scheduleDelayedTask(this::processQueuedMessages, 500);
 
         // Notify message handler
         if (messageHandler != null) {
-            scheduleDelayedTask(() -> {
-                messageHandler.accept("SYSTEM|global|Server|CONNECTED|" + (user != null ? user : "JavaClient") + "|Connected to server at " + serverUrl);
-            }, 100);
+            messageHandler.accept("SYSTEM|global|Server|CONNECTED|" + (user != null ? user : "JavaClient") + "|Connected to server at " + serverUrl);
         }
 
         Listener.super.onOpen(webSocket);
@@ -263,10 +262,9 @@ public class SimpleWebSocketClient implements Listener {
     // ✅ Wait for connection to be ready before sending messages
     private CompletableFuture<Void> waitForConnectionReady() {
         CompletableFuture<Void> currentReady = connectionReady.get();
-        return currentReady.orTimeout(15, TimeUnit.SECONDS) // Increased timeout
+        return currentReady.orTimeout(10, TimeUnit.SECONDS)
                 .exceptionally(e -> {
                     System.err.println("❌ Connection ready timeout: " + e.getMessage());
-                    // Don't return null, re-throw to indicate failure
                     throw new CompletionException(e);
                 });
     }
@@ -282,7 +280,7 @@ public class SimpleWebSocketClient implements Listener {
 
     private void processQueuedMessages() {
         int processed = 0;
-        while (!messageQueue.isEmpty() && isConnected() && processed < 10) { // Limit per cycle
+        while (!messageQueue.isEmpty() && isConnected() && processed < 10) {
             String message = messageQueue.poll();
             if (message != null) {
                 sendMessageInternal(message);
@@ -303,7 +301,6 @@ public class SimpleWebSocketClient implements Listener {
             switch (type) {
                 case "SYSTEM":
                     System.out.println("🔧 System message: " + message);
-                    // If we receive a system message, connection is definitely ready
                     if (message.contains("CONNECTED") || message.contains("Welcome")) {
                         CompletableFuture<Void> currentReady = connectionReady.get();
                         if (!currentReady.isDone()) {
@@ -348,10 +345,10 @@ public class SimpleWebSocketClient implements Listener {
     }
 
     private void stopHeartbeat() {
-        // Instead of recreating the executor, just shutdown existing tasks
         try {
-            // Get and cancel all scheduled tasks
             heartbeatExecutor.shutdownNow();
+            // Recreate the executor for future use
+            // This is handled in the class initialization
         } catch (Exception e) {
             System.err.println("❌ Error stopping heartbeat: " + e.getMessage());
         }
@@ -385,7 +382,7 @@ public class SimpleWebSocketClient implements Listener {
     // ✅ Internal message sending with connection ready check
     private void sendMessageInternal(String message) {
         if (!isConnected()) {
-            System.err.println("❌ Not connected, queuing message: " + message);
+            System.err.println("❌ Not connected, queuing message: " + message.substring(0, Math.min(50, message.length())) + "...");
             if (!message.startsWith("PING")) {
                 messageQueue.offer(message);
             }
@@ -395,9 +392,20 @@ public class SimpleWebSocketClient implements Listener {
         WebSocket ws = webSocket.get();
         if (ws != null) {
             try {
+                if (message.contains("VIDEO_FRAME")) {
+                    String[] parts = message.split("\\|", 4);
+                    if (parts.length >= 4) {
+                        System.out.println("📤 Sending VIDEO_FRAME to: " + parts[1] +
+                                ", from: " + parts[2] +
+                                ", size: " + parts[3].length() + " chars");
+                    }
+                }
+
                 ws.sendText(message, true)
                         .thenRun(() -> {
-                            System.out.println("📤 Sent: " + message);
+                            System.out.println("✅ Sent: " +
+                                    message.substring(0, Math.min(100, message.length())) +
+                                    (message.length() > 100 ? "..." : ""));
                         })
                         .exceptionally(e -> {
                             System.err.println("❌ Failed to send message: " + e.getMessage());
@@ -405,7 +413,6 @@ public class SimpleWebSocketClient implements Listener {
                                 connected.set(false);
                                 scheduleReconnect();
                             }
-                            // Re-queue the message if it failed
                             if (!message.startsWith("PING")) {
                                 messageQueue.offer(message);
                             }
@@ -422,11 +429,10 @@ public class SimpleWebSocketClient implements Listener {
         }
     }
 
-    // ✅ Public method to send formatted messages - waits for connection ready
+    // ✅ Public method to send formatted messages
     public void sendMessage(String type, String meetingId, String username, String content) {
         String message = type + "|" + meetingId + "|" + username + "|" + content;
 
-        // For critical connection messages, send immediately without waiting
         if ("USER_JOINED".equals(type) || "PONG".equals(type)) {
             if (isConnected()) {
                 sendMessageInternal(message);
@@ -437,7 +443,6 @@ public class SimpleWebSocketClient implements Listener {
             return;
         }
 
-        // For other messages, wait for connection to be ready
         waitForConnectionReady().thenRun(() -> {
             if (isConnected()) {
                 sendMessageInternal(message);
@@ -456,16 +461,19 @@ public class SimpleWebSocketClient implements Listener {
         });
     }
 
-    // ✅ Setter for username - sends join message immediately
+    // ✅ Simple send method (for compatibility)
+    public void send(String message) {
+        sendMessage("CUSTOM", "global", currentUser.get() != null ? currentUser.get() : "JavaClient", message);
+    }
+
+    // ✅ Setter for username
     public void setCurrentUser(String username) {
         this.currentUser.set(username);
 
         if (username != null) {
-            // Send user join message immediately without waiting for connection ready
             if (isConnected()) {
                 sendMessageInternal("USER_JOINED|global|" + username + "|User identified as " + username);
             } else {
-                // Queue it for when connection is ready
                 messageQueue.offer("USER_JOINED|global|" + username + "|User identified as " + username);
             }
         }
@@ -476,7 +484,6 @@ public class SimpleWebSocketClient implements Listener {
         System.out.println("🔄 Manual reconnection requested");
         disconnect();
 
-        // Use a new thread to reconnect after a delay
         new Thread(() -> {
             try {
                 Thread.sleep(RECONNECT_DELAY_MS);
@@ -527,7 +534,6 @@ public class SimpleWebSocketClient implements Listener {
     // ✅ Stop all executors properly
     private void stopAllExecutors() {
         try {
-            // Shutdown all executors
             heartbeatExecutor.shutdownNow();
             reconnectExecutor.shutdownNow();
             messageProcessor.shutdownNow();
@@ -539,6 +545,11 @@ public class SimpleWebSocketClient implements Listener {
     // ✅ Connection status
     public boolean isConnected() {
         return connected.get() && webSocket.get() != null;
+    }
+
+    // ✅ Add isOpen() method for compatibility
+    public boolean isOpen() {
+        return isConnected();
     }
 
     // ✅ Get server URL

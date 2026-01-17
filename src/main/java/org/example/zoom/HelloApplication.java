@@ -5,6 +5,7 @@ import javafx.application.Platform;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
+import org.example.zoom.webrtc.WebRTCManager;
 import org.example.zoom.websocket.SimpleWebSocketClient;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
@@ -27,7 +28,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import javafx.scene.image.Image;
 
-
 public class HelloApplication extends Application {
 
     private static Stage primaryStage;
@@ -35,6 +35,10 @@ public class HelloApplication extends Application {
     private static String activeMeetingId;
     private static final List<String> activeParticipants = new ArrayList<>();
     private static SimpleWebSocketClient webSocketClient;
+
+    // NEW: WebRTC Manager for real-time communication
+    private static WebRTCManager webRTCManager;
+    private static boolean webRTCEnabled = false;
 
     // New fields for server configuration with persistence
     private static String serverIp = "localhost";
@@ -54,7 +58,7 @@ public class HelloApplication extends Application {
     private static boolean allMuted = false;
     private static AudioControlsController audioControlsController;
 
-    // Video controls management
+    // Video controls management - FIXED: Initialize properly
     private static boolean videoOn = false;
     private static boolean isRecording = false;
     private static boolean virtualBackgroundEnabled = false;
@@ -66,6 +70,11 @@ public class HelloApplication extends Application {
 
     // Stage management
     private static volatile boolean stageReady = false;
+
+    // WebRTC Configuration
+    private static boolean webRTCEnabledField = true;
+    private static String stunServer = "stun:stun.l.google.com:19302";
+    private static String turnServer = ""; // Leave empty if not using TURN
 
     // Interface for connection status updates
     public interface ConnectionStatusListener {
@@ -80,11 +89,342 @@ public class HelloApplication extends Application {
         // Initialize database tables
         Database.initializeDatabase();
 
+        // Initialize WebRTC Manager (simplified, no JSON)
+        webRTCManager = WebRTCManager.getInstance();
+
         setRoot("login-view.fxml");
-        stage.setTitle("Zoom Project");
+        stage.setTitle("Zoom Project with WebRTC");
         stage.show();
 
         System.out.println("✅ Primary stage initialized and ready");
+    }
+
+// ==================== WEBRTC INITIALIZATION ====================
+
+    private void initializeWebRTC() {
+        try {
+            // Get WebRTC configuration from server or use defaults
+            String signalingServer = getCurrentServerUrl().replace("ws://", "http://");
+
+            // Get the singleton instance - DO NOT try to create a new instance
+            webRTCManager = WebRTCManager.getInstance();
+
+            System.out.println("✅ WebRTC manager initialized with signaling server: " + signalingServer);
+
+            // Set up WebRTC callbacks
+            webRTCManager.setStatusConsumer(message -> {
+                System.out.println("📡 WebRTC Status: " + message);
+
+                // Forward WebRTC signaling messages via WebSocket
+                if (webSocketClient != null && webSocketClient.isConnected()) {
+                    webSocketClient.sendMessage("WEBRTC_SIGNAL",
+                            activeMeetingId != null ? activeMeetingId : "global",
+                            loggedInUser,
+                            message);
+                }
+            });
+
+            webRTCManager.setVideoFrameConsumer(videoFrame -> {
+                // Display received video frames
+                Platform.runLater(() -> {
+                    if (videoControlsController != null) {
+                        videoControlsController.displayVideoFrame(videoFrame);
+                    }
+                });
+            });
+
+            System.out.println("✅ WebRTC manager initialized");
+        } catch (Exception e) {
+            System.err.println("❌ Failed to initialize WebRTC: " + e.getMessage());
+            webRTCEnabled = false;
+        }
+    }
+
+    public static WebRTCManager getWebRTCManager() {
+        return webRTCManager;
+    }
+
+    public static boolean isWebRTCEnabled() {
+        return webRTCEnabled && webRTCManager != null;
+    }
+
+    // WebRTC management methods
+    public static void enableWebRTC() {
+        if (webRTCManager != null) {
+            webRTCManager.enableWebRTC();
+            webRTCEnabled = true;
+            System.out.println("✅ WebRTC enabled");
+        }
+    }
+
+    public static void disableWebRTC() {
+        if (webRTCManager != null) {
+            webRTCManager.disableWebRTC();
+            webRTCEnabled = false;
+            System.out.println("🛑 WebRTC disabled");
+        }
+    }
+
+    public static void startWebRTCSession() {
+        if (activeMeetingId != null && webRTCManager != null && webRTCEnabled) {
+            webRTCManager.startWebRTCSession(activeMeetingId, loggedInUser);
+            System.out.println("🚀 WebRTC session started for meeting: " + activeMeetingId);
+        } else {
+            System.out.println("⚠️ Cannot start WebRTC session. Check if meeting is active and WebRTC is enabled.");
+        }
+    }
+
+    public static void stopWebRTCSession() {
+        if (webRTCManager != null) {
+            webRTCManager.stop();
+            System.out.println("🛑 WebRTC session stopped");
+        }
+    }
+
+    // Add this method in the VIDEO CONTROLS MANAGEMENT section (around line 600-650)
+    public static void stopRecording() {
+        if (isRecording) {
+            toggleRecording(); // This will stop the recording
+        }
+    }
+
+    // Also update the stop() method to use stopRecording() instead of toggleRecording():
+    @Override
+    public void stop() throws Exception {
+        // Stop WebRTC session first
+        stopWebRTCSession();
+        // Stop video streaming
+        SimpleVideoStreamer.stopStreaming();
+
+        // Stop connection monitoring
+        stopConnectionAttempts();
+
+        // Leave current meeting if any
+        leaveCurrentMeeting();
+
+        // Cleanup when application closes
+        if (webSocketClient != null) {
+            webSocketClient.disconnect();
+        }
+
+        // Stop video and recording if active
+        if (videoOn) {
+            stopVideo();
+        }
+        if (isRecording) {
+            stopRecording(); // Changed from toggleRecording() to stopRecording()
+        }
+
+        // Save current server config if user is logged in
+        if (loggedInUser != null) {
+            Database.saveServerConfig(loggedInUser, serverIp, serverPort);
+        }
+
+        connectionInitialized = false;
+        stageReady = false;
+
+        super.stop();
+    }
+
+    // Also update the endMeeting() method:
+    /**
+     * End a meeting (host only)
+     */
+    public static void endMeeting(String meetingId) {
+        if (activeMeetings.containsKey(meetingId)) {
+            // Stop WebRTC session first
+            stopWebRTCSession();
+
+            // Notify all participants
+            if (isWebSocketConnected()) {
+                sendWebSocketMessage("MEETING_ENDED", meetingId, "Meeting ended by host");
+            }
+
+            // Clear participants and remove meeting
+            activeMeetings.remove(meetingId);
+            activeParticipants.clear();
+
+            // Remove from database
+            Database.removeMeeting(meetingId);
+
+            System.out.println("🔚 Meeting ended: " + meetingId);
+
+            // Stop audio and video for all participants
+            if (audioMuted) {
+                toggleAudio(); // Unmute when meeting ends
+            }
+            if (videoOn) {
+                toggleVideo(); // Stop video when meeting ends
+            }
+            if (isRecording) {
+                stopRecording(); // Changed from toggleRecording() to stopRecording()
+            }
+
+            // Notify controllers about meeting state change
+            notifyControllersMeetingStateChanged(false);
+        }
+    }
+
+    // Also update the leaveCurrentMeeting() method:
+    /**
+     * Leave current meeting
+     */
+    public static void leaveCurrentMeeting() {
+        if (activeMeetingId != null && loggedInUser != null) {
+            // Stop WebRTC session first
+            stopWebRTCSession();
+
+            // Stop streaming first
+            SimpleVideoStreamer.stopStreaming();
+
+            // Remove from database participants
+            removeParticipantFromMeeting(activeMeetingId, loggedInUser);
+
+            // Notify via WebSocket
+            if (isWebSocketConnected()) {
+                sendWebSocketMessage("USER_LEFT", activeMeetingId, loggedInUser + " left the meeting");
+            }
+
+            // Remove from participants
+            removeParticipant(loggedInUser);
+
+            // If host leaves, end the meeting
+            if (isMeetingHost) {
+                endMeeting(activeMeetingId);
+            }
+
+            System.out.println("🚪 Left meeting: " + activeMeetingId);
+        }
+
+        // Reset meeting state
+        activeMeetingId = null;
+        isMeetingHost = false;
+
+        // Stop audio and video when leaving meeting
+        if (audioMuted) {
+            toggleAudio(); // Unmute when leaving
+        }
+        if (videoOn) {
+            toggleVideo(); // Stop video when leaving
+        }
+        if (isRecording) {
+            stopRecording(); // Changed from toggleRecording() to stopRecording()
+        }
+
+        // Notify controllers about meeting state change
+        notifyControllersMeetingStateChanged(false);
+    }
+
+    // ==================== VIDEO CONTROLS MANAGEMENT - FIXED ====================
+
+    /**
+     * FIXED: Video toggle method that works for both host and client
+     */
+    public static void toggleVideo() {
+        videoOn = !videoOn;
+
+        System.out.println("\n🎬 ========== VIDEO TOGGLE ==========");
+        System.out.println("🎬 New state: " + (videoOn ? "ON" : "OFF"));
+        System.out.println("🎬 User: " + loggedInUser);
+        System.out.println("🎬 Is Host: " + isMeetingHost);
+        System.out.println("🎬 WebSocket: " + isWebSocketConnected());
+        System.out.println("🎬 Meeting ID: " + activeMeetingId);
+        System.out.println("🎬 ================================\n");
+
+        if (videoOn) {
+            addSystemMessage("🎥 You started video streaming");
+            System.out.println("✅ Video STARTED - starting streamer...");
+
+            // Start simple streaming
+            if (activeMeetingId != null && loggedInUser != null) {
+                SimpleVideoStreamer.startStreaming(loggedInUser, activeMeetingId);
+                System.out.println("✅ SimpleVideoStreamer started");
+            } else {
+                System.err.println("❌ Cannot start stream - missing meeting ID or username");
+            }
+        } else {
+            addSystemMessage("🎥 You stopped video streaming");
+            System.out.println("🛑 Video STOPPED");
+
+            // Stop streaming
+            SimpleVideoStreamer.stopStreaming();
+        }
+
+        // Send video status via WebSocket
+        if (isWebSocketConnected() && activeMeetingId != null && loggedInUser != null) {
+            String status = videoOn ? "VIDEO_STARTED" : "VIDEO_STOPPED";
+
+            System.out.println("📤 Sending VIDEO_STATUS: " + status);
+            System.out.println("📤 To meeting: " + activeMeetingId);
+            System.out.println("📤 From user: " + loggedInUser);
+
+            sendWebSocketMessage("VIDEO_STATUS", activeMeetingId, loggedInUser, status);
+        } else {
+            System.err.println("❌ Cannot send video status:");
+            System.err.println("   WebSocket: " + isWebSocketConnected());
+            System.err.println("   Meeting ID: " + activeMeetingId);
+            System.err.println("   User: " + loggedInUser);
+        }
+
+        // Update video controls controller
+        if (videoControlsController != null) {
+            Platform.runLater(() -> {
+                videoControlsController.syncWithGlobalState();
+                System.out.println("✅ Updated video controls controller");
+            });
+        } else {
+            System.err.println("❌ Video controls controller is null!");
+        }
+
+        // Also update MeetingController if available
+        Platform.runLater(() -> {
+            MeetingController meetingController = MeetingController.getInstance();
+            if (meetingController != null) {
+                meetingController.updateVideoState(videoOn);
+                System.out.println("✅ Updated MeetingController video state");
+            }
+        });
+    }
+
+    /**
+     * FIXED: Handle incoming video status messages
+     */
+    public static void handleVideoStatus(String username, String status) {
+        System.out.println("🎥 Received video status: " + status + " from user: " + username);
+
+        // Don't update our own status from received messages
+        if (username.equals(loggedInUser)) {
+            return;
+        }
+
+        Platform.runLater(() -> {
+            if (videoControlsController != null) {
+                videoControlsController.updateFromServer(username, status);
+            }
+
+            // Add system message about other users' video status
+            if ("VIDEO_STARTED".equals(status)) {
+                addSystemMessage(username + " started their video");
+            } else if ("VIDEO_STOPPED".equals(status)) {
+                addSystemMessage(username + " stopped their video");
+            }
+        });
+    }
+
+    public static boolean isVideoOn() {
+        return videoOn;
+    }
+
+    public static void startVideo() {
+        if (!videoOn) {
+            toggleVideo();
+        }
+    }
+
+    public static void stopVideo() {
+        if (videoOn) {
+            toggleVideo();
+        }
     }
 
     // ==================== STAGE MANAGEMENT METHODS ====================
@@ -156,6 +496,7 @@ public class HelloApplication extends Application {
                     audioControlsController = (AudioControlsController) controller;
                 } else if (controller instanceof VideoControlsController) {
                     videoControlsController = (VideoControlsController) controller;
+                    System.out.println("✅ Video controls controller registered");
                 } else if (controller instanceof DashboardController) {
                     // DashboardController now implements ConnectionStatusListener
                     DashboardController dashboardController = (DashboardController) controller;
@@ -262,6 +603,9 @@ public class HelloApplication extends Application {
     }
 
     public static void logout() throws Exception {
+        // Stop WebRTC session
+        stopWebRTCSession();
+
         // Stop connection monitoring
         stopConnectionAttempts();
 
@@ -1070,6 +1414,22 @@ public class HelloApplication extends Application {
         });
     }
 
+    // FIXED: sendVideoFrame method - changed isOpen() to isConnected()
+    public static void sendVideoFrame(String meetingId, String username, String base64Image) {
+        if (webSocketClient != null && webSocketClient.isConnected() && isWebSocketConnected()) {
+            try {
+                // Create video frame message
+                String message = "VIDEO_FRAME|" + meetingId + "|" + username + "|" + base64Image;
+                webSocketClient.send(message);
+                System.out.println("📤 Sent video frame from: " + username + " (" + base64Image.length() + " chars)");
+            } catch (Exception e) {
+                System.err.println("❌ Failed to send video frame: " + e.getMessage());
+            }
+        } else {
+            System.err.println("❌ WebSocket not connected for video streaming");
+        }
+    }
+
     /**
      * Send video frame to all participants
      */
@@ -1110,7 +1470,6 @@ public class HelloApplication extends Application {
         }
     }
 
-
     /**
      * Convert JavaFX Image to BufferedImage
      */
@@ -1150,6 +1509,11 @@ public class HelloApplication extends Application {
                     if (meetingController != null) {
                         meetingController.displayVideoFrame(username, videoFrame);
                     }
+
+                    // Also update video controls preview
+                    if (videoControlsController != null) {
+                        videoControlsController.displayVideoFrame(videoFrame);
+                    }
                 });
             }
         } catch (Exception e) {
@@ -1162,11 +1526,37 @@ public class HelloApplication extends Application {
      */
     public static Image convertBase64ToImage(String base64Image) {
         try {
+            if (base64Image == null || base64Image.isEmpty()) {
+                System.err.println("❌ Empty base64 string");
+                return null;
+            }
+
+            System.out.println("📸 Converting Base64 to Image: " + base64Image.length() + " chars");
+
+            // Decode base64
             byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Image);
+            if (imageBytes == null || imageBytes.length == 0) {
+                System.err.println("❌ Decoded bytes are empty");
+                return null;
+            }
+
+            System.out.println("📸 Decoded bytes: " + imageBytes.length + " bytes");
+
+            // Create Image from bytes
             java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(imageBytes);
-            return new Image(bis);
+            Image image = new Image(bis);
+
+            if (image.isError()) {
+                System.err.println("❌ Error creating image from bytes");
+                return null;
+            }
+
+            System.out.println("✅ Created Image: " + image.getWidth() + "x" + image.getHeight());
+            return image;
+
         } catch (Exception e) {
             System.err.println("❌ Error converting base64 to image: " + e.getMessage());
+            e.printStackTrace();
             return null;
         }
     }
@@ -1174,23 +1564,6 @@ public class HelloApplication extends Application {
     // Handle incoming WebSocket messages
     private static void handleWebSocketMessage(String message) {
         System.out.println("📨 Application received: " + message);
-
-        // Handle connection status messages first
-        if (message.contains("Connected") || message.contains("Welcome") || message.contains("WELCOME")) {
-            System.out.println("✅ WebSocket connection confirmed");
-            if (connectionStatusListener != null) {
-                Platform.runLater(() -> {
-                    connectionStatusListener.onConnectionStatusChanged(true, "🟢 Connected");
-                });
-            }
-        } else if (message.contains("ERROR") || message.contains("Failed") || message.contains("DISCONNECTED")) {
-            System.out.println("❌ WebSocket error/disconnect received");
-            if (connectionStatusListener != null) {
-                Platform.runLater(() -> {
-                    connectionStatusListener.onConnectionStatusChanged(false, "🔴 Connection error");
-                });
-            }
-        }
 
         // Parse message: "TYPE|MEETING_ID|USERNAME|CONTENT"
         String[] parts = message.split("\\|", 4);
@@ -1200,174 +1573,85 @@ public class HelloApplication extends Application {
             String username = parts[2];
             String content = parts[3];
 
+            // Check if message is for current meeting
+            if (!meetingId.equals(getActiveMeetingId()) && !meetingId.equals("global")) {
+                System.out.println("⚠️ Message not for current meeting. Current: " + getActiveMeetingId() + ", Message: " + meetingId);
+                return;
+            }
+
             switch (type) {
-                case "VIDEO_FRAME":
-                    handleVideoFrame(username, content);
-                    break;
-                case "USER_JOINED":
-                    addParticipantToMeeting(meetingId, username);
-                    updateMeetingParticipants(meetingId, username, true);
-                    break;
-                case "USER_LEFT":
-                    removeParticipantFromMeeting(meetingId, username);
-                    updateMeetingParticipants(meetingId, username, false);
-                    break;
-                case "MEETING_CREATED":
-                    createMeeting(meetingId, username);
-                    break;
-                case "MEETING_ENDED":
-                    endMeeting(meetingId);
-                    break;
-                case "MEETING_VALIDATION":
-                    handleMeetingValidation(meetingId, content);
-                    break;
-                case "CONNECTION_STATUS":
-                    System.out.println("🔗 Connection status: " + content);
-                    break;
-                case "AUDIO_STATUS":
-                    handleAudioStatusMessage(username, content);
-                    break;
                 case "VIDEO_STATUS":
-                    handleVideoStatusMessage(username, content);
+                    handleVideoStatus(username, content);
                     break;
-                case "AUDIO_CONTROL":
-                    handleAudioControlMessage(username, content);
+
+                case "VIDEO_FRAME":
+                    System.out.println("🎥 Received VIDEO_FRAME from: " + username +
+                            " (content length: " + content.length() + ")");
+
+                    // Handle the video frame IMMEDIATELY
+                    handleVideoFrameDirectly(username, content);
                     break;
-                case "VIDEO_CONTROL":
-                    handleVideoControlMessage(username, content);
-                    break;
+
                 case "CHAT":
-                    // Forward chat messages to MeetingController
                     Platform.runLater(() -> {
                         MeetingController meetingController = MeetingController.getInstance();
-                        if (meetingController != null && meetingId.equals(getActiveMeetingId())) {
+                        if (meetingController != null) {
+                            meetingController.handleWebSocketMessage(message);
+                        }
+                    });
+                    break;
+
+                default:
+                    // Forward other messages to MeetingController
+                    Platform.runLater(() -> {
+                        MeetingController meetingController = MeetingController.getInstance();
+                        if (meetingController != null) {
                             meetingController.handleWebSocketMessage(message);
                         }
                     });
                     break;
             }
-        }
-
-        // Forward message to current controller if it's a ChatController
-        forwardMessageToCurrentController(message);
-    }
-
-    // Handle audio status messages from other users
-    private static void handleAudioStatusMessage(String username, String status) {
-        System.out.println("🔊 Audio status from " + username + ": " + status);
-
-        // Update UI if audio controls are active
-        if (audioControlsController != null) {
-            Platform.runLater(() -> {
-                audioControlsController.updateFromServer(status);
-            });
-        }
-
-        // Add system message for audio status changes
-        addSystemMessage(username + " " + status);
-    }
-
-    // Handle video status messages from other users
-    private static void handleVideoStatusMessage(String username, String content) {
-        System.out.println("🎥 Video status from " + username + ": " + content);
-
-        Platform.runLater(() -> {
-            switch (content) {
-                case "HOST_VIDEO_STARTED":
-                    if (!isMeetingHost()) {
-                        addSystemMessage("Host started video");
-                        // Show host video indicator on client
-                        showHostVideoIndicator(true);
-                    }
-                    break;
-
-                case "HOST_VIDEO_STOPPED":
-                    if (!isMeetingHost()) {
-                        addSystemMessage("Host stopped video");
-                        // Hide host video indicator on client
-                        showHostVideoIndicator(false);
-                    }
-                    break;
-
-                case "started video":
-                    addSystemMessage(username + " started their video");
-                    break;
-
-                case "stopped video":
-                    addSystemMessage(username + " stopped their video");
-                    break;
-            }
-
-            // Update video controls UI
-            if (videoControlsController != null) {
-                videoControlsController.updateFromServer(content);
-            }
-        });
-    }
-
-    private static void showHostVideoIndicator(boolean show) {
-        Platform.runLater(() -> {
-            // This would typically update the UI to show host video status
-            MeetingController meetingController = MeetingController.getInstance();
-            if (meetingController != null) {
-                if (show) {
-                    meetingController.addSystemMessage("🔴 Host is sharing video");
-                    // In a real implementation, you would show the host's video feed here
-                } else {
-                    meetingController.addSystemMessage("Host video stopped");
-                }
-            }
-        });
-    }
-
-    // Handle audio control messages (mute all, deafen, etc.)
-    private static void handleAudioControlMessage(String username, String command) {
-        System.out.println("🔊 Audio control from " + username + ": " + command);
-
-        if ("MUTE_ALL".equals(command)) {
-            allMuted = true;
-            addSystemMessage("Host muted all participants");
-
-            if (audioControlsController != null) {
-                Platform.runLater(() -> {
-                    audioControlsController.syncWithGlobalState();
-                });
-            }
-        } else if ("UNMUTE_ALL".equals(command)) {
-            allMuted = false;
-            addSystemMessage("Host unmuted all participants");
-
-            if (audioControlsController != null) {
-                Platform.runLater(() -> {
-                    audioControlsController.syncWithGlobalState();
-                });
-            }
-        } else if ("DEAFEN_ALL".equals(command)) {
-            addSystemMessage("Host deafened all participants");
+        } else {
+            System.err.println("❌ Invalid message format: " + message);
         }
     }
 
-    // Handle video control messages (record, etc.)
-    private static void handleVideoControlMessage(String username, String command) {
-        System.out.println("🎥 Video control from " + username + ": " + command);
-
-        if ("START_RECORDING".equals(command)) {
-            addSystemMessage("Host started recording the meeting");
-        } else if ("STOP_RECORDING".equals(command)) {
-            addSystemMessage("Host stopped recording the meeting");
-        }
-    }
-
-    private static void forwardMessageToCurrentController(String message) {
+    /**
+     * Handle video frames directly without going through MeetingController.getInstance()
+     */
+    private static void handleVideoFrameDirectly(String username, String base64Image) {
         try {
-            // Get the current controller and forward the message if it's a ChatController
-            Scene currentScene = primaryStage.getScene();
-            if (currentScene != null && currentScene.getUserData() instanceof ChatController) {
-                ChatController chatController = (ChatController) currentScene.getUserData();
-                chatController.handleWebSocketMessage(message);
+            System.out.println("🎥 Converting base64 to image...");
+
+            // Convert base64 back to Image
+            Image videoFrame = convertBase64ToImage(base64Image);
+
+            if (videoFrame == null) {
+                System.err.println("❌ Failed to convert base64 to image");
+                return;
             }
+
+            System.out.println("✅ Image created: " + videoFrame.getWidth() + "x" + videoFrame.getHeight());
+
+            Platform.runLater(() -> {
+                // Update the UI with the received video frame
+                MeetingController meetingController = MeetingController.getInstance();
+                if (meetingController != null) {
+                    System.out.println("🎥 Found MeetingController, displaying frame");
+                    meetingController.displayVideoFrame(username, videoFrame);
+                } else {
+                    System.err.println("❌ MeetingController is null! Can't display video");
+                    // Try to update video controls directly
+                    if (videoControlsController != null) {
+                        videoControlsController.displayVideoFrame(videoFrame);
+                        System.out.println("✅ Updated video controls directly");
+                    }
+                }
+            });
+
         } catch (Exception e) {
-            // Ignore - controller might not be ready or might not be a ChatController
+            System.err.println("❌ Error handling video frame: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -1379,6 +1663,11 @@ public class HelloApplication extends Application {
     public static void setActiveMeetingId(String meetingId) {
         activeMeetingId = meetingId;
         System.out.println("🎯 Active meeting set to: " + meetingId);
+
+        // Start WebRTC session when joining a meeting
+        if (meetingId != null && webRTCEnabled && webRTCManager != null) {
+            startWebRTCSession();
+        }
     }
 
     public static String getActiveMeetingId() {
@@ -1437,6 +1726,11 @@ public class HelloApplication extends Application {
             System.out.println("🎯 New meeting created via WebSocket: " + meetingId + " by " + hostName);
         } else {
             System.out.println("🎯 New meeting created locally: " + meetingId + " by " + hostName + " (WebSocket offline)");
+        }
+
+        // Start WebRTC session for the new meeting
+        if (webRTCEnabled && webRTCManager != null) {
+            startWebRTCSession();
         }
 
         // Notify controllers about meeting state change
@@ -1501,6 +1795,11 @@ public class HelloApplication extends Application {
             System.out.println("✅ Joined meeting locally: " + meetingId + " as " + participantName + " (WebSocket offline)");
         }
 
+        // Start WebRTC session when joining
+        if (webRTCEnabled && webRTCManager != null) {
+            startWebRTCSession();
+        }
+
         // Notify controllers about meeting state change
         notifyControllersMeetingStateChanged(true);
 
@@ -1560,84 +1859,6 @@ public class HelloApplication extends Application {
         Database.saveMeetingWithId(meetingId, hostName, "Test Meeting " + meetingId, "Quick join test meeting");
 
         System.out.println("🎯 Test meeting created: " + meetingId + " by " + hostName);
-    }
-
-    /**
-     * Leave current meeting
-     */
-    public static void leaveCurrentMeeting() {
-        if (activeMeetingId != null && loggedInUser != null) {
-            // Remove from database participants
-            removeParticipantFromMeeting(activeMeetingId, loggedInUser);
-
-            // Notify via WebSocket
-            if (isWebSocketConnected()) {
-                sendWebSocketMessage("USER_LEFT", activeMeetingId, loggedInUser + " left the meeting");
-            }
-
-            // Remove from participants
-            removeParticipant(loggedInUser);
-
-            // If host leaves, end the meeting
-            if (isMeetingHost) {
-                endMeeting(activeMeetingId);
-            }
-
-            System.out.println("🚪 Left meeting: " + activeMeetingId);
-        }
-
-        // Reset meeting state
-        activeMeetingId = null;
-        isMeetingHost = false;
-
-        // Stop audio and video when leaving meeting
-        if (audioMuted) {
-            toggleAudio(); // Unmute when leaving
-        }
-        if (videoOn) {
-            toggleVideo(); // Stop video when leaving
-        }
-        if (isRecording) {
-            toggleRecording(); // Stop recording when leaving
-        }
-
-        // Notify controllers about meeting state change
-        notifyControllersMeetingStateChanged(false);
-    }
-
-    /**
-     * End a meeting (host only)
-     */
-    public static void endMeeting(String meetingId) {
-        if (activeMeetings.containsKey(meetingId)) {
-            // Notify all participants
-            if (isWebSocketConnected()) {
-                sendWebSocketMessage("MEETING_ENDED", meetingId, "Meeting ended by host");
-            }
-
-            // Clear participants and remove meeting
-            activeMeetings.remove(meetingId);
-            activeParticipants.clear();
-
-            // Remove from database
-            Database.removeMeeting(meetingId);
-
-            System.out.println("🔚 Meeting ended: " + meetingId);
-
-            // Stop audio and video for all participants
-            if (audioMuted) {
-                toggleAudio(); // Unmute when meeting ends
-            }
-            if (videoOn) {
-                toggleVideo(); // Stop video when meeting ends
-            }
-            if (isRecording) {
-                toggleRecording(); // Stop recording when meeting ends
-            }
-
-            // Notify controllers about meeting state change
-            notifyControllersMeetingStateChanged(false);
-        }
     }
 
     /**
@@ -1937,41 +2158,7 @@ public class HelloApplication extends Application {
         return audioControlsController;
     }
 
-    // ==================== VIDEO CONTROLS MANAGEMENT ====================
-    public static void toggleVideo() {
-        boolean newVideoState = !videoOn;
-        videoOn = newVideoState;
-
-        // Update global state
-        HelloApplication.videoOn = newVideoState;
-
-        if (newVideoState) {
-            addSystemMessage("You started your video");
-            System.out.println("🎥 Video STARTED");
-
-            // Start camera on host
-            if (isMeetingHost() && getActiveMeetingId() != null) {
-                // Notify all participants that host started video
-                sendWebSocketMessage("VIDEO_STATUS", getActiveMeetingId(), "HOST_VIDEO_STARTED");
-            }
-        } else {
-            addSystemMessage("You stopped your video");
-            System.out.println("🎥 Video STOPPED");
-
-            // Stop camera on host
-            if (isMeetingHost() && getActiveMeetingId() != null) {
-                // Notify all participants that host stopped video
-                sendWebSocketMessage("VIDEO_STATUS", getActiveMeetingId(), "HOST_VIDEO_STOPPED");
-            }
-        }
-
-        // Update UI controllers
-        if (videoControlsController != null) {
-            Platform.runLater(() -> {
-                videoControlsController.syncWithGlobalState();
-            });
-        }
-    }
+    // ==================== VIDEO CONTROLS MANAGEMENT - FIXED ====================
 
     public static void toggleRecording() {
         isRecording = !isRecording;
@@ -1979,12 +2166,12 @@ public class HelloApplication extends Application {
         if (isRecording) {
             addSystemMessage("You started recording");
             if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("VIDEO_STATUS", getActiveMeetingId(), "started recording");
+                sendWebSocketMessage("VIDEO_CONTROL", getActiveMeetingId(), "START_RECORDING");
             }
         } else {
             addSystemMessage("You stopped recording");
             if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("VIDEO_STATUS", getActiveMeetingId(), "stopped recording");
+                sendWebSocketMessage("VIDEO_CONTROL", getActiveMeetingId(), "STOP_RECORDING");
             }
         }
 
@@ -1993,10 +2180,6 @@ public class HelloApplication extends Application {
                 videoControlsController.syncWithGlobalState();
             });
         }
-    }
-
-    public static boolean isVideoOn() {
-        return videoOn;
     }
 
     public static boolean isRecording() {
@@ -2017,30 +2200,6 @@ public class HelloApplication extends Application {
         }
     }
 
-    public static void startVideo() {
-        if (!videoOn) {
-            toggleVideo();
-        }
-    }
-
-    public static void stopVideo() {
-        if (videoOn) {
-            toggleVideo();
-        }
-    }
-
-    public static void startRecording() {
-        if (!isRecording) {
-            toggleRecording();
-        }
-    }
-
-    public static void stopRecording() {
-        if (isRecording) {
-            toggleRecording();
-        }
-    }
-
     public static void setVideoControlsController(VideoControlsController controller) {
         videoControlsController = controller;
         System.out.println("🎥 Video controls controller registered");
@@ -2051,44 +2210,18 @@ public class HelloApplication extends Application {
     }
 
     /**
-     * Add system message to chat/log
+     * FIXED: Add system message to chat/log using MeetingController singleton
      */
     public static void addSystemMessage(String message) {
-        System.out.println("🔊 System: " + message);
-    }
+        System.out.println("💬 System: " + message);
 
-
-
-    @Override
-    public void stop() throws Exception {
-        // Stop connection monitoring
-        stopConnectionAttempts();
-
-        // Leave current meeting if any
-        leaveCurrentMeeting();
-
-        // Cleanup when application closes
-        if (webSocketClient != null) {
-            webSocketClient.disconnect();
-        }
-
-        // Stop video and recording if active
-        if (videoOn) {
-            stopVideo();
-        }
-        if (isRecording) {
-            stopRecording();
-        }
-
-        // Save current server config if user is logged in
-        if (loggedInUser != null) {
-            Database.saveServerConfig(loggedInUser, serverIp, serverPort);
-        }
-
-        connectionInitialized = false;
-        stageReady = false;
-
-        super.stop();
+        // Also pass to MeetingController using singleton pattern
+        Platform.runLater(() -> {
+            MeetingController meetingController = MeetingController.getInstance();
+            if (meetingController != null) {
+                meetingController.addSystemMessage(message);
+            }
+        });
     }
 
     public static void main(String[] args) {
@@ -2225,7 +2358,7 @@ public class HelloApplication extends Application {
         // NEW: Handle localhost connection failure and suggest alternatives
         public static void handleLocalhostFailure() {
             Platform.runLater(() -> {
-                List<String> localIPs = getLocalIPAddresses();
+                List<String> localIPs = HelloApplication.getLocalIPAddresses();
 
                 Alert alert = new Alert(Alert.AlertType.WARNING);
                 alert.setTitle("Localhost Connection Failed");
@@ -2255,9 +2388,9 @@ public class HelloApplication extends Application {
                 Optional<ButtonType> result = alert.showAndWait();
                 if (result.isPresent()) {
                     if (result.get() == discoverButton) {
-                        discoverAndConnectToServer();
+                        HelloApplication.discoverAndConnectToServer();
                     } else if (result.get() == manualButton) {
-                        showManualConnectionDialog();
+                        HelloApplication.showManualConnectionDialog();
                     }
                 }
             });

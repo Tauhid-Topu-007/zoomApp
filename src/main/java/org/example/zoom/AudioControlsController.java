@@ -6,10 +6,13 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Slider;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.animation.ScaleTransition;
 import javafx.util.Duration;
+import javafx.application.Platform;
 
 import java.net.URL;
 import java.util.ResourceBundle;
@@ -38,10 +41,16 @@ public class AudioControlsController implements Initializable {
     private Slider microphoneSlider;
     @FXML
     private Slider speakerSlider;
+    @FXML
+    private CheckBox webRTCAudioCheckBox; // NEW: WebRTC audio checkbox
 
     private boolean audioMuted = false;
     private boolean isDeafened = false;
     private boolean allMuted = false;
+    private boolean webRTCAudioEnabled = false; // NEW: WebRTC audio flag
+
+    // Reference to MeetingController
+    private MeetingController meetingController;
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -51,6 +60,14 @@ public class AudioControlsController implements Initializable {
 
         // Register this controller with the main application
         HelloApplication.setAudioControlsController(this);
+    }
+
+    /**
+     * Set the reference to MeetingController
+     */
+    public void setMeetingController(MeetingController meetingController) {
+        this.meetingController = meetingController;
+        System.out.println("✅ AudioControlsController connected to MeetingController");
     }
 
     private void setupAudioControls() {
@@ -97,6 +114,22 @@ public class AudioControlsController implements Initializable {
                 updateAudioLevels();
             });
         }
+
+        // Setup WebRTC audio checkbox
+        if (webRTCAudioCheckBox != null) {
+            webRTCAudioCheckBox.setSelected(HelloApplication.isWebRTCEnabled());
+            webRTCAudioCheckBox.setText("WebRTC Audio");
+            webRTCAudioCheckBox.setOnAction(e -> onWebRTCAudioToggled());
+        }
+    }
+
+    private void onWebRTCAudioToggled() {
+        webRTCAudioEnabled = webRTCAudioCheckBox.isSelected();
+        if (webRTCAudioEnabled) {
+            System.out.println("✅ WebRTC audio enabled");
+        } else {
+            System.out.println("🛑 WebRTC audio disabled");
+        }
     }
 
     private void setupButtonHoverEffects(Button button) {
@@ -126,9 +159,13 @@ public class AudioControlsController implements Initializable {
         updateStatusLabel();
 
         if (audioMuted) {
-            addSystemMessage("You muted your audio");
+            if (meetingController != null) {
+                meetingController.addSystemMessage("You muted your audio");
+            }
         } else {
-            addSystemMessage("You unmuted your audio");
+            if (meetingController != null) {
+                meetingController.addSystemMessage("You unmuted your audio");
+            }
         }
     }
 
@@ -166,25 +203,30 @@ public class AudioControlsController implements Initializable {
         animateButton(audioToggleButton);
 
         // Show test confirmation
-        javafx.application.Platform.runLater(() -> {
+        Platform.runLater(() -> {
             javafx.scene.control.Alert alert = new javafx.scene.control.Alert(
                     javafx.scene.control.Alert.AlertType.INFORMATION);
             alert.setTitle("Audio Test");
             alert.setHeaderText(null);
             alert.setContentText("Audio test completed!\nYou should hear a test sound (simulated).\n\n" +
                     "Microphone: " + (microphoneComboBox != null ? microphoneComboBox.getValue() : "Default") + "\n" +
-                    "Speaker: " + (speakerComboBox != null ? speakerComboBox.getValue() : "Default"));
+                    "Speaker: " + (speakerComboBox != null ? speakerComboBox.getValue() : "Default") + "\n" +
+                    "WebRTC Audio: " + (webRTCAudioEnabled ? "Enabled" : "Disabled"));
             alert.showAndWait();
         });
 
-        addSystemMessage("Audio test performed");
+        if (meetingController != null) {
+            meetingController.addSystemMessage("Audio test performed");
+        }
     }
 
     private void onMicrophoneChanged() {
         if (microphoneComboBox != null) {
             String selectedMic = microphoneComboBox.getValue();
             System.out.println("🎤 Microphone changed to: " + selectedMic);
-            addSystemMessage("Switched to microphone: " + selectedMic);
+            if (meetingController != null) {
+                meetingController.addSystemMessage("Switched to microphone: " + selectedMic);
+            }
         }
     }
 
@@ -192,7 +234,9 @@ public class AudioControlsController implements Initializable {
         if (speakerComboBox != null) {
             String selectedSpeaker = speakerComboBox.getValue();
             System.out.println("🔊 Speaker changed to: " + selectedSpeaker);
-            addSystemMessage("Switched to speaker: " + selectedSpeaker);
+            if (meetingController != null) {
+                meetingController.addSystemMessage("Switched to speaker: " + selectedSpeaker);
+            }
         }
     }
 
@@ -204,7 +248,8 @@ public class AudioControlsController implements Initializable {
 
             // Update status label with volume info when not in special states
             if (!isDeafened && !audioMuted && !allMuted) {
-                audioStatusLabel.setText("Audio: Normal 🔊 (Mic: " + micLevel + "%, Spk: " + speakerLevel + "%)");
+                String webRTCStatus = webRTCAudioEnabled ? " (WebRTC)" : "";
+                audioStatusLabel.setText("Audio: Normal 🔊" + webRTCStatus + " (Mic: " + micLevel + "%, Spk: " + speakerLevel + "%)");
             }
         }
     }
@@ -234,7 +279,7 @@ public class AudioControlsController implements Initializable {
 
         if (!isHost) {
             muteAllButton.setStyle("-fx-background-color: #7f8c8d; -fx-text-fill: white; -fx-font-weight: bold;");
-            muteAllButton.setTooltip(new javafx.scene.control.Tooltip("Only available for meeting hosts"));
+            muteAllButton.setTooltip(new Tooltip("Only available for meeting hosts"));
         }
     }
 
@@ -263,7 +308,8 @@ public class AudioControlsController implements Initializable {
             if (microphoneSlider != null && speakerSlider != null) {
                 int micLevel = (int) microphoneSlider.getValue();
                 int speakerLevel = (int) speakerSlider.getValue();
-                audioStatusLabel.setText("Audio: Normal 🔊 (Mic: " + micLevel + "%, Spk: " + speakerLevel + "%)");
+                String webRTCStatus = webRTCAudioEnabled ? " (WebRTC)" : "";
+                audioStatusLabel.setText("Audio: Normal 🔊" + webRTCStatus + " (Mic: " + micLevel + "%, Spk: " + speakerLevel + "%)");
             } else {
                 audioStatusLabel.setText("Audio: Normal 🔊");
             }
@@ -280,13 +326,6 @@ public class AudioControlsController implements Initializable {
         st.setAutoReverse(true);
         st.setCycleCount(2);
         st.play();
-    }
-
-    private void addSystemMessage(String message) {
-        System.out.println("🔊 " + message);
-
-        // You can also integrate this with your chat system if needed
-        // ChatController.addSystemMessage(message);
     }
 
     // Method to sync with global state

@@ -4,6 +4,8 @@ import javax.sound.sampled.*;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import org.example.zoom.webrtc.WebRTCManager;
+import java.util.Arrays;
 
 public class AudioCaptureService {
 
@@ -11,10 +13,12 @@ public class AudioCaptureService {
     private boolean isRecording = false;
     private AudioFormat audioFormat;
     private ByteArrayOutputStream audioBuffer;
+    private WebRTCManager webRTCManager;
+    private boolean webRTCEnabled = false;
 
     public AudioCaptureService() {
-        // Audio format: 16kHz, 16-bit, mono, signed, little-endian
-        audioFormat = new AudioFormat(16000, 16, 1, true, false);
+        // Audio format optimized for WebRTC
+        audioFormat = new AudioFormat(48000, 16, 1, true, false);
     }
 
     public boolean startAudioCapture() {
@@ -33,12 +37,12 @@ public class AudioCaptureService {
             isRecording = true;
             audioBuffer = new ByteArrayOutputStream();
 
-            // Start audio capture thread
-            Thread captureThread = new Thread(this::captureAudio);
+            // Start audio capture thread with WebRTC support
+            Thread captureThread = new Thread(this::captureAudioWebRTC);
             captureThread.setDaemon(true);
             captureThread.start();
 
-            System.out.println("🎤 Audio capture started");
+            System.out.println("🎤 Audio capture started with WebRTC support");
             return true;
 
         } catch (LineUnavailableException e) {
@@ -47,17 +51,39 @@ public class AudioCaptureService {
         }
     }
 
-    private void captureAudio() {
+    private void captureAudioWebRTC() {
         byte[] buffer = new byte[4096];
 
         while (isRecording && targetDataLine != null) {
             int bytesRead = targetDataLine.read(buffer, 0, buffer.length);
             if (bytesRead > 0) {
-                // Process audio data here
-                // In a real implementation, you'd send this over WebSocket
+                // Store in buffer
                 audioBuffer.write(buffer, 0, bytesRead);
+
+                // Send via WebRTC if enabled
+                if (webRTCEnabled && webRTCManager != null) {
+                    byte[] audioData = Arrays.copyOf(buffer, bytesRead);
+                    // In real implementation, encode and send via WebRTC
+                    System.out.println("📤 Sending audio via WebRTC: " + audioData.length + " bytes");
+                }
             }
         }
+    }
+
+    // Enable WebRTC for audio streaming
+    public void enableWebRTC(WebRTCManager manager) {
+        this.webRTCManager = manager;
+        webRTCEnabled = true;
+        System.out.println("✅ WebRTC enabled for audio streaming");
+    }
+
+    public void disableWebRTC() {
+        webRTCEnabled = false;
+        System.out.println("🛑 WebRTC disabled for audio streaming");
+    }
+
+    public boolean isWebRTCEnabled() {
+        return webRTCEnabled && webRTCManager != null;
     }
 
     public void stopAudioCapture() {
@@ -79,7 +105,6 @@ public class AudioCaptureService {
             Line.Info[] sourceLines = mixer.getSourceLineInfo();
             Line.Info[] targetLines = mixer.getTargetLineInfo();
 
-            // Look for microphones (target data lines)
             for (Line.Info lineInfo : targetLines) {
                 if (lineInfo.getLineClass().equals(TargetDataLine.class)) {
                     microphones.add(info);

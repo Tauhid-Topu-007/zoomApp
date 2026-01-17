@@ -18,6 +18,18 @@
 
   <dependencies>
 
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-imaging</artifactId>
+      <version>1.0.0</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.json</groupId>
+      <artifactId>json</artifactId>
+      <version>20240303</version>
+    </dependency>
+
     <!-- JavaCV for MP4 recording -->
     <dependency>
       <groupId>org.bytedeco</groupId>

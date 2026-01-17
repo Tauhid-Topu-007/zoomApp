@@ -9,15 +9,19 @@ import javafx.scene.layout.StackPane;
 import javafx.concurrent.Service;
 import javafx.concurrent.Task;
 import javafx.embed.swing.SwingFXUtils;
+import org.example.zoom.webrtc.WebRTCManager;
 
 import java.awt.image.BufferedImage;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class VideoCaptureService extends Service<Image> {
 
     private Webcam webcam;
     private WebcamPanel webcamPanel;
-    private boolean captureActive = false; // Renamed from isRunning
+    private boolean captureActive = false;
+    private WebRTCManager webRTCManager;
+    private final AtomicBoolean webRTCEnabled = new AtomicBoolean(false);
 
     @Override
     protected Task<Image> createTask() {
@@ -46,6 +50,11 @@ public class VideoCaptureService extends Service<Image> {
                         if (bufferedImage != null) {
                             Image fxImage = convertToFxImage(bufferedImage);
                             updateValue(fxImage);
+
+                            // Send via WebRTC if enabled
+                            if (webRTCEnabled.get() && webRTCManager != null) {
+                                webRTCManager.sendVideoFrame(fxImage);
+                            }
                         }
                     }
                     Thread.sleep(33); // ~30 FPS
@@ -57,7 +66,6 @@ public class VideoCaptureService extends Service<Image> {
     }
 
     private Image convertToFxImage(BufferedImage image) {
-        // Use the static method directly
         return SwingFXUtils.toFXImage(image, null);
     }
 
@@ -70,6 +78,23 @@ public class VideoCaptureService extends Service<Image> {
         cancel();
     }
 
+    // WebRTC integration methods
+    public void enableWebRTC(WebRTCManager manager) {
+        this.webRTCManager = manager;
+        webRTCEnabled.set(true);
+        System.out.println("✅ WebRTC enabled for video streaming");
+    }
+
+    public void disableWebRTC() {
+        webRTCEnabled.set(false);
+        System.out.println("🛑 WebRTC disabled for video streaming");
+    }
+
+    public boolean isWebRTCEnabled() {
+        return webRTCEnabled.get() && webRTCManager != null;
+    }
+
+    // Existing methods remain the same
     public boolean isCameraAvailable() {
         return !Webcam.getWebcams().isEmpty();
     }
@@ -88,12 +113,10 @@ public class VideoCaptureService extends Service<Image> {
         return webcam;
     }
 
-    // Use a different method name to avoid conflict with parent class
     public boolean isCaptureActive() {
         return captureActive;
     }
 
-    // Helper method to check if service is running (uses parent's method)
     public boolean isServiceRunning() {
         return super.isRunning();
     }

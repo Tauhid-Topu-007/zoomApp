@@ -49,6 +49,8 @@ public class VideoControlsController implements Initializable {
     @FXML
     private CheckBox virtualBackgroundCheckBox;
     @FXML
+    private CheckBox webRTCCheckBox;
+    @FXML
     private StackPane videoPreviewContainer;
 
     // Separate ImageView for real camera feed
@@ -58,10 +60,14 @@ public class VideoControlsController implements Initializable {
     private boolean videoOn = false;
     private boolean isRecording = false;
     private boolean virtualBackgroundEnabled = false;
+    private boolean webRTCEnabled = false;
 
     // Camera simulation
     private Timeline cameraSimulationTimer;
     private ObjectProperty<Image> currentVideoFrame;
+
+    // Reference to MeetingController
+    private MeetingController meetingController;
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -83,7 +89,16 @@ public class VideoControlsController implements Initializable {
         // Register this controller with the main application
         HelloApplication.setVideoControlsController(this);
 
-        System.out.println("🎥 VideoControlsController initialized successfully");
+        System.out.println("🎥 VideoControlsController initialized successfully for user: " +
+                HelloApplication.getLoggedInUser());
+    }
+
+    /**
+     * Set the reference to MeetingController
+     */
+    public void setMeetingController(MeetingController meetingController) {
+        this.meetingController = meetingController;
+        System.out.println("✅ VideoControlsController connected to MeetingController");
     }
 
     private void setupVideoPreview() {
@@ -140,8 +155,48 @@ public class VideoControlsController implements Initializable {
         // Setup virtual background
         setupVirtualBackground();
 
+        // Setup WebRTC checkbox
+        setupWebRTCCheckbox();
+
         // Update status label
         updateStatusLabel();
+
+        // Sync with current global state
+        syncWithGlobalState();
+    }
+
+    private void setupWebRTCCheckbox() {
+        if (webRTCCheckBox != null) {
+            webRTCCheckBox.setSelected(HelloApplication.isWebRTCEnabled());
+            webRTCCheckBox.setText("WebRTC " + (HelloApplication.isWebRTCEnabled() ? "Enabled" : "Disabled"));
+            webRTCCheckBox.setOnAction(e -> onWebRTCToggled());
+        }
+    }
+
+    private void onWebRTCToggled() {
+        if (webRTCCheckBox.isSelected()) {
+            HelloApplication.enableWebRTC();
+            webRTCCheckBox.setText("WebRTC Enabled");
+            System.out.println("✅ WebRTC enabled for video");
+        } else {
+            HelloApplication.disableWebRTC();
+            webRTCCheckBox.setText("WebRTC Disabled");
+            System.out.println("🛑 WebRTC disabled for video");
+        }
+    }
+
+    public void displayVideoFrame(Image videoFrame) {
+        Platform.runLater(() -> {
+            if (realCameraPreview != null && videoFrame != null) {
+                realCameraPreview.setImage(videoFrame);
+                realCameraPreview.setVisible(true);
+
+                // Show preview label
+                if (videoStatusLabel != null) {
+                    videoStatusLabel.setText("🟢 Live Preview");
+                }
+            }
+        });
     }
 
     private void setupButtonHoverEffects(Button button) {
@@ -201,13 +256,13 @@ public class VideoControlsController implements Initializable {
 
     @FXML
     protected void toggleVideo() {
-        if (!videoOn) {
-            // Start video
-            startVideo();
-        } else {
-            // Stop video
-            stopVideo();
-        }
+        System.out.println("🎬 VideoControlsController.toggleVideo() called");
+
+        // Use the centralized control
+        HelloApplication.toggleVideo();
+
+        // Sync state
+        syncWithGlobalState();
     }
 
     private void startVideo() {
@@ -219,21 +274,7 @@ public class VideoControlsController implements Initializable {
             // Start camera simulation
             startCameraSimulation();
 
-            // Send video status via WebSocket
-            if (HelloApplication.getActiveMeetingId() != null) {
-                String username = HelloApplication.getLoggedInUser();
-                if (HelloApplication.isMeetingHost()) {
-                    // Host-specific video message
-                    HelloApplication.sendWebSocketMessage("VIDEO_STATUS",
-                            HelloApplication.getActiveMeetingId(), "HOST_VIDEO_STARTED");
-                } else {
-                    // Participant video message
-                    HelloApplication.sendWebSocketMessage("VIDEO_STATUS",
-                            HelloApplication.getActiveMeetingId(), username + " started video");
-                }
-            }
-
-            System.out.println("🎥 Video started and notified participants");
+            System.out.println("🎥 Video started for user: " + HelloApplication.getLoggedInUser());
 
         } catch (Exception e) {
             System.err.println("❌ Failed to start video: " + e.getMessage());
@@ -252,21 +293,7 @@ public class VideoControlsController implements Initializable {
         // Set placeholder image
         currentVideoFrame.set(createPlaceholderImage());
 
-        // Send video status via WebSocket
-        if (HelloApplication.getActiveMeetingId() != null) {
-            String username = HelloApplication.getLoggedInUser();
-            if (HelloApplication.isMeetingHost()) {
-                // Host-specific video message
-                HelloApplication.sendWebSocketMessage("VIDEO_STATUS",
-                        HelloApplication.getActiveMeetingId(), "HOST_VIDEO_STOPPED");
-            } else {
-                // Participant video message
-                HelloApplication.sendWebSocketMessage("VIDEO_STATUS",
-                        HelloApplication.getActiveMeetingId(), username + " stopped video");
-            }
-        }
-
-        System.out.println("🎥 Video stopped and notified participants");
+        System.out.println("🎥 Video stopped for user: " + HelloApplication.getLoggedInUser());
     }
 
     private void startCameraSimulation() {
@@ -332,6 +359,12 @@ public class VideoControlsController implements Initializable {
             String quality = qualityComboBox != null ? qualityComboBox.getValue() : "High (1080p)";
             gc.fillText("Quality: " + quality, 100, 220);
 
+            // Draw WebRTC status if enabled
+            if (webRTCEnabled) {
+                gc.setFill(Color.GREEN);
+                gc.fillText("WebRTC", 250, 20);
+            }
+
             return canvas.snapshot(null, null);
 
         } catch (Exception e) {
@@ -369,12 +402,10 @@ public class VideoControlsController implements Initializable {
     @FXML
     protected void takeScreenshot() {
         if (videoOn && currentVideoFrame.get() != null) {
-            // In a real implementation, you would save the current frame
             System.out.println("📸 Screenshot taken (simulated)");
             animateButton(screenshotButton);
 
-            // Show success message
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 javafx.scene.control.Alert alert = new javafx.scene.control.Alert(
                         javafx.scene.control.Alert.AlertType.INFORMATION);
                 alert.setTitle("Screenshot");
@@ -404,7 +435,9 @@ public class VideoControlsController implements Initializable {
         if (cameraComboBox != null) {
             String selectedCamera = cameraComboBox.getValue();
             System.out.println("📷 Camera changed to: " + selectedCamera);
-            addSystemMessage("Switched to camera: " + selectedCamera);
+            if (meetingController != null) {
+                meetingController.addSystemMessage("Switched to camera: " + selectedCamera);
+            }
         }
     }
 
@@ -412,7 +445,9 @@ public class VideoControlsController implements Initializable {
         if (qualityComboBox != null) {
             String selectedQuality = qualityComboBox.getValue();
             System.out.println("🎥 Video quality changed to: " + selectedQuality);
-            addSystemMessage("Video quality set to: " + selectedQuality);
+            if (meetingController != null) {
+                meetingController.addSystemMessage("Video quality set to: " + selectedQuality);
+            }
         }
     }
 
@@ -421,7 +456,9 @@ public class VideoControlsController implements Initializable {
             virtualBackgroundEnabled = virtualBackgroundCheckBox.isSelected();
             String status = virtualBackgroundEnabled ? "enabled" : "disabled";
             System.out.println("🖼 Virtual background: " + status);
-            addSystemMessage("Virtual background " + status);
+            if (meetingController != null) {
+                meetingController.addSystemMessage("Virtual background " + status);
+            }
         }
     }
 
@@ -446,6 +483,9 @@ public class VideoControlsController implements Initializable {
                 recordButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold;");
                 recordButton.setText("Start Recording");
             }
+
+            // Disable recording button if not host
+            recordButton.setDisable(!HelloApplication.isMeetingHost());
         }
     }
 
@@ -479,48 +519,64 @@ public class VideoControlsController implements Initializable {
         st.play();
     }
 
-    private void addSystemMessage(String message) {
-        System.out.println("🎥 " + message);
-    }
-
     // Method to sync with global state
     public void syncWithGlobalState() {
         videoOn = HelloApplication.isVideoOn();
-        isRecording = HelloApplication.isRecording();
-        virtualBackgroundEnabled = HelloApplication.isVirtualBackgroundEnabled();
 
-        updateButtonStyles();
-        updateRecordButton();
-        updateStatusLabel();
+        // Update button
+        if (videoToggleButton != null) {
+            if (videoOn) {
+                videoToggleButton.setText("Stop Video");
+                videoToggleButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white;");
+            } else {
+                videoToggleButton.setText("Start Video");
+                videoToggleButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white;");
+            }
+        }
+
+        // Update status
+        if (videoStatusLabel != null) {
+            videoStatusLabel.setText(videoOn ? "🟢 Streaming" : "🔴 Offline");
+        }
     }
 
-    // Method to update from server messages - REMOVED DUPLICATE
-    public void updateFromServer(String videoStatus) {
-        System.out.println("VideoControlsController: Received video status - " + videoStatus);
+    /**
+     * FIXED: Handle video status updates from other users
+     */
+    public void updateFromServer(String username, String videoStatus) {
+        System.out.println("🎥 VideoControlsController: Received video status from " + username + ": " + videoStatus);
+
+        // Don't update our own status
+        if (username.equals(HelloApplication.getLoggedInUser())) {
+            return;
+        }
 
         Platform.runLater(() -> {
             switch (videoStatus) {
-                case "HOST_VIDEO_STARTED":
-                    if (!HelloApplication.isMeetingHost()) {
-                        System.out.println("🎥 Host started video - showing indicator");
-                        // Show host video indicator
+                case "VIDEO_STARTED":
+                    if (meetingController != null) {
+                        meetingController.addSystemMessage(username + " started their video");
+                    }
+
+                    // Update visual indicator for other users
+                    if (HelloApplication.isMeetingHost()) {
+                        // Host can show participant video indicators
+                        showParticipantVideoIndicator(username, true);
+                    } else {
+                        // Client receiving host video
                         showHostVideoIndicator(true);
                     }
                     break;
 
-                case "HOST_VIDEO_STOPPED":
-                    if (!HelloApplication.isMeetingHost()) {
-                        System.out.println("🎥 Host stopped video - hiding indicator");
-                        // Hide host video indicator
-                        showHostVideoIndicator(false);
+                case "VIDEO_STOPPED":
+                    if (meetingController != null) {
+                        meetingController.addSystemMessage(username + " stopped their video");
                     }
-                    break;
 
-                default:
-                    if (videoStatus.contains("started video")) {
-                        System.out.println("Another participant started their video");
-                    } else if (videoStatus.contains("stopped video")) {
-                        System.out.println("Another participant stopped their video");
+                    if (HelloApplication.isMeetingHost()) {
+                        showParticipantVideoIndicator(username, false);
+                    } else {
+                        showHostVideoIndicator(false);
                     }
                     break;
             }
@@ -528,46 +584,54 @@ public class VideoControlsController implements Initializable {
     }
 
     /**
-     * Show host video indicator on client devices
+     * Show host video indicator on client devices - IMPROVED
      */
     private void showHostVideoIndicator(boolean show) {
-        if (show) {
-            // Create a visual indicator that host is streaming video
-            Canvas canvas = new Canvas(200, 150);
-            GraphicsContext gc = canvas.getGraphicsContext2D();
-            gc.setFill(Color.DARKRED);
-            gc.fillRect(0, 0, 200, 150);
-            gc.setFill(Color.WHITE);
-            gc.fillText("HOST VIDEO", 60, 70);
-            gc.fillText("LIVE STREAM", 55, 90);
+        Platform.runLater(() -> {
+            if (show) {
+                // Create a visual indicator that host is streaming video
+                Canvas canvas = new Canvas(200, 150);
+                GraphicsContext gc = canvas.getGraphicsContext2D();
+                gc.setFill(Color.DARKBLUE);
+                gc.fillRect(0, 0, 200, 150);
+                gc.setFill(Color.WHITE);
+                gc.fillText("HOST VIDEO", 60, 70);
+                gc.fillText("WAITING FOR STREAM...", 40, 90);
 
-            Image hostVideoImage = canvas.snapshot(null, null);
+                Image hostVideoImage = canvas.snapshot(null, null);
 
-            // Show in the main video display area
-            MeetingController meetingController = MeetingController.getInstance();
-            if (meetingController != null) {
-                meetingController.showHostVideoIndicator(true);
-            }
+                // Show in the main video display area
+                if (meetingController != null) {
+                    meetingController.showHostVideoIndicator(true);
+                }
 
-            // Also update the preview in video controls
-            if (realCameraPreview != null) {
-                realCameraPreview.setImage(hostVideoImage);
-                realCameraPreview.setVisible(true);
-                simulatedCameraPreview.setVisible(false);
-            }
-        } else {
-            // Hide host video indicator
-            if (realCameraPreview != null) {
-                realCameraPreview.setImage(null);
-                realCameraPreview.setVisible(false);
-                simulatedCameraPreview.setVisible(true);
-            }
+                // Also update the preview in video controls
+                if (realCameraPreview != null) {
+                    realCameraPreview.setImage(hostVideoImage);
+                    realCameraPreview.setVisible(true);
+                    simulatedCameraPreview.setVisible(false);
+                }
+            } else {
+                // Hide host video indicator
+                if (realCameraPreview != null) {
+                    realCameraPreview.setImage(null);
+                    realCameraPreview.setVisible(false);
+                    simulatedCameraPreview.setVisible(true);
+                }
 
-            MeetingController meetingController = MeetingController.getInstance();
-            if (meetingController != null) {
-                meetingController.showHostVideoIndicator(false);
+                if (meetingController != null) {
+                    meetingController.showHostVideoIndicator(false);
+                }
             }
-        }
+        });
+    }
+
+    /**
+     * Show/hide participant video indicator (for host)
+     */
+    private void showParticipantVideoIndicator(String username, boolean show) {
+        System.out.println("🎥 Participant " + username + " video: " + (show ? "ON" : "OFF"));
+        // In a real implementation, you would update UI to show/hide participant video
     }
 
     // NEW: Host control methods
@@ -592,21 +656,6 @@ public class VideoControlsController implements Initializable {
         // Enable/disable recording button based on host status
         if (recordButton != null) {
             recordButton.setDisable(!isHost);
-        }
-    }
-
-    /**
-     * Display received video frame in the preview
-     */
-    public void displayVideoFrame(Image videoFrame) {
-        if (realCameraPreview != null && videoFrame != null) {
-            Platform.runLater(() -> {
-                realCameraPreview.setImage(videoFrame);
-                realCameraPreview.setVisible(true);
-                if (simulatedCameraPreview != null) {
-                    simulatedCameraPreview.setVisible(false);
-                }
-            });
         }
     }
 

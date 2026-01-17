@@ -8,6 +8,8 @@ module org.example.zoom {
     requires javafx.media;
     requires java.net.http;
 
+    // Removed: requires org.json;
+
     // Optional external libs
     requires org.controlsfx.controls;
     requires com.dlsc.formsfx;
@@ -19,7 +21,9 @@ module org.example.zoom {
 
     opens org.example.zoom to javafx.fxml;
     opens org.example.zoom.websocket to javafx.fxml;
+    opens org.example.zoom.webrtc to javafx.fxml;
 
     exports org.example.zoom;
     exports org.example.zoom.websocket;
+    exports org.example.zoom.webrtc;
 }
