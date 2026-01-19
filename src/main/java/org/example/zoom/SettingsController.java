@@ -440,7 +440,7 @@ public class SettingsController {
             currentServerLabel.setText("🟢 Connected to: " + HelloApplication.getCurrentServerUrl());
             currentServerLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-weight: bold;");
         } else {
-            currentServerLabel.setText("🔴 Not connected");
+            currentServerLabel.setText("Not connected");
             currentServerLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-weight: bold;");
         }
     }

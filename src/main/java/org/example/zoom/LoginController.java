@@ -737,7 +737,7 @@ public class LoginController {
                     connectionStatusLabel.setText("🟢 Connected");
                     connectionStatusLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-weight: bold; -fx-font-size: 14px;");
                 } else {
-                    connectionStatusLabel.setText("🔴 Disconnected");
+                    connectionStatusLabel.setText("Disconnected");
                     connectionStatusLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-weight: bold; -fx-font-size: 14px;");
                 }
 

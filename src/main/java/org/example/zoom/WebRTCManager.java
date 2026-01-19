@@ -256,7 +256,7 @@ public class WebRTCManager {
 
         public void disconnect() {
             if (connected.compareAndSet(true, false)) {
-                System.out.println("🔴 Disconnected from peer: " + peerId);
+                System.out.println("Disconnected from peer: " + peerId);
             }
         }
 

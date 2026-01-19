@@ -16,7 +16,7 @@
         </font>
     </Label>
 
-    <Label fx:id="videoStatusLabel" text="Video: Off 🔴" style="-fx-text-fill: #7f8c8d; -fx-font-weight: bold; -fx-font-size: 14;"/>
+    <Label fx:id="videoStatusLabel" text="Video: Off" style="-fx-text-fill: #7f8c8d; -fx-font-weight: bold; -fx-font-size: 14;"/>
 
     <!-- Video Preview Container -->
     <StackPane fx:id="videoPreviewContainer" style="-fx-background-color: #1a1a1a; -fx-border-color: #34495e; -fx-border-width: 1; -fx-border-radius: 5;">

@@ -24,7 +24,7 @@
 
                     <!-- Meeting Info -->
                     <HBox spacing="15" alignment="CENTER_LEFT">
-                        <Label text="🎥 Zoom Meeting"
+                        <Label text="Classroom"
                                style="-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14;"/>
                         <HBox spacing="10">
                             <Label fx:id="meetingIdLabel" text="Meeting ID: "
@@ -172,30 +172,6 @@
                             style="-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-background-radius: 20; -fx-min-width: 40;"/>
                     <Button text="Send" onAction="#onSendChat"
                             style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 20; -fx-min-width: 60;"/>
-                    <Button fx:id="debugButton" text="🐛 Debug Video"
-                            onAction="#onDebugVideo"
-                            style="-fx-background-color: #e67e22; -fx-text-fill: white;"
-                            GridPane.columnIndex="0" GridPane.rowIndex="11">
-                        <tooltip>
-                            <Tooltip text="Test video streaming manually"/>
-                        </tooltip>
-                    </Button>
-                    <Button fx:id="testVideoButton" text="🎬 Test Video"
-                            onAction="#onTestVideoButton"
-                            style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold;"
-                            GridPane.columnIndex="0" GridPane.rowIndex="12">
-                        <tooltip>
-                            <Tooltip text="Send test video frame to everyone"/>
-                        </tooltip>
-                    </Button>
-                    <Button fx:id="testVideoButton" text="🎬 Test Video Stream"
-                            onAction="#onTestRealVideo"
-                            style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-weight: bold;"
-                            layoutX="500" layoutY="10" prefWidth="200" prefHeight="40">
-                        <tooltip>
-                            <Tooltip text="Send a test video stream to all participants"/>
-                        </tooltip>
-                    </Button>
                 </HBox>
             </VBox>
         </right>

@@ -170,7 +170,7 @@ public class HelloApplication extends Application {
             webRTCManager.startWebRTCSession(activeMeetingId, loggedInUser);
             System.out.println("🚀 WebRTC session started for meeting: " + activeMeetingId);
         } else {
-            System.out.println("⚠️ Cannot start WebRTC session. Check if meeting is active and WebRTC is enabled.");
+            System.out.println("Cannot start WebRTC session. Check if meeting is active and WebRTC is enabled.");
         }
     }
 
@@ -892,7 +892,7 @@ public class HelloApplication extends Application {
 
                     // Only notify if connection state actually changed
                     if (currentConnectedState != previousConnectedState) {
-                        String status = currentConnectedState ? "🟢 Connected" : "🔴 Disconnected";
+                        String status = currentConnectedState ? "🟢 Connected" : "Disconnected";
                         System.out.println("🔗 Connection state changed: " + status);
 
                         // Notify listener if connection status changed
@@ -993,7 +993,7 @@ public class HelloApplication extends Application {
         // Immediately notify of current status
         if (listener != null) {
             boolean connected = isWebSocketConnected();
-            String status = connected ? "🟢 Connected" : "🔴 Disconnected";
+            String status = connected ? "🟢 Connected" : "Disconnected";
             Platform.runLater(() -> {
                 listener.onConnectionStatusChanged(connected, status);
             });
@@ -1007,7 +1007,7 @@ public class HelloApplication extends Application {
         Platform.runLater(() -> {
             // Notify listener about connection failure
             if (connectionStatusListener != null) {
-                connectionStatusListener.onConnectionStatusChanged(false, "🔴 Connection failed");
+                connectionStatusListener.onConnectionStatusChanged(false, "Connection failed");
             }
 
             // Auto-trigger network discovery on connection failure
@@ -1575,7 +1575,7 @@ public class HelloApplication extends Application {
 
             // Check if message is for current meeting
             if (!meetingId.equals(getActiveMeetingId()) && !meetingId.equals("global")) {
-                System.out.println("⚠️ Message not for current meeting. Current: " + getActiveMeetingId() + ", Message: " + meetingId);
+                System.out.println(" Message not for current meeting. Current: " + getActiveMeetingId() + ", Message: " + meetingId);
                 return;
             }
 
@@ -1989,17 +1989,17 @@ public class HelloApplication extends Application {
 
     public static String getConnectionStatus() {
         if (isWebSocketConnected()) {
-            return "🟢 Connected to " + getCurrentServerUrl().replace("ws://", "");
+            return "Connected to " + getCurrentServerUrl().replace("ws://", "");
         } else {
-            return "🔴 Disconnected from " + getCurrentServerUrl().replace("ws://", "");
+            return "Disconnected from " + getCurrentServerUrl().replace("ws://", "");
         }
     }
 
     public static String getConnectionStatusShort() {
         if (isWebSocketConnected()) {
-            return "🟢 Connected";
+            return "Connected";
         } else {
-            return "🔴 Disconnected";
+            return "Disconnected";
         }
     }
 
@@ -2448,7 +2448,7 @@ public class HelloApplication extends Application {
 
                     @Override
                     public void onDisconnected() {
-                        System.out.println("🔴 WebSocket disconnected from: " + serverUrl);
+                        System.out.println("WebSocket disconnected from: " + serverUrl);
                         connectionInitialized = false;
 
                         // Notify connection status listener

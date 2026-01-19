@@ -18,7 +18,7 @@
 
             <!-- Header Section -->
             <VBox spacing="15" alignment="CENTER">
-                <Label text="🚀 Zoom Dashboard" style="-fx-text-fill: white; -fx-font-size: 36px; -fx-font-weight: bold;"/>
+                <Label text="Classroom Dashboard" style="-fx-text-fill: white; -fx-font-size: 36px; -fx-font-weight: bold;"/>
                 <Label fx:id="welcomeLabel" text="Welcome, User!" style="-fx-text-fill: #ecf0f1; -fx-font-size: 20px;"/>
 
                 <!-- Connection Status Banner -->
@@ -41,7 +41,7 @@
                 <HBox spacing="20" alignment="CENTER">
                     <!-- Quick Connect -->
                     <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #2c3e50; -fx-padding: 15; -fx-background-radius: 10;">
-                        <Label text="🚀 Auto Discovery" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+                        <Label text="Auto Discovery" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
                         <Label text="Find servers automatically" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
                         <Button text="Quick Connect" onAction="#onQuickConnectClick"
                                 style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 140;"/>
@@ -49,7 +49,7 @@
 
                     <!-- Manual Connect -->
                     <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #2c3e50; -fx-padding: 15; -fx-background-radius: 10;">
-                        <Label text="🔧 Manual Setup" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
+                        <Label text=" Manual Setup" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
                         <Label text="Enter server IP manually" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
                         <Button text="Manual Connect" onAction="#onManualConnectClick"
                                 style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 140;"/>
@@ -164,7 +164,7 @@
                         <Label text="Establishing connection" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
                     </VBox>
                     <VBox spacing="5" alignment="CENTER">
-                        <Label text="🔴 Disconnected" style="-fx-text-fill: #e74c3c; -fx-font-size: 14px; -fx-font-weight: bold;"/>
+                        <Label text="Disconnected" style="-fx-text-fill: #e74c3c; -fx-font-size: 14px; -fx-font-weight: bold;"/>
                         <Label text="Use connection tools above" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
                     </VBox>
                 </HBox>
@@ -174,7 +174,7 @@
             <VBox spacing="5" alignment="CENTER" style="-fx-padding: 20;">
                 <Button text="🚪 Logout" onAction="#onLogoutClick"
                         style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 120;"/>
-                <Label text="Zoom Multi-Device Application v1.0.0" style="-fx-text-fill: #7f8c8d; -fx-font-size: 10px;"/>
+                <Label text="HSTU Classroom Application v1.0.0" style="-fx-text-fill: #7f8c8d; -fx-font-size: 10px;"/>
             </VBox>
         </VBox>
     </content>

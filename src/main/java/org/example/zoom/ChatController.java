@@ -140,7 +140,7 @@ public class ChatController {
                 // Local fallback
                 addMessageToUI(currentUser, message, true);
                 messageField.clear();
-                addSystemMessage("⚠️ Message sent locally (not connected to server)");
+                addSystemMessage("Message sent locally (not connected to server)");
 
                 // Try to reconnect
                 if (webSocketClient != null && !webSocketClient.isConnected()) {
@@ -168,7 +168,7 @@ public class ChatController {
                 addFileMessage(fileName, true);
             } else {
                 addFileMessage(fileName, true);
-                addSystemMessage("⚠️ File shared locally (not connected to server)");
+                addSystemMessage("File shared locally (not connected to server)");
             }
         }
     }
@@ -263,11 +263,11 @@ public class ChatController {
                     break;
 
                 case "USER_LEFT":
-                    addSystemMessage("🔴 " + username + " left the chat");
+                    addSystemMessage( username + " left the chat");
                     break;
 
                 case "CONNECTED":
-                    addSystemMessage("✅ " + content);
+                    addSystemMessage( content);
                     updateConnectionUI();
                     break;
 
@@ -374,7 +374,7 @@ public class ChatController {
                     statusLabel.setText("🟢 Connected");
                     statusLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-weight: bold;");
                 } else {
-                    statusLabel.setText("🔴 Disconnected");
+                    statusLabel.setText("Disconnected");
                     statusLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-weight: bold;");
                 }
             }

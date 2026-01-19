@@ -216,7 +216,7 @@ public class SimpleWebSocketClient implements Listener {
         this.connected.set(false);
         this.webSocket.set(null);
 
-        System.out.println("🔴 WebSocket connection closed: " + reason + " (code: " + statusCode + ")");
+        System.out.println("WebSocket connection closed: " + reason + " (code: " + statusCode + ")");
 
         // Stop heartbeat
         stopHeartbeat();
@@ -496,7 +496,7 @@ public class SimpleWebSocketClient implements Listener {
 
     // ✅ Disconnect cleanly
     public void disconnect() {
-        System.out.println("🔴 Disconnecting from WebSocket server: " + serverUrl);
+        System.out.println("Disconnecting from WebSocket server: " + serverUrl);
         this.connected.set(false);
 
         // Stop all executors

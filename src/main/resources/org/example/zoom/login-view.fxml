@@ -32,7 +32,7 @@
                 </StackPane>
 
                 <VBox alignment="CENTER" spacing="8">
-                    <Label text="Zoom Multi-Device"
+                    <Label text="HSTU Classroom"
                            style="-fx-text-fill: white; -fx-font-size: 32px; -fx-font-weight: bold; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 5, 0, 2, 2);"/>
                     <Label text="Connect and collaborate seamlessly across devices"
                            style="-fx-text-fill: #a0a0c0; -fx-font-size: 14px; -fx-font-style: italic;"/>
@@ -50,7 +50,7 @@
                 </HBox>
 
                 <VBox alignment="CENTER" spacing="5">
-                    <Label fx:id="connectionStatusLabel" text="🔴 DISCONNECTED"
+                    <Label fx:id="connectionStatusLabel" text="DISCONNECTED"
                            style="-fx-text-fill: #e74c3c; -fx-font-size: 18px; -fx-font-weight: bold; -fx-font-family: 'System';"/>
                     <Label fx:id="serverInfoLabel" text="ws://localhost:8887"
                            style="-fx-text-fill: #bdc3c7; -fx-font-size: 13px; -fx-font-family: 'Monospace';"/>

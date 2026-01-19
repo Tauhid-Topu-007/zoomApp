@@ -493,14 +493,14 @@ public class VideoControlsController implements Initializable {
         if (videoStatusLabel != null) {
             if (videoOn) {
                 if (isRecording) {
-                    videoStatusLabel.setText("Video: On ● Recording 🔴");
+                    videoStatusLabel.setText("Video: On ● Recording");
                     videoStatusLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-weight: bold;");
                 } else {
                     videoStatusLabel.setText("Video: On ● Live 🟢");
                     videoStatusLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-weight: bold;");
                 }
             } else {
-                videoStatusLabel.setText("Video: Off 🔴");
+                videoStatusLabel.setText("Video: Off");
                 videoStatusLabel.setStyle("-fx-text-fill: #7f8c8d; -fx-font-weight: bold;");
             }
         }
@@ -536,7 +536,7 @@ public class VideoControlsController implements Initializable {
 
         // Update status
         if (videoStatusLabel != null) {
-            videoStatusLabel.setText(videoOn ? "🟢 Streaming" : "🔴 Offline");
+            videoStatusLabel.setText(videoOn ? "Streaming" : "Offline");
         }
     }
 

@@ -450,8 +450,8 @@ public class MP4RecordingController implements Initializable {
             startRecordingTimer();
             updateUI();
 
-            updateStatus("🔴 Recording Started: " + fileName, "recording");
-            addRecordingMessageToChat("🔴 Advanced recording started: " + getRecordingInfo());
+            updateStatus("Recording Started: " + fileName, "recording");
+            addRecordingMessageToChat("Advanced recording started: " + getRecordingInfo());
 
             // Show recording started notification
             showRecordingStartedNotification(fileName);
@@ -467,7 +467,7 @@ public class MP4RecordingController implements Initializable {
         Platform.runLater(() -> {
             Alert startedAlert = new Alert(Alert.AlertType.INFORMATION);
             startedAlert.setTitle("Recording Started");
-            startedAlert.setHeaderText("🔴 Recording Active");
+            startedAlert.setHeaderText("Recording Active");
             startedAlert.setContentText(
                     "Screen recording has started:\n\n" +
                             "File: " + fileName + "\n" +

@@ -155,7 +155,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
             try {
                 Alert alert = new Alert(Alert.AlertType.WARNING);
                 alert.setTitle("Connection Lost");
-                alert.setHeaderText("🔴 Disconnected from server");
+                alert.setHeaderText("Disconnected from server");
                 alert.setContentText("Connection to the server has been lost. Reconnecting...");
                 alert.setOnHidden(e -> alertInProgress.set(false));
                 alert.showAndWait();
@@ -433,7 +433,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         SimpleWebSocketClient client = HelloApplication.getWebSocketClient();
         if (client != null) {
             client.disconnect();
-            System.out.println("🔴 Disconnected from Node.js server");
+            System.out.println("Disconnected from Node.js server");
         }
         HelloApplication.logout();
     }

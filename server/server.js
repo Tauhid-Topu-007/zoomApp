@@ -1080,7 +1080,7 @@ wss.on('error', (error) => {
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-    console.log('\n🔴 Shutting down WebSocket server...');
+    console.log('\nShutting down WebSocket server...');
 
     // Notify all clients
     for (const [client, userInfo] of clients) {
