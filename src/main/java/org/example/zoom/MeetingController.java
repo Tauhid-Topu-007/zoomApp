@@ -94,6 +94,25 @@ public class MeetingController {
     // Placeholder for camera feed
     @FXML private StackPane videoPlaceholder;
 
+    // Video streaming quality
+    private enum VideoQuality {
+        LOW(160, 120, 5),      // 5 FPS
+        MEDIUM(320, 240, 10),   // 10 FPS
+        HIGH(640, 480, 15);     // 15 FPS
+
+        final int width;
+        final int height;
+        final int fps;
+
+        VideoQuality(int width, int height, int fps) {
+            this.width = width;
+            this.height = height;
+            this.fps = fps;
+        }
+    }
+
+    private VideoQuality currentVideoQuality = VideoQuality.MEDIUM;
+
     private boolean audioMuted = false;
     private boolean videoOn = false;
     private boolean recording = false;
@@ -123,6 +142,7 @@ public class MeetingController {
     // Camera capture thread
     private Thread cameraThread;
     private volatile boolean cameraRunning = false;
+    private volatile boolean streamingEnabled = false;
 
     // Audio capture thread
     private Thread audioThread;
@@ -146,6 +166,12 @@ public class MeetingController {
     // Participant tracking
     private List<String> currentParticipants = new ArrayList<>();
 
+    // Active video streams from participants
+    private List<String> activeVideoStreams = new ArrayList<>();
+
+    // File transfer
+    private FileTransferHandler fileTransferHandler;
+
     @FXML
     public void initialize() {
         instance = this;
@@ -153,6 +179,9 @@ public class MeetingController {
         System.out.println("🎬 MeetingController INITIALIZING...");
         System.out.println("🎬 User: " + HelloApplication.getLoggedInUser());
         System.out.println("🎬 Meeting ID: " + HelloApplication.getActiveMeetingId());
+
+        // Initialize file transfer handler
+        fileTransferHandler = new FileTransferHandler(this);
 
         // Create visible video placeholder
         createVideoPlaceholder();
@@ -224,20 +253,81 @@ public class MeetingController {
         try {
             // Initialize audio controls
             if (audioControlsContainer != null) {
-                FXMLLoader audioLoader = new FXMLLoader(getClass().getResource("audio-controls.fxml"));
-                audioLoader.load();
-                audioControlsController = audioLoader.getController();
-                audioControlsController.setMeetingController(this);
-                System.out.println("✅ Audio controls controller initialized");
+                try {
+                    FXMLLoader audioLoader = new FXMLLoader(getClass().getResource("audio-controls.fxml"));
+                    audioLoader.load();
+                    audioControlsController = audioLoader.getController();
+                    if (audioControlsController != null) {
+                        audioControlsController.setMeetingController(this);
+                        System.out.println("✅ Audio controls controller initialized");
+                    } else {
+                        System.err.println("❌ Audio controls controller is null");
+                    }
+                } catch (IOException e) {
+                    System.err.println("❌ Failed to load audio controls: " + e.getMessage());
+                    // Create fallback audio controller
+                    setupFallbackAudioControls();
+                }
             }
 
             // Initialize video controls
             if (videoControlsContainer != null) {
-                FXMLLoader videoLoader = new FXMLLoader(getClass().getResource("video-controls.fxml"));
-                videoLoader.load();
-                videoControlsController = videoLoader.getController();
-                videoControlsController.setMeetingController(this);
-                System.out.println("✅ Video controls controller initialized");
+                try {
+                    FXMLLoader videoLoader = new FXMLLoader(getClass().getResource("video-controls.fxml"));
+                    videoLoader.load();
+                    videoControlsController = videoLoader.getController();
+
+                    if (videoControlsController != null) {
+                        // Try to call setMeetingController method
+                        try {
+                            // Check if the method exists
+                            java.lang.reflect.Method method = videoControlsController.getClass()
+                                    .getMethod("setMeetingController", MeetingController.class);
+                            // Invoke the method
+                            method.invoke(videoControlsController, this);
+                            System.out.println("✅ Video controls controller initialized and connected");
+                        } catch (NoSuchMethodException e) {
+                            System.err.println("❌ VideoControlsController doesn't have setMeetingController method");
+                            // Try to set it using direct access if possible
+                            try {
+                                videoControlsController.setMeetingController(this);
+                            } catch (Exception e2) {
+                                System.err.println("❌ Could not set meeting controller: " + e2.getMessage());
+                            }
+                        } catch (java.lang.IllegalAccessException | java.lang.reflect.InvocationTargetException e) {
+                            System.err.println("❌ Error invoking setMeetingController: " + e.getMessage());
+                            // Try direct assignment
+                            try {
+                                videoControlsController.setMeetingController(this);
+                            } catch (Exception e2) {
+                                System.err.println("❌ Direct assignment also failed: " + e2.getMessage());
+                            }
+                        }
+                    } else {
+                        System.err.println("❌ Video controls controller is null");
+                        // Create a new instance if possible
+                        try {
+                            videoControlsController = new VideoControlsController();
+                            videoControlsController.setMeetingController(this);
+                            System.out.println("✅ Created new VideoControlsController instance");
+                        } catch (Exception e) {
+                            System.err.println("❌ Could not create VideoControlsController: " + e.getMessage());
+                        }
+                    }
+                } catch (IOException e) {
+                    System.err.println("❌ Failed to load video controls: " + e.getMessage());
+                    // Create fallback video controller
+                    setupFallbackVideoControls();
+
+                    // Try to create a basic controller anyway
+                    try {
+                        videoControlsController = new VideoControlsController();
+                        videoControlsController.setMeetingController(this);
+                        System.out.println("✅ Created fallback VideoControlsController");
+                    } catch (Exception e2) {
+                        System.err.println("❌ Could not create fallback controller: " + e2.getMessage());
+                    }
+                }
             }
 
             // Initialize hardware after controllers are loaded
@@ -246,8 +336,8 @@ public class MeetingController {
             // Update UI state based on current audio/video status
             updateButtonStyles();
 
-        } catch (IOException e) {
-            System.err.println("❌ Failed to load audio/video controllers: " + e.getMessage());
+        } catch (Exception e) {
+            System.err.println("❌ Error in initializeAudioVideoControllers: " + e.getMessage());
             e.printStackTrace();
 
             // Setup fallback controls if FXML loading fails
@@ -313,29 +403,6 @@ public class MeetingController {
     }
 
     /**
-     * Setup video placeholder with visible content
-     */
-    private void setupVideoPlaceholder() {
-        if (videoPlaceholder != null) {
-            // Create a visible placeholder
-            Canvas canvas = new Canvas(640, 480);
-            GraphicsContext gc = canvas.getGraphicsContext2D();
-            gc.setFill(Color.rgb(30, 40, 50)); // Matching theme
-            gc.fillRect(0, 0, 640, 480);
-            gc.setFill(Color.WHITE);
-            gc.fillText("VIDEO AREA", 280, 240);
-            gc.fillText("Click 'Start Video' to begin", 250, 260);
-
-            WritableImage placeholderImage = canvas.snapshot(null, null);
-
-            if (videoDisplay != null) {
-                videoDisplay.setImage(placeholderImage);
-                videoDisplay.setVisible(true);
-            }
-        }
-    }
-
-    /**
      * Setup scrollable chat area
      */
     private void setupScrollableChat() {
@@ -390,7 +457,7 @@ public class MeetingController {
     }
 
     /**
-     * Initialize camera and microphone hardware
+     * Initialize camera and microphone hardware - FIXED VERSION
      */
     private void initializeHardware() {
         System.out.println("🔧 Initializing hardware...");
@@ -405,21 +472,18 @@ public class MeetingController {
                 webcam = webcams.get(0);
                 System.out.println("📷 Selected camera: " + webcam.getName());
 
-                // Try different resolutions
+                // Set default resolution but DON'T open the camera yet
+                // We'll open it when we actually start streaming
                 try {
-                    webcam.setViewSize(WebcamResolution.VGA.getSize());
-                    System.out.println("📷 Set resolution to VGA");
+                    webcam.setViewSize(new java.awt.Dimension(currentVideoQuality.width, currentVideoQuality.height));
+                    System.out.println("📷 Default resolution set to " + currentVideoQuality.width + "x" + currentVideoQuality.height);
                 } catch (Exception e) {
-                    try {
-                        webcam.setViewSize(WebcamResolution.QVGA.getSize());
-                        System.out.println("📷 Set resolution to QVGA");
-                    } catch (Exception e2) {
-                        System.out.println("📷 Using default resolution");
-                    }
+                    System.out.println("⚠️ Could not set default resolution: " + e.getMessage());
+                    // Camera might not support this resolution, we'll handle it when opening
                 }
 
                 cameraAvailable = true;
-                System.out.println("✅ Camera initialized successfully: " + webcam.getName());
+                System.out.println("✅ Camera initialized (not opened yet): " + webcam.getName());
             } else {
                 System.out.println("❌ No cameras found");
                 cameraAvailable = false;
@@ -477,11 +541,15 @@ public class MeetingController {
             // Add host indicator to the actual host
             String hostUsername = HelloApplication.getLoggedInUser();
             for (String participant : currentParticipants) {
+                String displayName = participant;
                 if (participant.equals(hostUsername) && HelloApplication.isMeetingHost()) {
-                    participantsList.getItems().add("👑 " + participant + " (Host)");
+                    displayName = "👑 " + participant + " (Host)";
+                } else if (activeVideoStreams.contains(participant)) {
+                    displayName = "📹 " + participant;
                 } else {
-                    participantsList.getItems().add("👤 " + participant);
+                    displayName = "👤 " + participant;
                 }
+                participantsList.getItems().add(displayName);
             }
         }
 
@@ -527,9 +595,17 @@ public class MeetingController {
                 Database.removeParticipant(meetingId, username);
             }
 
+            // Remove from active video streams
+            activeVideoStreams.remove(username);
+
             Platform.runLater(() -> {
                 updateParticipantsList();
                 addSystemMessage(username + " left the meeting");
+
+                // Clear their video if displayed
+                if (isDisplayingVideoFromUser(username)) {
+                    clearVideoFromUser(username);
+                }
             });
 
             System.out.println("✅ Participant removed: " + username);
@@ -561,7 +637,7 @@ public class MeetingController {
      */
     private void loadChatHistory() {
         String meetingId = HelloApplication.getActiveMeetingId();
-        if (meetingId == null) return;
+        if (meetingId != null) return;
 
         System.out.println("📖 Loading chat history for meeting: " + meetingId);
         List<Database.ChatMessage> chatHistory = Database.getChatMessages(meetingId);
@@ -690,25 +766,10 @@ public class MeetingController {
     }
 
     /**
-     * Convert AWT BufferedImage to Base64 string for streaming
-     */
-    private String convertImageToBase64(java.awt.image.BufferedImage awtImage) {
-        try {
-            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-            javax.imageio.ImageIO.write(awtImage, "jpg", baos);
-            byte[] imageBytes = baos.toByteArray();
-            return java.util.Base64.getEncoder().encodeToString(imageBytes);
-        } catch (Exception e) {
-            System.err.println("❌ Error converting image to base64: " + e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Start REAL video streaming with camera
+     * Enhanced video streaming to multiple clients - FIXED VERSION
      */
     private void startRealVideoStreaming() {
-        System.out.println("🎬 Starting REAL video streaming...");
+        System.out.println("🎬 Starting REAL video streaming to multiple clients...");
 
         try {
             // Initialize hardware if not already done
@@ -722,33 +783,54 @@ public class MeetingController {
                 return;
             }
 
+            // Check if webcam is already open - if so, close it first
+            if (webcam.isOpen()) {
+                System.out.println("⚠️ Webcam is already open, closing it to change resolution...");
+                webcam.close();
+            }
+
+            // Set video quality BEFORE opening the camera
+            System.out.println("🎬 Setting video quality to: " + currentVideoQuality.name() +
+                    " (" + currentVideoQuality.width + "x" + currentVideoQuality.height + ")");
+            webcam.setViewSize(new java.awt.Dimension(currentVideoQuality.width, currentVideoQuality.height));
+
             // Start camera
             startCamera();
 
-            // Notify everyone via WebSocket
-            String meetingId = HelloApplication.getActiveMeetingId();
-            String username = HelloApplication.getLoggedInUser();
+            // Enable streaming
+            streamingEnabled = true;
 
+            // Add to active streams
+            String username = HelloApplication.getLoggedInUser();
+            if (!activeVideoStreams.contains(username)) {
+                activeVideoStreams.add(username);
+                updateParticipantsList();
+            }
+
+            // Notify all participants via WebSocket
+            String meetingId = HelloApplication.getActiveMeetingId();
             if (HelloApplication.isWebSocketConnected() && meetingId != null) {
                 HelloApplication.sendWebSocketMessage(
                         "VIDEO_STATUS",
                         meetingId,
                         username,
-                        "VIDEO_STARTED"
+                        "VIDEO_STARTED|" + currentVideoQuality.name()
                 );
-                System.out.println("✅ Sent VIDEO_STARTED notification");
+                System.out.println("✅ Sent VIDEO_STARTED notification to all participants");
             }
 
-            // Show local video
+            // Show local video preview
             Platform.runLater(() -> {
                 if (videoDisplay != null) {
-                    Canvas canvas = new Canvas(640, 480);
+                    Canvas canvas = new Canvas(currentVideoQuality.width, currentVideoQuality.height);
                     GraphicsContext gc = canvas.getGraphicsContext2D();
-                    gc.setFill(Color.rgb(30, 40, 50)); // Theme color
-                    gc.fillRect(0, 0, 640, 480);
+                    gc.setFill(Color.rgb(30, 40, 50));
+                    gc.fillRect(0, 0, currentVideoQuality.width, currentVideoQuality.height);
                     gc.setFill(Color.WHITE);
-                    gc.fillText("📹 YOUR CAMERA", 240, 240);
-                    gc.fillText("Streaming to meeting...", 220, 260);
+                    gc.setFont(new javafx.scene.text.Font(16));
+                    gc.fillText("📹 YOUR CAMERA", currentVideoQuality.width/2 - 50, currentVideoQuality.height/2);
+                    gc.setFont(new javafx.scene.text.Font(12));
+                    gc.fillText("Streaming to all participants...", currentVideoQuality.width/2 - 60, currentVideoQuality.height/2 + 20);
 
                     WritableImage placeholder = canvas.snapshot(null, null);
                     videoDisplay.setImage(placeholder);
@@ -760,13 +842,21 @@ public class MeetingController {
                 }
             });
 
-            addSystemMessage("🎥 You started video streaming to meeting");
-            System.out.println("✅ REAL video streaming started");
+            addSystemMessage("🎥 You started video streaming to all participants");
+            System.out.println("✅ REAL video streaming started to multiple clients");
 
         } catch (Exception e) {
             System.err.println("❌ Failed to start video streaming: " + e.getMessage());
             e.printStackTrace();
-            addSystemMessage("❌ Failed to start video streaming");
+            addSystemMessage("❌ Failed to start video streaming: " + e.getMessage());
+
+            // Try to recover by reinitializing hardware
+            try {
+                System.out.println("🔄 Attempting to recover camera...");
+                initializeHardware();
+            } catch (Exception ex) {
+                System.err.println("❌ Camera recovery failed: " + ex.getMessage());
+            }
         }
     }
 
@@ -779,10 +869,16 @@ public class MeetingController {
         // Stop camera
         stopCamera();
 
-        // Notify everyone via WebSocket
-        String meetingId = HelloApplication.getActiveMeetingId();
-        String username = HelloApplication.getLoggedInUser();
+        // Disable streaming
+        streamingEnabled = false;
 
+        // Remove from active streams
+        String username = HelloApplication.getLoggedInUser();
+        activeVideoStreams.remove(username);
+        updateParticipantsList();
+
+        // Notify all participants via WebSocket
+        String meetingId = HelloApplication.getActiveMeetingId();
         if (HelloApplication.isWebSocketConnected() && meetingId != null) {
             HelloApplication.sendWebSocketMessage(
                     "VIDEO_STATUS",
@@ -790,7 +886,7 @@ public class MeetingController {
                     username,
                     "VIDEO_STOPPED"
             );
-            System.out.println("✅ Sent VIDEO_STOPPED notification");
+            System.out.println("✅ Sent VIDEO_STOPPED notification to all participants");
         }
 
         // Show placeholder again
@@ -809,7 +905,7 @@ public class MeetingController {
     }
 
     /**
-     * Start camera capture with ACTUAL video streaming
+     * Enhanced camera capture with multi-client streaming - FIXED VERSION
      */
     private void startCamera() {
         if (!cameraAvailable || webcam == null) {
@@ -819,61 +915,84 @@ public class MeetingController {
         }
 
         try {
-            System.out.println("📷 Starting ACTUAL camera streaming...");
+            System.out.println("📷 Starting multi-client camera streaming...");
 
-            if (!webcam.isOpen()) {
-                webcam.open();
-                System.out.println("📷 Camera opened successfully");
-                webcam.setViewSize(new java.awt.Dimension(640, 480));
+            // Ensure webcam is not already open from a previous session
+            if (webcam.isOpen()) {
+                System.out.println("⚠️ Webcam was already open, closing first...");
+                webcam.close();
+                Thread.sleep(100); // Small delay
             }
+
+            // Open the webcam with the current resolution
+            System.out.println("📷 Opening camera with resolution: " +
+                    currentVideoQuality.width + "x" + currentVideoQuality.height);
+            webcam.open();
+            System.out.println("📷 Camera opened successfully");
 
             cameraRunning = true;
             cameraThread = new Thread(() -> {
                 System.out.println("📷 Camera streaming thread started");
                 int frameCount = 0;
+                long lastFrameTime = System.currentTimeMillis();
+                int frameInterval = 1000 / currentVideoQuality.fps; // ms per frame
 
                 while (cameraRunning && webcam.isOpen()) {
                     try {
-                        java.awt.image.BufferedImage awtImage = webcam.getImage();
-                        if (awtImage != null) {
-                            // Convert to JavaFX Image for local display
-                            Image fxImage = SwingFXUtils.toFXImage(awtImage, null);
+                        long currentTime = System.currentTimeMillis();
+                        long timeSinceLastFrame = currentTime - lastFrameTime;
 
-                            Platform.runLater(() -> {
-                                // Update main video display
-                                if (videoDisplay != null) {
-                                    videoDisplay.setImage(fxImage);
-                                }
-                                // Update video controls preview
-                                if (videoControlsController != null) {
-                                    videoControlsController.updateVideoPreview(fxImage);
-                                }
-                            });
+                        if (timeSinceLastFrame >= frameInterval) {
+                            lastFrameTime = currentTime;
 
-                            // 🔥 ACTUAL VIDEO STREAMING: Send frame to all participants
-                            if (HelloApplication.isWebSocketConnected() &&
-                                    HelloApplication.getActiveMeetingId() != null &&
-                                    HelloApplication.isVideoOn()) {
+                            java.awt.image.BufferedImage awtImage = webcam.getImage();
+                            if (awtImage != null) {
+                                // Convert to JavaFX Image for local display
+                                Image fxImage = SwingFXUtils.toFXImage(awtImage, null);
 
-                                // Convert image to Base64 for streaming
-                                String base64Frame = convertAwtImageToBase64Simple(awtImage);
-                                if (base64Frame != null && !base64Frame.isEmpty()) {
-                                    String username = HelloApplication.getLoggedInUser();
-                                    String meetingId = HelloApplication.getActiveMeetingId();
-
-                                    // Send via WebSocket
-                                    HelloApplication.sendVideoFrame(meetingId, username, base64Frame);
-
-                                    // Log every 10 frames
-                                    if (frameCount % 10 == 0) {
-                                        System.out.println("📤 Sent frame #" + frameCount +
-                                                " (" + base64Frame.length() + " chars)");
+                                Platform.runLater(() -> {
+                                    // Update main video display
+                                    if (videoDisplay != null) {
+                                        videoDisplay.setImage(fxImage);
                                     }
-                                    frameCount++;
+                                    // Update video controls preview
+                                    if (videoControlsController != null) {
+                                        videoControlsController.displayVideoFrame(fxImage);
+                                    }
+                                });
+
+                                // 🔥 MULTI-CLIENT VIDEO STREAMING
+                                if (streamingEnabled && HelloApplication.isWebSocketConnected() &&
+                                        HelloApplication.getActiveMeetingId() != null) {
+
+                                    // Convert image to compressed Base64
+                                    String base64Frame = compressAndConvertImage(awtImage);
+                                    if (base64Frame != null && !base64Frame.isEmpty()) {
+                                        String username = HelloApplication.getLoggedInUser();
+                                        String meetingId = HelloApplication.getActiveMeetingId();
+
+                                        // Send via WebSocket to all participants
+                                        HelloApplication.sendWebSocketMessage(
+                                                "VIDEO_FRAME",
+                                                meetingId,
+                                                username,
+                                                base64Frame
+                                        );
+
+                                        // Log every 15 frames
+                                        if (frameCount % 15 == 0) {
+                                            System.out.println("📤 Sent frame #" + frameCount +
+                                                    " to all participants (" +
+                                                    base64Frame.length() + " bytes)");
+                                        }
+                                        frameCount++;
+                                    }
                                 }
                             }
                         }
-                        Thread.sleep(100); // ~10 FPS for streaming
+
+                        // Sleep to maintain FPS
+                        Thread.sleep(10);
                     } catch (Exception e) {
                         System.err.println("❌ Camera capture error: " + e.getMessage());
                         break;
@@ -884,7 +1003,7 @@ public class MeetingController {
             cameraThread.setDaemon(true);
             cameraThread.start();
 
-            System.out.println("✅ Camera started with ACTUAL streaming");
+            System.out.println("✅ Camera started with multi-client streaming");
 
         } catch (Exception e) {
             System.err.println("❌ Failed to start camera: " + e.getMessage());
@@ -894,23 +1013,26 @@ public class MeetingController {
     }
 
     /**
-     * SIMPLE method to convert AWT BufferedImage to Base64
+     * Enhanced image compression and conversion
      */
-    private String convertAwtImageToBase64Simple(java.awt.image.BufferedImage awtImage) {
+    private String compressAndConvertImage(java.awt.image.BufferedImage awtImage) {
         try {
-            // Create a smaller image for streaming (320x240)
-            int newWidth = 320;
-            int newHeight = 240;
+            // Scale image based on quality setting
+            int targetWidth = currentVideoQuality.width;
+            int targetHeight = currentVideoQuality.height;
 
-            java.awt.Image scaledImage = awtImage.getScaledInstance(newWidth, newHeight, java.awt.Image.SCALE_SMOOTH);
+            // Create scaled image
+            java.awt.Image scaledImage = awtImage.getScaledInstance(
+                    targetWidth, targetHeight, java.awt.Image.SCALE_SMOOTH);
+
             java.awt.image.BufferedImage bufferedScaledImage = new java.awt.image.BufferedImage(
-                    newWidth, newHeight, java.awt.image.BufferedImage.TYPE_INT_RGB);
+                    targetWidth, targetHeight, java.awt.image.BufferedImage.TYPE_INT_RGB);
 
             java.awt.Graphics2D g2d = bufferedScaledImage.createGraphics();
             g2d.drawImage(scaledImage, 0, 0, null);
             g2d.dispose();
 
-            // Convert to JPEG with compression
+            // Convert to JPEG with quality compression
             java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
             javax.imageio.ImageIO.write(bufferedScaledImage, "jpg", baos);
             byte[] imageBytes = baos.toByteArray();
@@ -926,29 +1048,23 @@ public class MeetingController {
     }
 
     /**
-     * WORKING: Display video frame from other participants
+     * Display video frame from other participants
      */
     public void displayVideoFrame(String username, Image videoFrame) {
         Platform.runLater(() -> {
             try {
                 System.out.println("\n🎬 ========== DISPLAY VIDEO ==========");
                 System.out.println("🎬 From: " + username);
-                System.out.println("🎬 Our user: " + HelloApplication.getLoggedInUser());
-
-                if (videoFrame == null) {
-                    System.err.println("❌ Video frame is NULL");
-                    return;
-                }
-
                 System.out.println("🎬 Frame size: " + videoFrame.getWidth() + "x" + videoFrame.getHeight());
 
-                // Always display the video, even if it's our own
+                // Always display the video
                 if (videoDisplay != null) {
                     videoDisplay.setImage(videoFrame);
                     videoDisplay.setVisible(true);
                     videoDisplay.setFitWidth(640);
                     videoDisplay.setFitHeight(480);
                     videoDisplay.setPreserveRatio(true);
+                    videoDisplay.setSmooth(true);
 
                     System.out.println("✅ Updated video display");
                 }
@@ -961,8 +1077,17 @@ public class MeetingController {
 
                 // Show overlay
                 String overlayText = username.equals(HelloApplication.getLoggedInUser()) ?
-                        "📹 You (Broadcasting)" : "📹 " + username;
+                        "📹 You (Live)" : "📹 " + username + " (Live)";
                 showSimpleOverlay(overlayText);
+
+                // Mark as displaying video from this user
+                isDisplayingVideo = true;
+
+                // Update active streams if not already in list
+                if (!activeVideoStreams.contains(username) && !username.equals(HelloApplication.getLoggedInUser())) {
+                    activeVideoStreams.add(username);
+                    updateParticipantsList();
+                }
 
                 System.out.println("🎬 ================================\n");
 
@@ -974,6 +1099,15 @@ public class MeetingController {
     }
 
     /**
+     * Check if currently displaying video from specific user
+     */
+    private boolean isDisplayingVideoFromUser(String username) {
+        // This is a simplified check
+        // In a real implementation, you'd track which user's video is currently displayed
+        return isDisplayingVideo;
+    }
+
+    /**
      * Simple overlay method
      */
     private void showSimpleOverlay(String text) {
@@ -982,11 +1116,12 @@ public class MeetingController {
                 // Remove old overlays
                 videoArea.getChildren().removeIf(node -> node instanceof Label);
 
-                Label overlay = new Label("▶ " + text);
+                Label overlay = new Label(text);
                 overlay.setStyle("-fx-background-color: rgba(0,0,0,0.7); " +
                         "-fx-text-fill: white; " +
                         "-fx-font-size: 14px; " +
-                        "-fx-padding: 5px 10px;");
+                        "-fx-padding: 5px 10px; " +
+                        "-fx-background-radius: 10px;");
 
                 StackPane.setAlignment(overlay, javafx.geometry.Pos.TOP_CENTER);
                 StackPane.setMargin(overlay, new javafx.geometry.Insets(10, 0, 0, 0));
@@ -996,103 +1131,34 @@ public class MeetingController {
         });
     }
 
-    private int frameCount = 0;
-
-    private void showVideoOverlay(String text) {
-        if (videoArea != null) {
-            // Clear previous overlays
-            videoArea.getChildren().removeIf(node -> node instanceof Label);
-
-            // Create overlay label
-            Label overlay = new Label(text);
-            overlay.setStyle("-fx-background-color: rgba(0, 0, 0, 0.7); " +
-                    "-fx-text-fill: white; " +
-                    "-fx-font-size: 14px; " +
-                    "-fx-padding: 5px 10px; " +
-                    "-fx-background-radius: 5px;");
-            overlay.setAlignment(javafx.geometry.Pos.CENTER);
-
-            // Position at bottom of video area
-            StackPane.setAlignment(overlay, javafx.geometry.Pos.BOTTOM_CENTER);
-            StackPane.setMargin(overlay, new javafx.geometry.Insets(0, 0, 10, 0));
-
-            videoArea.getChildren().add(overlay);
-
-            // Remove overlay after 3 seconds
-            PauseTransition pause = new PauseTransition(javafx.util.Duration.seconds(3));
-            pause.setOnFinished(e -> videoArea.getChildren().remove(overlay));
-            pause.play();
-        }
-    }
-
     /**
-     * Show participant video in a grid (for host view)
-     */
-    private void showParticipantVideo(String username, Image videoFrame) {
-        // This would show participant videos in a grid layout
-        // For now, just show in a small preview
-        if (videoControlsController != null) {
-            videoControlsController.displayVideoFrame(videoFrame);
-        }
-
-        addSystemMessage("🎥 " + username + " is sharing video");
-    }
-
-    /**
-     * Compress Base64 image string (simple downscaling)
-     */
-    private String compressBase64Image(String base64Image) {
-        try {
-            // Decode base64
-            byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Image);
-            java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(imageBytes);
-            java.awt.image.BufferedImage originalImage = javax.imageio.ImageIO.read(bis);
-
-            if (originalImage == null) return base64Image;
-
-            // Downscale to reduce size
-            int newWidth = originalImage.getWidth() / 2;
-            int newHeight = originalImage.getHeight() / 2;
-
-            java.awt.Image scaledImage = originalImage.getScaledInstance(newWidth, newHeight, java.awt.Image.SCALE_SMOOTH);
-            java.awt.image.BufferedImage bufferedScaledImage = new java.awt.image.BufferedImage(
-                    newWidth, newHeight, java.awt.image.BufferedImage.TYPE_INT_RGB);
-
-            java.awt.Graphics2D g2d = bufferedScaledImage.createGraphics();
-            g2d.drawImage(scaledImage, 0, 0, null);
-            g2d.dispose();
-
-            // Re-encode to base64
-            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-            javax.imageio.ImageIO.write(bufferedScaledImage, "jpg", baos);
-            byte[] compressedBytes = baos.toByteArray();
-
-            return java.util.Base64.getEncoder().encodeToString(compressedBytes);
-
-        } catch (Exception e) {
-            System.err.println("❌ Error compressing image: " + e.getMessage());
-            return base64Image; // Return original if compression fails
-        }
-    }
-
-    /**
-     * Stop camera capture
+     * Stop camera capture - ENHANCED VERSION
      */
     private void stopCamera() {
         System.out.println("📷 Stopping camera...");
         cameraRunning = false;
+        streamingEnabled = false;
 
+        // Stop camera thread
         if (cameraThread != null && cameraThread.isAlive()) {
             try {
                 cameraThread.join(1000);
+                cameraThread = null;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
         }
 
-        if (webcam != null && webcam.isOpen()) {
-            webcam.close();
-            System.out.println("📷 Camera closed");
+        // Close webcam if open
+        if (webcam != null) {
+            try {
+                if (webcam.isOpen()) {
+                    webcam.close();
+                    System.out.println("📷 Camera closed");
+                }
+            } catch (Exception e) {
+                System.err.println("❌ Error closing camera: " + e.getMessage());
+            }
         }
 
         Platform.runLater(() -> {
@@ -1108,6 +1174,10 @@ public class MeetingController {
             // Reset video controls to simulated camera
             if (videoControlsController != null) {
                 videoControlsController.resetToSimulatedCamera();
+            }
+            // Clear overlay
+            if (videoArea != null) {
+                videoArea.getChildren().removeIf(node -> node instanceof Label);
             }
         });
 
@@ -1197,18 +1267,6 @@ public class MeetingController {
         }
     }
 
-    /**
-     * Convert AWT BufferedImage to JavaFX Image
-     */
-    private Image convertToFxImage(java.awt.image.BufferedImage awtImage) {
-        try {
-            return javafx.embed.swing.SwingFXUtils.toFXImage(awtImage, null);
-        } catch (Exception e) {
-            System.err.println("❌ Failed to convert image: " + e.getMessage());
-            return null;
-        }
-    }
-
     public void handleWebSocketMessage(String message) {
         try {
             System.out.println("\n📨 ========== RECEIVED MESSAGE ==========");
@@ -1254,11 +1312,23 @@ public class MeetingController {
                         } else if ("VIDEO_STATUS".equals(type)) {
                             System.out.println("🎬 Video status update from " + username + ": " + content);
 
-                            if ("VIDEO_STARTED".equals(content)) {
-                                addSystemMessage("🎬 " + username + " started video streaming");
+                            String[] statusParts = content.split("\\|");
+                            String status = statusParts[0];
+
+                            if ("VIDEO_STARTED".equals(status)) {
+                                String quality = statusParts.length > 1 ? statusParts[1] : "MEDIUM";
+                                addSystemMessage("🎬 " + username + " started video streaming (" + quality + " quality)");
                                 showWaitingMessage("⏳ " + username + " is streaming...");
+                                // Add to active streams
+                                if (!activeVideoStreams.contains(username)) {
+                                    activeVideoStreams.add(username);
+                                    updateParticipantsList();
+                                }
                             } else if ("VIDEO_STOPPED".equals(content)) {
                                 addSystemMessage(username + " stopped streaming");
+                                // Remove from active streams
+                                activeVideoStreams.remove(username);
+                                updateParticipantsList();
                                 if (!username.equals(HelloApplication.getLoggedInUser())) {
                                     clearVideoDisplay();
                                 }
@@ -1266,6 +1336,9 @@ public class MeetingController {
 
                         } else if ("CHAT".equals(type)) {
                             addUserMessage(username + ": " + content);
+                        } else if ("FILE_TRANSFER".equals(type)) {
+                            // Handle file transfer
+                            handleFileTransferMessage(username, content);
                         }
 
                     } catch (Exception e) {
@@ -1284,6 +1357,151 @@ public class MeetingController {
             System.err.println("❌ Error in handleWebSocketMessage: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    /**
+     * Handle file transfer messages
+     */
+    private void handleFileTransferMessage(String username, String content) {
+        try {
+            String[] parts = content.split("\\|", 4);
+            if (parts.length >= 4) {
+                String action = parts[0];
+                String fileId = parts[1];
+                String fileName = parts[2];
+                String data = parts[3];
+
+                switch (action) {
+                    case "REQUEST":
+                        // Another user wants to send us a file
+                        handleFileTransferRequest(username, fileId, fileName, data);
+                        break;
+                    case "DATA":
+                        // File data chunk
+                        handleFileDataChunk(username, fileId, fileName, data);
+                        break;
+                    case "COMPLETE":
+                        // File transfer complete
+                        handleFileTransferComplete(username, fileId, fileName);
+                        break;
+                    case "ERROR":
+                        // File transfer error
+                        handleFileTransferError(username, fileId, fileName, data);
+                        break;
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error handling file transfer message: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Handle file transfer request
+     */
+    private void handleFileTransferRequest(String sender, String fileId, String fileName, String fileSizeStr) {
+        Platform.runLater(() -> {
+            try {
+                long fileSize = Long.parseLong(fileSizeStr);
+
+                // Ask user if they want to accept the file
+                Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+                alert.setTitle("File Transfer Request");
+                alert.setHeaderText("Incoming File from " + sender);
+                alert.setContentText(String.format(
+                        "File: %s\nSize: %s\nDo you want to accept this file?",
+                        fileName, formatFileSize(fileSize)
+                ));
+
+                Optional<ButtonType> result = alert.showAndWait();
+                if (result.isPresent() && result.get() == ButtonType.OK) {
+                    // Accept the file
+                    fileTransferHandler.acceptFileTransfer(fileId, sender, fileName, fileSize);
+                    addSystemMessage("✅ Accepted file transfer from " + sender + ": " + fileName);
+                } else {
+                    // Reject the file
+                    fileTransferHandler.rejectFileTransfer(fileId, sender);
+                    addSystemMessage("❌ Rejected file transfer from " + sender + ": " + fileName);
+                }
+            } catch (Exception e) {
+                System.err.println("❌ Error handling file transfer request: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Handle file data chunk
+     */
+    private void handleFileDataChunk(String sender, String fileId, String fileName, String chunkData) {
+        try {
+            boolean success = fileTransferHandler.receiveFileChunk(fileId, sender, chunkData);
+            if (success) {
+                // Show progress periodically
+                if (System.currentTimeMillis() % 5000 < 100) {
+                    int progress = fileTransferHandler.getTransferProgress(fileId);
+                    Platform.runLater(() -> {
+                        addSystemMessage("📥 Receiving " + fileName + ": " + progress + "%");
+                    });
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error handling file data chunk: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Handle file transfer completion
+     */
+    private void handleFileTransferComplete(String sender, String fileId, String fileName) {
+        Platform.runLater(() -> {
+            try {
+                File receivedFile = fileTransferHandler.completeFileTransfer(fileId);
+                if (receivedFile != null && receivedFile.exists()) {
+                    addSystemMessage("✅ File received from " + sender + ": " + fileName);
+                    // Display the file in chat
+                    displayReceivedFileInChat(fileName, receivedFile);
+                } else {
+                    addSystemMessage("❌ Failed to receive file from " + sender + ": " + fileName);
+                }
+            } catch (Exception e) {
+                System.err.println("❌ Error completing file transfer: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Handle file transfer error
+     */
+    private void handleFileTransferError(String sender, String fileId, String fileName, String error) {
+        Platform.runLater(() -> {
+            addSystemMessage("❌ File transfer failed from " + sender + ": " + fileName + " (" + error + ")");
+            fileTransferHandler.cancelFileTransfer(fileId);
+        });
+    }
+
+    /**
+     * Display received file in chat
+     */
+    private void displayReceivedFileInChat(String fileName, File file) {
+        Platform.runLater(() -> {
+            if (isImage(file)) {
+                displayImage(file);
+            } else if (isAudio(file) || isVideo(file)) {
+                displayMedia(file);
+            } else {
+                displayFileLink(file);
+            }
+            scrollToBottom();
+        });
+    }
+
+    /**
+     * Format file size for display
+     */
+    private String formatFileSize(long size) {
+        if (size < 1024) return size + " B";
+        if (size < 1024 * 1024) return String.format("%.1f KB", size / 1024.0);
+        if (size < 1024 * 1024 * 1024) return String.format("%.1f MB", size / (1024.0 * 1024.0));
+        return String.format("%.1f GB", size / (1024.0 * 1024.0 * 1024.0));
     }
 
     /**
@@ -1381,29 +1599,6 @@ public class MeetingController {
     }
 
     /**
-     * Show waiting indicator for incoming video
-     */
-    private void showVideoWaitingIndicator(String username) {
-        Platform.runLater(() -> {
-            if (videoArea != null) {
-                // Clear previous waiting indicators
-                videoArea.getChildren().removeIf(node -> node instanceof Label &&
-                        ((Label) node).getText().contains("Waiting for"));
-
-                Label waitingLabel = new Label("⏳ Waiting for " + username + "'s video...");
-                waitingLabel.setStyle("-fx-text-fill: white; " +
-                        "-fx-font-size: 14px; " +
-                        "-fx-background-color: rgba(0, 0, 0, 0.7); " +
-                        "-fx-padding: 10px; " +
-                        "-fx-background-radius: 5px;");
-
-                StackPane.setAlignment(waitingLabel, javafx.geometry.Pos.CENTER);
-                videoArea.getChildren().add(waitingLabel);
-            }
-        });
-    }
-
-    /**
      * Clear video from a specific user
      */
     private void clearVideoFromUser(String username) {
@@ -1438,7 +1633,7 @@ public class MeetingController {
     }
 
     /**
-     * Show/hide host video indicator
+     * Show/hide host video indicator - ADDED METHOD
      */
     public void showHostVideoIndicator(boolean show) {
         Platform.runLater(() -> {
@@ -1466,8 +1661,6 @@ public class MeetingController {
             }
         });
     }
-
-    // ... (rest of your existing methods remain the same)
 
     public void setStage(Stage stage) {
         this.stage = stage;
@@ -1671,12 +1864,10 @@ public class MeetingController {
         int minutes = (meetingSeconds % 3600) / 60;
         int seconds = meetingSeconds % 60;
 
-        if (timerLabel != null) {
-            if (hours > 0) {
-                timerLabel.setText(String.format("Time: %02d:%02d:%02d", hours, minutes, seconds));
-            } else {
-                timerLabel.setText(String.format("Time: %02d:%02d", minutes, seconds));
-            }
+        if (hours > 0) {
+            timerLabel.setText(String.format("Time: %02d:%02d:%02d", hours, minutes, seconds));
+        } else {
+            timerLabel.setText(String.format("Time: %02d:%02d", minutes, seconds));
         }
     }
 
@@ -2008,6 +2199,7 @@ public class MeetingController {
         }
     }
 
+    // ---------------- ENHANCED FILE TRANSFER ----------------
     @FXML
     protected void onSendFile() {
         if (stage == null) stage = (Stage) chatBox.getScene().getWindow();
@@ -2018,35 +2210,43 @@ public class MeetingController {
                 new FileChooser.ExtensionFilter("All Files", "*.*"),
                 new FileChooser.ExtensionFilter("Images", "*.png", "*.jpg", "*.jpeg", "*.gif"),
                 new FileChooser.ExtensionFilter("Audio", "*.mp3", "*.wav"),
-                new FileChooser.ExtensionFilter("Video", "*.mp4", "*.mov", "*.avi")
+                new FileChooser.ExtensionFilter("Video", "*.mp4", "*.mov", "*.avi"),
+                new FileChooser.ExtensionFilter("Documents", "*.pdf", "*.doc", "*.docx", "*.txt")
         );
 
         File file = fileChooser.showOpenDialog(stage);
 
         if (file != null) {
             try {
+                // Check file size (limit to 100MB for now)
+                long fileSize = file.length();
+                long maxSize = 100 * 1024 * 1024; // 100MB
+
+                if (fileSize > maxSize) {
+                    showAlert("File Too Large", "File size exceeds 100MB limit. Please select a smaller file.");
+                    return;
+                }
+
                 String username = HelloApplication.getLoggedInUser();
-                String fileMessage = "📎 File shared: " + file.getName();
-                addSystemMessage(fileMessage);
-
-                // Save file share to database
                 String meetingId = HelloApplication.getActiveMeetingId();
-                if (meetingId != null) {
-                    Database.saveChatMessage(meetingId, username, fileMessage, "SYSTEM");
+
+                if (meetingId == null) {
+                    showAlert("Error", "No active meeting found.");
+                    return;
                 }
 
-                if (isImage(file)) {
-                    displayImage(file);
-                } else if (isAudio(file) || isVideo(file)) {
-                    displayMedia(file);
+                // Start file transfer
+                boolean transferStarted = fileTransferHandler.startFileTransfer(file, meetingId, username);
+
+                if (transferStarted) {
+                    addSystemMessage("📤 Started sending file: " + file.getName() + " (" + formatFileSize(fileSize) + ")");
                 } else {
-                    displayFileLink(file);
+                    showAlert("Transfer Error", "Failed to start file transfer.");
                 }
 
-                scrollToBottom();
             } catch (Exception ex) {
                 ex.printStackTrace();
-                showAlert("Error", "Failed to share file!");
+                showAlert("Error", "Failed to share file: " + ex.getMessage());
             }
         }
     }
@@ -2079,19 +2279,24 @@ public class MeetingController {
     }
 
     private void displayImage(File file) {
-        ImageView imgView = new ImageView(new Image(file.toURI().toString()));
-        imgView.setFitWidth(200);
-        imgView.setPreserveRatio(true);
-        imgView.setStyle("-fx-border-color: #bdc3c7; -fx-border-radius: 5;");
-        imgView.setOnMouseClicked(e -> downloadFile(file));
+        try {
+            ImageView imgView = new ImageView(new Image(file.toURI().toString()));
+            imgView.setFitWidth(200);
+            imgView.setPreserveRatio(true);
+            imgView.setStyle("-fx-border-color: #bdc3c7; -fx-border-radius: 5;");
+            imgView.setOnMouseClicked(e -> downloadFile(file));
 
-        VBox imageContainer = new VBox(5);
-        imageContainer.getChildren().addAll(
-                new Label("🖼 " + file.getName()),
-                imgView
-        );
-        if (chatBox != null) {
-            chatBox.getChildren().add(imageContainer);
+            VBox imageContainer = new VBox(5);
+            imageContainer.getChildren().addAll(
+                    new Label("🖼 " + file.getName() + " (" + formatFileSize(file.length()) + ")"),
+                    imgView
+            );
+            if (chatBox != null) {
+                chatBox.getChildren().add(imageContainer);
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error displaying image: " + e.getMessage());
+            displayFileLink(file);
         }
     }
 
@@ -2105,6 +2310,21 @@ public class MeetingController {
             mediaView.setStyle("-fx-border-color: #bdc3c7; -fx-border-radius: 5;");
             mediaView.setOnMouseClicked(e -> downloadFile(file));
 
+            // Add controls
+            HBox controls = new HBox(5);
+            controls.setAlignment(Pos.CENTER);
+
+            Button playButton = new Button("▶");
+            playButton.setOnAction(e -> player.play());
+
+            Button pauseButton = new Button("⏸");
+            pauseButton.setOnAction(e -> player.pause());
+
+            Button stopButton = new Button("⏹");
+            stopButton.setOnAction(e -> player.stop());
+
+            controls.getChildren().addAll(playButton, pauseButton, stopButton);
+
             // Stop previous media player
             if (currentMediaPlayer != null) {
                 currentMediaPlayer.stop();
@@ -2114,48 +2334,26 @@ public class MeetingController {
             VBox mediaContainer = new VBox(5);
             mediaContainer.getChildren().addAll(
                     new Label(isVideo(file) ? "🎥 " + file.getName() : "🎵 " + file.getName()),
-                    mediaView
+                    mediaView,
+                    controls
             );
             if (chatBox != null) {
                 chatBox.getChildren().add(mediaContainer);
             }
 
         } catch (Exception e) {
+            System.err.println("❌ Error displaying media: " + e.getMessage());
             displayFileLink(file);
         }
     }
 
     private void displayFileLink(File file) {
-        Hyperlink fileLink = new Hyperlink("📎 " + file.getName() + " (" + getFileSize(file) + ")");
+        Hyperlink fileLink = new Hyperlink("📎 " + file.getName() + " (" + formatFileSize(file.length()) + ")");
         fileLink.setStyle("-fx-text-fill: #3498db; -fx-border-color: transparent;");
         fileLink.setOnAction(e -> downloadFile(file));
         if (chatBox != null) {
             chatBox.getChildren().add(fileLink);
         }
-    }
-
-    private String getFileSize(File file) {
-        long bytes = file.length();
-        if (bytes < 1024) return bytes + " B";
-        int exp = (int) (Math.log(bytes) / Math.log(1024));
-        String pre = "KMGTPE".charAt(exp-1) + "";
-        return String.format("%.1f %sB", bytes / Math.pow(1024, exp), pre);
-    }
-
-    // ---------------- Helpers ----------------
-    private boolean isImage(File f) {
-        String n = f.getName().toLowerCase();
-        return n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".gif");
-    }
-
-    private boolean isAudio(File f) {
-        String n = f.getName().toLowerCase();
-        return n.endsWith(".mp3") || n.endsWith(".wav") || n.endsWith(".m4a");
-    }
-
-    private boolean isVideo(File f) {
-        String n = f.getName().toLowerCase();
-        return n.endsWith(".mp4") || n.endsWith(".mov") || n.endsWith(".avi") || n.endsWith(".m4v");
     }
 
     private void downloadFile(File sourceFile) {
@@ -2221,12 +2419,30 @@ public class MeetingController {
         // Cleanup audio and video resources
         cleanupAudioVideoResources();
 
+        // Cleanup file transfer handler
+        if (fileTransferHandler != null) {
+            fileTransferHandler.cleanup();
+        }
+
         // Notify controllers about meeting end
         if (audioControlsController != null) {
             audioControlsController.onMeetingStateChanged(false);
         }
         if (videoControlsController != null) {
             videoControlsController.onMeetingStateChanged(false);
+        }
+
+        // Notify all participants that we're leaving
+        String username = HelloApplication.getLoggedInUser();
+        String meetingId = HelloApplication.getActiveMeetingId();
+
+        if (HelloApplication.isWebSocketConnected() && meetingId != null) {
+            HelloApplication.sendWebSocketMessage(
+                    "USER_LEFT",
+                    meetingId,
+                    username,
+                    "left the meeting"
+            );
         }
 
         // Leave meeting
@@ -2533,5 +2749,43 @@ public class MeetingController {
      */
     public static MeetingController getInstance() {
         return instance;
+    }
+
+    /**
+     * Set video quality
+     */
+    public void setVideoQuality(VideoQuality quality) {
+        this.currentVideoQuality = quality;
+        if (webcam != null && webcam.isOpen()) {
+            try {
+                webcam.setViewSize(new java.awt.Dimension(quality.width, quality.height));
+                System.out.println("✅ Video quality changed to: " + quality.name());
+            } catch (Exception e) {
+                System.err.println("❌ Failed to change video quality: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Get current video quality
+     */
+    public VideoQuality getCurrentVideoQuality() {
+        return currentVideoQuality;
+    }
+
+    // ---------------- Helpers for file type checking ----------------
+    private boolean isImage(File f) {
+        String n = f.getName().toLowerCase();
+        return n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".gif") || n.endsWith(".bmp");
+    }
+
+    private boolean isAudio(File f) {
+        String n = f.getName().toLowerCase();
+        return n.endsWith(".mp3") || n.endsWith(".wav") || n.endsWith(".m4a") || n.endsWith(".aac") || n.endsWith(".flac");
+    }
+
+    private boolean isVideo(File f) {
+        String n = f.getName().toLowerCase();
+        return n.endsWith(".mp4") || n.endsWith(".mov") || n.endsWith(".avi") || n.endsWith(".m4v") || n.endsWith(".mkv");
     }
 }

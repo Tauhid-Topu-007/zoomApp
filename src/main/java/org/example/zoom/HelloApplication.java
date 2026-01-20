@@ -30,6 +30,21 @@ import javafx.scene.image.Image;
 
 public class HelloApplication extends Application {
 
+    // Add a static reference to MeetingController
+    private static MeetingController meetingController;
+
+    // Add this method
+    public static void setMeetingController(MeetingController controller) {
+        meetingController = controller;
+    }
+
+    // Add this method to forward WebSocket messages to MeetingController
+    public static void forwardWebSocketMessage(String message) {
+        if (meetingController != null) {
+            meetingController.handleWebSocketMessage(message);
+        }
+    }
+
     private static Stage primaryStage;
     private static String loggedInUser;
     private static String activeMeetingId;
