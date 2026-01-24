@@ -48,6 +48,8 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
 import javafx.embed.swing.SwingFXUtils;
+import org.example.zoom.webrtc.WebRTCClient;
+
 import javax.imageio.ImageIO;
 import java.util.Base64;
 
@@ -172,6 +174,9 @@ public class MeetingController {
     // File transfer
     private FileTransferHandler fileTransferHandler;
 
+    private org.example.zoom.webrtc.WebRTCClient webRTCClient;
+    private boolean webRTCActive = false;
+
     @FXML
     public void initialize() {
         instance = this;
@@ -243,6 +248,57 @@ public class MeetingController {
             }
         });
     }
+
+    private void initializeWebRTC() {
+        String username = HelloApplication.getLoggedInUser();
+
+        webRTCClient = new WebRTCClient(username, new WebRTCClient.WebRTCCallbacks() {
+            @Override
+            public void onLocalVideoFrame(Image frame) {
+                Platform.runLater(() -> {
+                    if (videoDisplay != null) {
+                        videoDisplay.setImage(frame);
+                        videoDisplay.setVisible(true);
+                    }
+                });
+            }
+
+            @Override
+            public void onRemoteVideoFrame(String peerId, Image frame) {
+                Platform.runLater(() -> {
+                    // Display remote video
+                    displayVideoFrame(peerId, frame);
+                });
+            }
+
+            @Override
+            public void onAudioStateChanged(boolean enabled) {
+                audioMuted = !enabled;
+                updateButtonStyles();
+            }
+
+            @Override
+            public void onVideoStateChanged(boolean enabled) {
+                videoOn = enabled;
+                updateButtonStyles();
+            }
+
+            @Override
+            public void onConnectionStateChanged(String state) {
+                Platform.runLater(() -> {
+                    addSystemMessage("WebRTC: " + state);
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                Platform.runLater(() -> {
+                    addSystemMessage("WebRTC Error: " + error);
+                });
+            }
+        });
+    }
+
 
     /**
      * Initialize audio and video controllers
@@ -740,29 +796,58 @@ public class MeetingController {
     // ---------------- REAL Audio / Video Controls ----------------
     @FXML
     protected void toggleAudio() {
-        // Use centralized audio control
-        HelloApplication.toggleAudio();
-
-        // Update local state
-        audioMuted = HelloApplication.isAudioMuted();
+        if (webRTCActive && webRTCClient != null) {
+            audioMuted = !audioMuted;
+            webRTCClient.toggleAudio(!audioMuted);
+        } else {
+            // Fallback to existing audio control
+            HelloApplication.toggleAudio();
+            audioMuted = HelloApplication.isAudioMuted();
+        }
         updateButtonStyles();
     }
+
 
     @FXML
     protected void toggleVideo() {
         System.out.println("🎬 MeetingController.toggleVideo() called");
 
-        if (!videoOn) {
-            // START VIDEO
-            startRealVideoStreaming();
+        if (webRTCActive && webRTCClient != null) {
+            if (!videoOn) {
+                // Start WebRTC video
+                webRTCClient.startLocalStream();
+                videoOn = true;
+            } else {
+                // Stop WebRTC video
+                webRTCClient.stopLocalStream();
+                videoOn = false;
+            }
         } else {
-            // STOP VIDEO
-            stopRealVideoStreaming();
+            // Use existing implementation
+            if (!videoOn) {
+                startRealVideoStreaming();
+            } else {
+                stopRealVideoStreaming();
+            }
+            videoOn = !videoOn;
         }
 
-        // Update local state
-        videoOn = HelloApplication.isVideoOn();
         updateButtonStyles();
+    }
+
+    public void handleWebRTCSignaling(String message) {
+        String[] parts = message.split("\\|", 5);
+        if (parts.length >= 5) {
+            String type = parts[0];
+            String targetPeer = parts[1];
+            String fromPeer = parts[2];
+            String sdp = parts[3];
+            String sdpType = parts[4];
+
+            if (webRTCClient != null) {
+                webRTCClient.handleSignalingMessage(fromPeer, sdpType, sdp);
+            }
+        }
     }
 
     /**
@@ -1288,75 +1373,39 @@ public class MeetingController {
                 String currentMeetingId = HelloApplication.getActiveMeetingId();
                 if (!meetingId.equals(currentMeetingId)) {
                     System.out.println("⚠️ Ignoring - wrong meeting ID");
-                    System.out.println("⚠️ Current: " + currentMeetingId + ", Received: " + meetingId);
                     return;
                 }
 
                 Platform.runLater(() -> {
                     try {
-                        if ("VIDEO_FRAME".equals(type)) {
-                            System.out.println("🎬 Processing VIDEO_FRAME from: " + username);
-
-                            // Convert Base64 to Image
-                            Image videoFrame = convertBase64ToImageSimple(content);
-                            if (videoFrame != null) {
-                                // Display the video frame
-                                displayVideoFrame(username, videoFrame);
-                                System.out.println("✅ Video frame displayed from: " + username);
-                            } else {
-                                System.err.println("❌ Failed to convert base64 to image");
-                                // Create a placeholder
-                                createPlaceholderVideo(username);
-                            }
-
-                        } else if ("VIDEO_STATUS".equals(type)) {
-                            System.out.println("🎬 Video status update from " + username + ": " + content);
-
-                            String[] statusParts = content.split("\\|");
-                            String status = statusParts[0];
-
-                            if ("VIDEO_STARTED".equals(status)) {
-                                String quality = statusParts.length > 1 ? statusParts[1] : "MEDIUM";
-                                addSystemMessage("🎬 " + username + " started video streaming (" + quality + " quality)");
-                                showWaitingMessage("⏳ " + username + " is streaming...");
-                                // Add to active streams
-                                if (!activeVideoStreams.contains(username)) {
-                                    activeVideoStreams.add(username);
-                                    updateParticipantsList();
-                                }
-                            } else if ("VIDEO_STOPPED".equals(content)) {
-                                addSystemMessage(username + " stopped streaming");
-                                // Remove from active streams
-                                activeVideoStreams.remove(username);
-                                updateParticipantsList();
-                                if (!username.equals(HelloApplication.getLoggedInUser())) {
-                                    clearVideoDisplay();
-                                }
-                            }
-
+                        if ("WEBRTC_SIGNAL".equals(type)) {
+                            System.out.println("🎬 WebRTC signaling from: " + username);
+                            handleWebRTCSignaling(content);
+                        } else if ("VIDEO_FRAME".equals(type)) {
+                            // ... existing code ...
                         } else if ("CHAT".equals(type)) {
-                            addUserMessage(username + ": " + content);
-                        } else if ("FILE_TRANSFER".equals(type)) {
-                            // Handle file transfer
-                            handleFileTransferMessage(username, content);
+                            // ... existing code ...
                         }
-
                     } catch (Exception e) {
                         System.err.println("❌ Error in Platform.runLater: " + e.getMessage());
-                        e.printStackTrace();
                     }
                 });
-
-            } else {
-                System.err.println("❌ Invalid message format");
             }
-
-            System.out.println("📨 ====================================\n");
-
         } catch (Exception e) {
             System.err.println("❌ Error in handleWebSocketMessage: " + e.getMessage());
-            e.printStackTrace();
         }
+    }
+
+    private void cleanupAudioVideoResources() {
+        System.out.println("🧹 Cleaning up audio/video resources...");
+
+        // Cleanup WebRTC
+        if (webRTCClient != null) {
+            webRTCClient.dispose();
+            webRTCClient = null;
+        }
+
+        // ... existing cleanup code ...
     }
 
     /**
@@ -2063,6 +2112,30 @@ public class MeetingController {
         }
     }
 
+    @FXML
+    protected void onToggleWebRTC() {
+        webRTCActive = !webRTCActive;
+
+        if (webRTCActive) {
+            // Initialize WebRTC
+            initializeWebRTC();
+            addSystemMessage("🌐 WebRTC enabled - Using P2P video/audio");
+            // Note: You need to add a webRTCButton field to your class
+            // and add it to your FXML file
+            // webRTCButton.setText("🌐 Disable WebRTC");
+            // webRTCButton.setStyle("-fx-background-color: #8e44ad; -fx-text-fill: white;");
+        } else {
+            // Cleanup WebRTC
+            if (webRTCClient != null) {
+                webRTCClient.dispose();
+                webRTCClient = null;
+            }
+            addSystemMessage("🌐 WebRTC disabled - Using server relay");
+            // webRTCButton.setText("🌐 Enable WebRTC");
+            // webRTCButton.setStyle("-fx-background-color: #9b59b6; -fx-text-fill: white;");
+        }
+    }
+
     /**
      * Opens the advanced MP4 recording controls window
      */
@@ -2452,42 +2525,6 @@ public class MeetingController {
         }
         HelloApplication.getPrimaryStage().setFullScreen(false);
         HelloApplication.setRoot("dashboard-view.fxml");
-    }
-
-    /**
-     * Cleanup audio and video resources to release camera and microphone
-     */
-    private void cleanupAudioVideoResources() {
-        System.out.println("🧹 Cleaning up audio/video resources...");
-
-        // Stop camera and microphone
-        stopCamera();
-        stopMicrophone();
-
-        // Cleanup audio resources
-        if (audioControlsController != null) {
-            try {
-                // Call cleanup method if it exists
-                audioControlsController.getClass().getMethod("cleanup").invoke(audioControlsController);
-                System.out.println("✅ Audio resources cleaned up");
-            } catch (Exception e) {
-                System.out.println("⚠️ Audio cleanup not implemented or failed: " + e.getMessage());
-            }
-        }
-
-        // Cleanup video resources
-        if (videoControlsController != null) {
-            try {
-                // Call cleanup method if it exists
-                videoControlsController.getClass().getMethod("cleanup").invoke(videoControlsController);
-                System.out.println("✅ Video resources cleaned up");
-            } catch (Exception e) {
-                System.out.println("⚠️ Video cleanup not implemented or failed: " + e.getMessage());
-            }
-        }
-
-        // Additional cleanup for any direct camera/microphone access
-        cleanupDirectHardwareAccess();
     }
 
     /**

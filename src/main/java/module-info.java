@@ -19,6 +19,8 @@ module org.example.zoom {
     requires mysql.connector.j;
     requires webcam.capture;
 
+    requires Java.WebSocket;
+
     opens org.example.zoom to javafx.fxml;
     opens org.example.zoom.websocket to javafx.fxml;
     opens org.example.zoom.webrtc to javafx.fxml;

@@ -100,17 +100,39 @@ public class ChatController {
         if (globalClient != null) {
             // Use the global WebSocket client
             webSocketClient = globalClient;
-            webSocketClient.setMessageHandler(this::handleWebSocketMessage);
+            // If the client has a setMessageHandler method, use it
+            try {
+                // Try to set the message handler if available
+                webSocketClient.getClass().getMethod("setMessageHandler", java.util.function.Consumer.class)
+                        .invoke(webSocketClient, (java.util.function.Consumer<String>) this::handleWebSocketMessage);
+                System.out.println("✅ Message handler set on global WebSocket client");
+            } catch (Exception e) {
+                System.out.println("⚠️ Could not set message handler on global client: " + e.getMessage());
+            }
             System.out.println("✅ Using global WebSocket client from HelloApplication");
         } else if (webSocketClient == null) {
-            // Create new WebSocket client
+            // Create new WebSocket client with message handler
             webSocketClient = new SimpleWebSocketClient(serverUrl, this::handleWebSocketMessage);
             System.out.println("✅ Created new WebSocket client for chat");
-        } else if (!webSocketClient.getServerUrl().equals(serverUrl)) {
-            // Server URL changed, reconnect
-            webSocketClient.disconnect();
-            webSocketClient = new SimpleWebSocketClient(serverUrl, this::handleWebSocketMessage);
-            System.out.println("✅ Updated WebSocket client for new server: " + serverUrl);
+        } else {
+            // Check if we need to reconnect (using try-catch for getServerUrl)
+            boolean needsReconnect = false;
+            try {
+                // Try to get server URL from client
+                String clientUrl = webSocketClient.getServerUrl();
+                needsReconnect = !clientUrl.equals(serverUrl);
+            } catch (Exception e) {
+                // If getServerUrl doesn't exist, assume we need to reconnect
+                System.out.println("⚠️ getServerUrl() not available, reconnecting...");
+                needsReconnect = true;
+            }
+
+            if (needsReconnect) {
+                // Server URL changed or method not available, reconnect
+                webSocketClient.disconnect();
+                webSocketClient = new SimpleWebSocketClient(serverUrl, this::handleWebSocketMessage);
+                System.out.println("✅ Updated WebSocket client for new server: " + serverUrl);
+            }
         }
 
         // Connect if not already connected
@@ -244,46 +266,48 @@ public class ChatController {
                 return;
             }
 
-            switch (type) {
-                case "CHAT_MESSAGE":
-                case "CHAT":
-                    handleChatMessage(username, content);
-                    break;
+            Platform.runLater(() -> {
+                switch (type) {
+                    case "CHAT_MESSAGE":
+                    case "CHAT":
+                        handleChatMessage(username, content);
+                        break;
 
-                case "FILE_SHARE":
-                    addFileMessage(content, username.equals(currentUser));
-                    break;
+                    case "FILE_SHARE":
+                        addFileMessage(content, username.equals(currentUser));
+                        break;
 
-                case "SYSTEM":
-                    addSystemMessage(content);
-                    break;
+                    case "SYSTEM":
+                        addSystemMessage(content);
+                        break;
 
-                case "USER_JOINED":
-                    addSystemMessage("🟢 " + username + " joined the chat");
-                    break;
+                    case "USER_JOINED":
+                        addSystemMessage("🟢 " + username + " joined the chat");
+                        break;
 
-                case "USER_LEFT":
-                    addSystemMessage( username + " left the chat");
-                    break;
+                    case "USER_LEFT":
+                        addSystemMessage( username + " left the chat");
+                        break;
 
-                case "CONNECTED":
-                    addSystemMessage( content);
-                    updateConnectionUI();
-                    break;
+                    case "CONNECTED":
+                        addSystemMessage( content);
+                        updateConnectionUI();
+                        break;
 
-                case "DISCONNECTED":
-                    addSystemMessage("❌ " + content);
-                    updateConnectionUI();
-                    break;
+                    case "DISCONNECTED":
+                        addSystemMessage("❌ " + content);
+                        updateConnectionUI();
+                        break;
 
-                default:
-                    // For unknown types, treat as regular message
-                    handleChatMessage(username, content);
-                    break;
-            }
+                    default:
+                        // For unknown types, treat as regular message
+                        handleChatMessage(username, content);
+                        break;
+                }
+            });
         } else {
             // Handle simple messages or malformed ones
-            addSystemMessage("Message: " + message);
+            Platform.runLater(() -> addSystemMessage("Message: " + message));
         }
     }
 
@@ -408,7 +432,23 @@ public class ChatController {
     private void handleSettingsUpdate() {
         // Reinitialize WebSocket connection with potentially new settings
         String newServerUrl = HelloApplication.getCurrentServerUrl();
-        if (webSocketClient == null || !webSocketClient.getServerUrl().equals(newServerUrl)) {
+        boolean needsReconnect = false;
+
+        if (webSocketClient == null) {
+            needsReconnect = true;
+        } else {
+            try {
+                // Try to get server URL from client
+                String clientUrl = webSocketClient.getServerUrl();
+                needsReconnect = !clientUrl.equals(newServerUrl);
+            } catch (Exception e) {
+                // If getServerUrl doesn't exist, assume we need to reconnect
+                System.out.println("⚠️ getServerUrl() not available, reconnecting...");
+                needsReconnect = true;
+            }
+        }
+
+        if (needsReconnect) {
             if (webSocketClient != null) {
                 webSocketClient.disconnect();
             }

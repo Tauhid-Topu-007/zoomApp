@@ -16,12 +16,12 @@ public class Device2_Client extends Application {
     public void start(Stage primaryStage) throws Exception {
         // Set device-specific configuration
         System.setProperty("device.name", DEVICE_NAME);
-        System.setProperty("server.ip", SERVER_IP);
+        System.setProperty("server.ip", SERVER_IP); // Client connects to host IP
         System.setProperty("server.port", String.valueOf(SERVER_PORT));
 
-        System.out.println("🚀 Starting " + DEVICE_NAME);
-        System.out.println("📍 Connecting to database: " + Database.URL);
-        System.out.println("👤 Database user: " + Database.USER);
+        System.out.println("🎯 Starting " + DEVICE_NAME);
+        System.out.println("📍 Connecting to server: " + SERVER_IP + ":" + SERVER_PORT);
+        System.out.println("💾 Database: " + Database.URL);
 
         // Initialize database for this device
         Database.initializeDatabase();
@@ -44,11 +44,11 @@ public class Device2_Client extends Application {
 
         System.out.println("✅ Stage initialized and shown for: " + DEVICE_NAME);
 
-        // Auto-login for testing after short delay
+        // Wait longer for host to start, then auto-login
         Platform.runLater(() -> {
             new Thread(() -> {
                 try {
-                    Thread.sleep(3000); // Wait 3 seconds (after Device 1)
+                    Thread.sleep(3000); // Wait 3 seconds for host to be ready
                     Platform.runLater(() -> {
                         try {
                             // Get the controller and simulate auto-login
@@ -76,7 +76,6 @@ public class Device2_Client extends Application {
         System.out.println("🌐 Server IP: " + SERVER_IP);
         System.out.println("🔌 Port: " + SERVER_PORT);
         System.out.println("💾 Database: " + Database.URL);
-        System.out.println("👤 DB User: " + Database.USER);
         launch(args);
     }
 }

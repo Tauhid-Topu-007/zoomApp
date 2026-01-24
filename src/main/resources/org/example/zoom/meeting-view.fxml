@@ -70,6 +70,9 @@
                                     style="-fx-background-radius: 5; -fx-pref-width: 150; -fx-background-color: #3498db; -fx-text-fill: white;"/>
                             <Button fx:id="chatButton" text="💬 Hide Chat" onAction="#toggleChatPanel"
                                     style="-fx-background-radius: 5; -fx-pref-width: 120; -fx-background-color: #3498db; -fx-text-fill: white;"/>
+                            <!-- Add to your meeting.fxml -->
+                            <Button fx:id="webRTCButton" text="🌐 Enable WebRTC"
+                                    onAction="#onToggleWebRTC" style="-fx-background-color: #9b59b6; -fx-text-fill: white;" />
                         </HBox>
 
                         <HBox spacing="10" alignment="CENTER_LEFT">
