@@ -3,6 +3,7 @@ package org.example.zoom;
 import javafx.fxml.FXML;
 import javafx.event.ActionEvent;
 import javafx.scene.Node;
+import javafx.scene.Parent;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.*;
@@ -29,6 +30,7 @@ import javafx.scene.media.AudioClip;
 import javafx.scene.Scene;
 import javafx.scene.text.Font;
 import javafx.scene.image.WritableImage;
+import javafx.util.Pair;
 
 import com.github.sarxos.webcam.Webcam;
 import com.github.sarxos.webcam.WebcamPanel;
@@ -77,6 +79,15 @@ public class MeetingController {
     @FXML private Button maximizeButton;
     @FXML private Button closeButton;
     @FXML private HBox titleBar;
+
+    // Screen size controls
+    @FXML private MenuButton screenSizeButton;
+    @FXML private MenuItem screenSizeSmall;
+    @FXML private MenuItem screenSizeMedium;
+    @FXML private MenuItem screenSizeLarge;
+    @FXML private MenuItem screenSizeFull;
+    @FXML private MenuItem screenSizeCustom;
+    @FXML private Button toggleFullscreenButton;
 
     // Panels
     @FXML private VBox participantsPanel;
@@ -154,6 +165,7 @@ public class MeetingController {
     private double xOffset = 0;
     private double yOffset = 0;
     private boolean isMaximized = false;
+    private boolean isFullscreen = false;
 
     // Store original window size and position for restore
     private double originalX, originalY, originalWidth, originalHeight;
@@ -176,6 +188,27 @@ public class MeetingController {
 
     private org.example.zoom.webrtc.WebRTCClient webRTCClient;
     private boolean webRTCActive = false;
+
+    // Screen size presets
+    private enum ScreenSize {
+        SMALL(800, 600, "Small (800x600)"),
+        MEDIUM(1024, 768, "Medium (1024x768)"),
+        LARGE(1280, 1024, "Large (1280x1024)"),
+        HD(1920, 1080, "HD (1920x1080)"),
+        CUSTOM(0, 0, "Custom...");
+
+        final int width;
+        final int height;
+        final String displayName;
+
+        ScreenSize(int width, int height, String displayName) {
+            this.width = width;
+            this.height = height;
+            this.displayName = displayName;
+        }
+    }
+
+    private ScreenSize currentScreenSize = ScreenSize.MEDIUM;
 
     @FXML
     public void initialize() {
@@ -204,6 +237,9 @@ public class MeetingController {
         updateMeetingInfo();
         updateButtonStyles();
         startMeetingTimer();
+
+        // Initialize screen size controls
+        setupScreenSizeControls();
 
         System.out.println("✅ MeetingController initialized successfully");
     }
@@ -247,6 +283,326 @@ public class MeetingController {
                 System.out.println("✅ Created video placeholder");
             }
         });
+    }
+
+    /**
+     * Setup screen size controls
+     */
+    private void setupScreenSizeControls() {
+        if (screenSizeButton != null) {
+            screenSizeButton.setText("📐 " + currentScreenSize.displayName);
+
+            // Set up screen size menu items
+            if (screenSizeSmall != null) {
+                screenSizeSmall.setOnAction(e -> setScreenSize(ScreenSize.SMALL));
+            }
+            if (screenSizeMedium != null) {
+                screenSizeMedium.setOnAction(e -> setScreenSize(ScreenSize.MEDIUM));
+            }
+            if (screenSizeLarge != null) {
+                screenSizeLarge.setOnAction(e -> setScreenSize(ScreenSize.LARGE));
+            }
+            if (screenSizeFull != null) {
+                screenSizeFull.setOnAction(e -> setScreenSize(ScreenSize.HD));
+            }
+            if (screenSizeCustom != null) {
+                screenSizeCustom.setOnAction(e -> showCustomSizeDialog());
+            }
+        }
+
+        if (toggleFullscreenButton != null) {
+            toggleFullscreenButton.setOnAction(e -> toggleFullscreen());
+        }
+    }
+
+    /**
+     * Set screen size
+     */
+    private void setScreenSize(ScreenSize size) {
+        if (stage == null) {
+            stage = (Stage) titleBar.getScene().getWindow();
+        }
+
+        if (stage != null) {
+            // Exit fullscreen if changing size
+            if (isFullscreen) {
+                toggleFullscreen();
+            }
+
+            // Store current size if going to custom
+            if (size == ScreenSize.CUSTOM) {
+                showCustomSizeDialog();
+                return;
+            }
+
+            // Set new size
+            stage.setWidth(size.width);
+            stage.setHeight(size.height);
+            currentScreenSize = size;
+
+            // Update button text
+            if (screenSizeButton != null) {
+                screenSizeButton.setText("📐 " + size.displayName);
+            }
+
+            // Center window on screen
+            centerWindowOnScreen();
+
+            // Update video display size
+            updateVideoDisplaySize();
+
+            System.out.println("✅ Screen size set to: " + size.displayName);
+            addSystemMessage("Screen size changed to " + size.displayName);
+        }
+    }
+
+    /**
+     * Show custom size dialog
+     */
+    private void showCustomSizeDialog() {
+        if (stage == null) return;
+
+        // Create custom dialog
+        Dialog<Pair<Integer, Integer>> dialog = new Dialog<>();
+        dialog.setTitle("Custom Screen Size");
+        dialog.setHeaderText("Enter custom width and height");
+
+        // Set the button types
+        ButtonType setButtonType = new ButtonType("Set", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(setButtonType, ButtonType.CANCEL);
+
+        // Create the width and height fields
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.setPadding(new javafx.geometry.Insets(20, 150, 10, 10));
+
+        TextField widthField = new TextField(String.valueOf((int)stage.getWidth()));
+        widthField.setPromptText("Width");
+        TextField heightField = new TextField(String.valueOf((int)stage.getHeight()));
+        heightField.setPromptText("Height");
+
+        grid.add(new Label("Width:"), 0, 0);
+        grid.add(widthField, 1, 0);
+        grid.add(new Label("Height:"), 0, 1);
+        grid.add(heightField, 1, 1);
+
+        dialog.getDialogPane().setContent(grid);
+
+        // Request focus on width field
+        Platform.runLater(() -> widthField.requestFocus());
+
+        // Convert result to width/height pair
+        dialog.setResultConverter(dialogButton -> {
+            if (dialogButton == setButtonType) {
+                try {
+                    int width = Integer.parseInt(widthField.getText());
+                    int height = Integer.parseInt(heightField.getText());
+
+                    // Validate dimensions
+                    if (width >= 800 && height >= 600 && width <= 3840 && height <= 2160) {
+                        return new Pair<>(width, height);
+                    } else {
+                        showAlert("Invalid Size", "Width must be 800-3840, Height must be 600-2160");
+                    }
+                } catch (NumberFormatException e) {
+                    showAlert("Invalid Input", "Please enter valid numbers");
+                }
+            }
+            return null;
+        });
+
+        Optional<Pair<Integer, Integer>> result = dialog.showAndWait();
+        result.ifPresent(dimensions -> {
+            // Exit fullscreen if active
+            if (isFullscreen) {
+                toggleFullscreen();
+            }
+
+            // Set custom size
+            stage.setWidth(dimensions.getKey());
+            stage.setHeight(dimensions.getValue());
+
+            currentScreenSize = ScreenSize.CUSTOM;
+            if (screenSizeButton != null) {
+                screenSizeButton.setText("📐 Custom (" + dimensions.getKey() + "x" + dimensions.getValue() + ")");
+            }
+
+            centerWindowOnScreen();
+            updateVideoDisplaySize();
+
+            System.out.println("✅ Custom screen size set: " + dimensions.getKey() + "x" + dimensions.getValue());
+            addSystemMessage("Screen size set to custom: " + dimensions.getKey() + "x" + dimensions.getValue());
+        });
+    }
+
+    /**
+     * Toggle fullscreen mode
+     */
+    @FXML
+    private void toggleFullscreen() {
+        if (stage == null) {
+            stage = (Stage) titleBar.getScene().getWindow();
+        }
+
+        if (stage != null) {
+            isFullscreen = !isFullscreen;
+            stage.setFullScreen(isFullscreen);
+
+            // Update button text
+            if (toggleFullscreenButton != null) {
+                if (isFullscreen) {
+                    toggleFullscreenButton.setText("⛶ Exit Fullscreen");
+                    toggleFullscreenButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white;");
+                } else {
+                    toggleFullscreenButton.setText("⛶ Fullscreen");
+                    toggleFullscreenButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+                }
+            }
+
+            System.out.println("✅ Fullscreen " + (isFullscreen ? "enabled" : "disabled"));
+            addSystemMessage("Fullscreen " + (isFullscreen ? "enabled" : "disabled"));
+        }
+    }
+
+    /**
+     * Center window on screen
+     */
+    private void centerWindowOnScreen() {
+        if (stage == null) return;
+
+        Rectangle2D screenBounds = Screen.getPrimary().getVisualBounds();
+        stage.setX((screenBounds.getWidth() - stage.getWidth()) / 2);
+        stage.setY((screenBounds.getHeight() - stage.getHeight()) / 2);
+    }
+
+    /**
+     * Update video display size based on window size
+     */
+    private void updateVideoDisplaySize() {
+        if (videoArea == null || videoDisplay == null) return;
+
+        Platform.runLater(() -> {
+            double newWidth = videoArea.getWidth() * 0.9;
+            double newHeight = videoArea.getHeight() * 0.8;
+
+            // Ensure minimum size
+            newWidth = Math.max(newWidth, 320);
+            newHeight = Math.max(newHeight, 240);
+
+            videoDisplay.setFitWidth(newWidth);
+            videoDisplay.setFitHeight(newHeight);
+
+            System.out.println("✅ Video display resized to: " + newWidth + "x" + newHeight);
+        });
+    }
+
+    /**
+     * Handle window resize events
+     */
+    private void setupWindowResizeHandling() {
+        if (stage == null) return;
+
+        stage.widthProperty().addListener((obs, oldVal, newVal) -> {
+            updateVideoDisplaySize();
+            updateUIForNewSize(newVal.doubleValue(), stage.getHeight());
+        });
+
+        stage.heightProperty().addListener((obs, oldVal, newVal) -> {
+            updateVideoDisplaySize();
+            updateUIForNewSize(stage.getWidth(), newVal.doubleValue());
+        });
+    }
+
+    /**
+     * Update UI based on new window size
+     */
+    private void updateUIForNewSize(double width, double height) {
+        Platform.runLater(() -> {
+            // Adjust panel sizes based on window size
+            if (width < 1000) {
+                // Compact mode
+                if (participantsPanel != null) {
+                    participantsPanel.setPrefWidth(200);
+                    participantsPanel.setMaxWidth(200);
+                }
+                if (chatPanel != null) {
+                    chatPanel.setPrefWidth(280);
+                    chatPanel.setMaxWidth(280);
+                }
+            } else {
+                // Normal mode
+                if (participantsPanel != null) {
+                    participantsPanel.setPrefWidth(250);
+                    participantsPanel.setMaxWidth(250);
+                }
+                if (chatPanel != null) {
+                    chatPanel.setPrefWidth(320);
+                    chatPanel.setMaxWidth(320);
+                }
+            }
+
+            // Update current screen size display
+            if (!isFullscreen && screenSizeButton != null) {
+                currentScreenSize = getClosestPreset((int)width, (int)height);
+                screenSizeButton.setText("📐 " + currentScreenSize.displayName);
+            }
+        });
+    }
+
+    /**
+     * Get closest preset for current size
+     */
+    private ScreenSize getClosestPreset(int width, int height) {
+        ScreenSize closest = ScreenSize.MEDIUM;
+        int minDiff = Integer.MAX_VALUE;
+
+        for (ScreenSize size : ScreenSize.values()) {
+            if (size == ScreenSize.CUSTOM) continue;
+
+            int diff = Math.abs(width - size.width) + Math.abs(height - size.height);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closest = size;
+            }
+        }
+
+        return closest;
+    }
+
+    /**
+     * Enable dragging for popup windows
+     */
+    private void enablePopupDragging(Parent root, Stage popupStage) {
+        final double[] xOffset = new double[1];
+        final double[] yOffset = new double[1];
+
+        // Try to find a title bar
+        HBox titleBar = (HBox) root.lookup("#titleBar");
+
+        if (titleBar != null) {
+            // Use title bar for dragging
+            titleBar.setOnMousePressed(event -> {
+                xOffset[0] = event.getSceneX();
+                yOffset[0] = event.getSceneY();
+            });
+
+            titleBar.setOnMouseDragged(event -> {
+                popupStage.setX(event.getScreenX() - xOffset[0]);
+                popupStage.setY(event.getScreenY() - yOffset[0]);
+            });
+        } else {
+            // Make entire window draggable
+            root.setOnMousePressed(event -> {
+                xOffset[0] = event.getSceneX();
+                yOffset[0] = event.getSceneY();
+            });
+
+            root.setOnMouseDragged(event -> {
+                popupStage.setX(event.getScreenX() - xOffset[0]);
+                popupStage.setY(event.getScreenY() - yOffset[0]);
+            });
+        }
     }
 
     private void initializeWebRTC() {
@@ -298,7 +654,6 @@ public class MeetingController {
             }
         });
     }
-
 
     /**
      * Initialize audio and video controllers
@@ -806,7 +1161,6 @@ public class MeetingController {
         }
         updateButtonStyles();
     }
-
 
     @FXML
     protected void toggleVideo() {
@@ -1716,6 +2070,7 @@ public class MeetingController {
         if (stage != null) {
             setupWindowControls();
             setupTitleBarDragging();
+            setupWindowResizeHandling();
         }
     }
 
@@ -2013,6 +2368,28 @@ public class MeetingController {
             }
         }
 
+        // Update screen size button
+        if (screenSizeButton != null) {
+            if (isFullscreen) {
+                screenSizeButton.setText("⛶ Fullscreen");
+                screenSizeButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white;");
+            } else {
+                screenSizeButton.setText("📐 " + currentScreenSize.displayName);
+                screenSizeButton.setStyle("-fx-background-color: #9b59b6; -fx-text-fill: white;");
+            }
+        }
+
+        // Update fullscreen toggle button
+        if (toggleFullscreenButton != null) {
+            if (isFullscreen) {
+                toggleFullscreenButton.setText("⛶ Exit Fullscreen");
+                toggleFullscreenButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white;");
+            } else {
+                toggleFullscreenButton.setText("⛶ Fullscreen");
+                toggleFullscreenButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+            }
+        }
+
         // Style other buttons
         if (shareButton != null) {
             shareButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
@@ -2120,10 +2497,6 @@ public class MeetingController {
             // Initialize WebRTC
             initializeWebRTC();
             addSystemMessage("🌐 WebRTC enabled - Using P2P video/audio");
-            // Note: You need to add a webRTCButton field to your class
-            // and add it to your FXML file
-            // webRTCButton.setText("🌐 Disable WebRTC");
-            // webRTCButton.setStyle("-fx-background-color: #8e44ad; -fx-text-fill: white;");
         } else {
             // Cleanup WebRTC
             if (webRTCClient != null) {
@@ -2131,13 +2504,11 @@ public class MeetingController {
                 webRTCClient = null;
             }
             addSystemMessage("🌐 WebRTC disabled - Using server relay");
-            // webRTCButton.setText("🌐 Enable WebRTC");
-            // webRTCButton.setStyle("-fx-background-color: #9b59b6; -fx-text-fill: white;");
         }
     }
 
     /**
-     * Opens the advanced MP4 recording controls window
+     * Opens the advanced MP4 recording controls window - UPDATED WITH DRAGGING
      */
     private void openAdvancedRecordingControls() {
         try {
@@ -2163,6 +2534,9 @@ public class MeetingController {
 
             // PASS THE STAGE TO THE CONTROLLER - THIS IS CRITICAL!
             mp4RecordingController.setStage(recordingStage);
+
+            // ENABLE DRAGGING FOR THE POPUP
+            enablePopupDragging(recordingControls, recordingStage);
 
             // Close handler to cleanup resources
             recordingStage.setOnCloseRequest(e -> {

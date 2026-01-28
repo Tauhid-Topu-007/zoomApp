@@ -4,6 +4,7 @@
 <?import javafx.scene.control.*?>
 <?import javafx.geometry.*?>
 <?import javafx.scene.image.ImageView?>
+<?import javafx.scene.text.*?>
 
 <ScrollPane xmlns:fx="http://javafx.com/fxml"
             fx:controller="org.example.zoom.MeetingController"
@@ -40,6 +41,26 @@
 
                     <Pane HBox.hgrow="ALWAYS"/>
 
+                    <!-- Screen Size Controls -->
+                    <HBox spacing="5" alignment="CENTER">
+                        <MenuButton fx:id="screenSizeButton" text="📐 Medium (1024x768)"
+                                    style="-fx-background-color: #2c3e50; -fx-text-fill: white; -fx-border-color: #3498db;">
+                            <items>
+                                <MenuItem fx:id="screenSizeSmall" text="Small (800x600)" />
+                                <MenuItem fx:id="screenSizeMedium" text="Medium (1024x768)" />
+                                <MenuItem fx:id="screenSizeLarge" text="Large (1280x1024)" />
+                                <MenuItem fx:id="screenSizeFull" text="HD (1920x1080)" />
+                                <SeparatorMenuItem />
+                                <MenuItem fx:id="screenSizeCustom" text="Custom Size..." />
+                            </items>
+                        </MenuButton>
+
+                        <Button fx:id="toggleFullscreenButton" text="⛶ Fullscreen"
+                                style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-border-color: transparent; -fx-min-width: 100;"/>
+                    </HBox>
+
+                    <Pane HBox.hgrow="ALWAYS"/>
+
                     <!-- Window Control Buttons -->
                     <HBox spacing="2">
                         <Button fx:id="minimizeButton" text="🗕" onAction="#onMinimizeButton"
@@ -70,9 +91,8 @@
                                     style="-fx-background-radius: 5; -fx-pref-width: 150; -fx-background-color: #3498db; -fx-text-fill: white;"/>
                             <Button fx:id="chatButton" text="💬 Hide Chat" onAction="#toggleChatPanel"
                                     style="-fx-background-radius: 5; -fx-pref-width: 120; -fx-background-color: #3498db; -fx-text-fill: white;"/>
-                            <!-- Add to your meeting.fxml -->
-                            <Button fx:id="webRTCButton" text="🌐 Enable WebRTC"
-                                    onAction="#onToggleWebRTC" style="-fx-background-color: #9b59b6; -fx-text-fill: white;" />
+                            <Button fx:id="webRTCButton" text="🌐 Enable WebRTC" onAction="#onToggleWebRTC"
+                                    style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-background-radius: 5; -fx-pref-width: 130;"/>
                         </HBox>
 
                         <HBox spacing="10" alignment="CENTER_LEFT">
