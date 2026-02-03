@@ -9,7 +9,6 @@ import javafx.scene.layout.StackPane;
 import javafx.concurrent.Service;
 import javafx.concurrent.Task;
 import javafx.embed.swing.SwingFXUtils;
-import org.example.zoom.webrtc.WebRTCManager;
 
 import java.awt.image.BufferedImage;
 import java.util.List;
@@ -20,8 +19,8 @@ public class VideoCaptureService extends Service<Image> {
     private Webcam webcam;
     private WebcamPanel webcamPanel;
     private boolean captureActive = false;
-    private WebRTCManager webRTCManager;
-    private final AtomicBoolean webRTCEnabled = new AtomicBoolean(false);
+    private final AtomicBoolean streamingEnabled = new AtomicBoolean(false);
+    private MeetingController meetingController;
 
     @Override
     protected Task<Image> createTask() {
@@ -51,9 +50,9 @@ public class VideoCaptureService extends Service<Image> {
                             Image fxImage = convertToFxImage(bufferedImage);
                             updateValue(fxImage);
 
-                            // Send via WebRTC if enabled
-                            if (webRTCEnabled.get() && webRTCManager != null) {
-                                webRTCManager.sendVideoFrame(fxImage);
+                            // Send via WebSocket if streaming is enabled
+                            if (streamingEnabled.get() && meetingController != null) {
+                                sendVideoFrameToServer(fxImage);
                             }
                         }
                     }
@@ -69,6 +68,19 @@ public class VideoCaptureService extends Service<Image> {
         return SwingFXUtils.toFXImage(image, null);
     }
 
+    private void sendVideoFrameToServer(Image fxImage) {
+        // This method can be used to send frames to server via WebSocket
+        if (meetingController != null) {
+            try {
+                // Convert to base64 and send via WebSocket
+                // Implementation depends on your WebSocket setup
+                System.out.println("📤 Video frame ready for streaming");
+            } catch (Exception e) {
+                System.err.println("❌ Failed to send video frame: " + e.getMessage());
+            }
+        }
+    }
+
     public void stopCapture() {
         captureActive = false;
         if (webcam != null && webcam.isOpen()) {
@@ -78,20 +90,20 @@ public class VideoCaptureService extends Service<Image> {
         cancel();
     }
 
-    // WebRTC integration methods
-    public void enableWebRTC(WebRTCManager manager) {
-        this.webRTCManager = manager;
-        webRTCEnabled.set(true);
-        System.out.println("✅ WebRTC enabled for video streaming");
+    // WebSocket streaming methods
+    public void enableStreaming(MeetingController controller) {
+        this.meetingController = controller;
+        streamingEnabled.set(true);
+        System.out.println("✅ Video streaming enabled");
     }
 
-    public void disableWebRTC() {
-        webRTCEnabled.set(false);
-        System.out.println("🛑 WebRTC disabled for video streaming");
+    public void disableStreaming() {
+        streamingEnabled.set(false);
+        System.out.println("🛑 Video streaming disabled");
     }
 
-    public boolean isWebRTCEnabled() {
-        return webRTCEnabled.get() && webRTCManager != null;
+    public boolean isStreamingEnabled() {
+        return streamingEnabled.get() && meetingController != null;
     }
 
     // Existing methods remain the same
@@ -119,5 +131,10 @@ public class VideoCaptureService extends Service<Image> {
 
     public boolean isServiceRunning() {
         return super.isRunning();
+    }
+
+    // New method to set meeting controller
+    public void setMeetingController(MeetingController controller) {
+        this.meetingController = controller;
     }
 }

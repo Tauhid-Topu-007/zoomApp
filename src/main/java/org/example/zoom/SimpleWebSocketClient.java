@@ -2,98 +2,117 @@ package org.example.zoom.websocket;
 
 import java.net.URI;
 import java.util.function.Consumer;
+import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.handshake.ServerHandshake;
 
 public class SimpleWebSocketClient {
+
+    private WebSocketClient webSocketClient;
     private String serverUrl;
     private Consumer<String> messageHandler;
-    private String currentUser; // Add this field
+    private String currentUser;
+    private ConnectionListener connectionListener;
 
-    // Constructor with both parameters
-    public SimpleWebSocketClient(String serverUrl, Consumer<String> messageHandler) {
-        this.serverUrl = serverUrl;
-        this.messageHandler = messageHandler;
-    }
-
-    // Constructor with just server URL
-    public SimpleWebSocketClient(String serverUrl) {
-        this(serverUrl, null);
-    }
-
-    // Getter for server URL
-    public String getServerUrl() {
-        return serverUrl;
-    }
-
-    // Set message handler
-    public void setMessageHandler(Consumer<String> messageHandler) {
-        this.messageHandler = messageHandler;
-    }
-
-    // Set current user - ADD THIS METHOD
-    public void setCurrentUser(String username) {
-        this.currentUser = username;
-        System.out.println("✅ WebSocket client user set to: " + username);
-    }
-
-    // Get current user
-    public String getCurrentUser() {
-        return currentUser;
-    }
-
-    // When a message is received from WebSocket
-    protected void onMessageReceived(String message) {
-        if (messageHandler != null) {
-            messageHandler.accept(message);
-        }
-    }
-
-    // Connection methods
-    public void connect() {
-        // Connect logic
-        System.out.println("🔗 Connecting to: " + serverUrl);
-        // Implement actual WebSocket connection
-    }
-
-    public void disconnect() {
-        // Disconnect logic
-        System.out.println("🛑 Disconnecting from: " + serverUrl);
-        // Implement actual WebSocket disconnection
-    }
-
-    public boolean isConnected() {
-        // Return connection status
-        // For now, return true if we have a serverUrl
-        return serverUrl != null && !serverUrl.isEmpty();
-    }
-
-    // Send message with the correct format
-    public void sendMessage(String type, String meetingId, String username, String content) {
-        // Send message logic
-        String message = type + "|" + meetingId + "|" + username + "|" + content;
-        System.out.println("📤 Sending message: " + message);
-        // Send via WebSocket
-        if (isConnected()) {
-            send(message);
-            System.out.println("✅ Message sent: " + type + " from " + username);
-        }
-    }
-
-    // Simple send method
-    public void send(String message) {
-        System.out.println("📤 Sending raw message: " + message);
-        // Actual WebSocket send implementation
-    }
-
-    // If you need connection listener interface, add it:
     public interface ConnectionListener {
         void onConnected();
         void onDisconnected();
         void onError(String error);
     }
 
-    private ConnectionListener connectionListener;
+    public SimpleWebSocketClient(String serverUrl, Consumer<String> messageHandler) {
+        this.serverUrl = serverUrl;
+        this.messageHandler = messageHandler;
+    }
+
+    public void connect() {
+        try {
+            URI serverUri = new URI(serverUrl);
+
+            webSocketClient = new WebSocketClient(serverUri) {
+                @Override
+                public void onOpen(ServerHandshake handshakedata) {
+                    System.out.println("WebSocket connected to " + serverUrl);
+                    if (connectionListener != null) {
+                        connectionListener.onConnected();
+                    }
+
+                    if (currentUser != null) {
+                        sendMessage("CONNECTED", "global", currentUser, "Connected to server");
+                    }
+                }
+
+                @Override
+                public void onMessage(String message) {
+                    if (messageHandler != null) {
+                        messageHandler.accept(message);
+                    }
+                }
+
+                @Override
+                public void onClose(int code, String reason, boolean remote) {
+                    System.out.println("WebSocket disconnected from " + serverUrl + ": " + reason);
+                    if (connectionListener != null) {
+                        connectionListener.onDisconnected();
+                    }
+                }
+
+                @Override
+                public void onError(Exception ex) {
+                    System.err.println("WebSocket error: " + ex.getMessage());
+                    if (connectionListener != null) {
+                        connectionListener.onError(ex.getMessage());
+                    }
+                }
+            };
+
+            webSocketClient.connect();
+
+        } catch (Exception e) {
+            System.err.println("Failed to connect to " + serverUrl + ": " + e.getMessage());
+            if (connectionListener != null) {
+                connectionListener.onError(e.getMessage());
+            }
+        }
+    }
+
+    public void disconnect() {
+        if (webSocketClient != null && webSocketClient.isOpen()) {
+            webSocketClient.close();
+            webSocketClient = null;
+        }
+    }
+
+    public void send(String message) {
+        if (webSocketClient != null && webSocketClient.isOpen()) {
+            webSocketClient.send(message);
+        } else {
+            System.err.println("Cannot send message - WebSocket not connected");
+        }
+    }
+
+    public void sendMessage(String type, String meetingId, String username, String content) {
+        String message = type + "|" + meetingId + "|" + username + "|" + content;
+        System.out.println("Sending message: " + message);
+        send(message);
+    }
+
+    public boolean isConnected() {
+        return webSocketClient != null && webSocketClient.isOpen();
+    }
+
+    public void setMessageHandler(Consumer<String> messageHandler) {
+        this.messageHandler = messageHandler;
+    }
+
+    public void setCurrentUser(String username) {
+        this.currentUser = username;
+    }
 
     public void setConnectionListener(ConnectionListener listener) {
         this.connectionListener = listener;
+    }
+
+    public String getServerUrl() {
+        return serverUrl;
     }
 }

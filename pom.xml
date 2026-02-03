@@ -25,6 +25,20 @@
       </dependency>
 
     <dependency>
+      <groupId>org.json</groupId>
+      <artifactId>json</artifactId>
+      <version>20240303</version>
+    </dependency>
+
+    <dependency>
+      <groupId>com.github.sarxos</groupId>
+      <artifactId>webcam-capture</artifactId>
+      <version>0.3.12</version>
+    </dependency>
+
+
+
+    <dependency>
       <groupId>dev.onvoid.webrtc</groupId>
       <artifactId>webrtc-java</artifactId>
       <version>0.6.0</version>

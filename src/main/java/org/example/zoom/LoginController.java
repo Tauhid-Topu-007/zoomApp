@@ -297,66 +297,93 @@ public class LoginController {
         }
     }
 
+    // FIXED: Properly handle the WebSocket client initialization using an array
     private void initializeWebSocketConnection(String username) {
-        System.out.println("🔗 Initializing WebSocket connection for: " + username);
+        System.out.println("Initializing WebSocket connection for: " + username);
 
         new Thread(() -> {
             try {
-                // Get current server configuration
                 String serverUrl = HelloApplication.getCurrentServerUrl();
-                System.out.println("🔗 Connecting to: " + serverUrl);
+                System.out.println("Connecting to: " + serverUrl);
 
-                // Create and initialize WebSocket client
-                SimpleWebSocketClient client = new SimpleWebSocketClient(serverUrl, message -> {
-                    System.out.println("📨 WebSocket message during login: " + message);
+                // Use a final array to hold the client reference
+                final SimpleWebSocketClient[] clientHolder = new SimpleWebSocketClient[1];
+
+                clientHolder[0] = new SimpleWebSocketClient(serverUrl, message -> {
+                    System.out.println("WebSocket message during login: " + message);
 
                     Platform.runLater(() -> {
                         if (message.contains("Connected") || message.contains("Welcome") || message.contains("WELCOME")) {
-                            // Connection successful
-                            System.out.println("✅ WebSocket connection confirmed");
+                            System.out.println("WebSocket connection confirmed");
                             if (autoLoginInProgress) {
-                                showSuccessMessage("✅ Connected! Redirecting...");
+                                showSuccessMessage("Connected! Redirecting...");
                             } else {
-                                showSuccessMessage("✅ Connected to server! Redirecting...");
+                                showSuccessMessage("Connected to server! Redirecting...");
                             }
+
+                            // Store the client globally
+                            HelloApplication.setWebSocketClient(clientHolder[0]);
+                            clientHolder[0].setCurrentUser(username);
                         } else if (message.contains("ERROR") || message.contains("Failed") || message.contains("DISCONNECTED")) {
-                            // Connection failed but allow login in offline mode
-                            System.out.println("⚠️ WebSocket connection issues");
+                            System.out.println("WebSocket connection issues");
                             if (autoLoginInProgress) {
-                                showErrorMessage("⚠️ Server connection failed, continuing in offline mode");
+                                showErrorMessage("Server connection failed, continuing in offline mode");
                             } else {
-                                showErrorMessage("⚠️ Server connection failed, but you can continue in offline mode");
+                                showErrorMessage("Server connection failed, but you can continue in offline mode");
                             }
                         }
                     });
                 });
 
-                // Wait for connection with timeout
-                Thread.sleep(2500); // Wait 2.5 seconds for connection
+                // Set the connection listener
+                clientHolder[0].setConnectionListener(new SimpleWebSocketClient.ConnectionListener() {
+                    @Override
+                    public void onConnected() {
+                        System.out.println("WebSocket connected successfully");
+                    }
+
+                    @Override
+                    public void onDisconnected() {
+                        System.out.println("WebSocket disconnected");
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        System.err.println("WebSocket error: " + error);
+                    }
+                });
+
+                // Connect to server
+                clientHolder[0].connect();
+
+                Thread.sleep(2500);
 
                 Platform.runLater(() -> {
-                    boolean isConnected = client.isConnected();
-                    System.out.println("🔗 WebSocket connection status: " + (isConnected ? "CONNECTED" : "DISCONNECTED"));
+                    boolean isConnected = clientHolder[0].isConnected();
+                    System.out.println("WebSocket connection status: " + (isConnected ? "CONNECTED" : "DISCONNECTED"));
 
                     if (!isConnected) {
                         if (autoLoginInProgress) {
-                            showErrorMessage("⚠️ Cannot connect to server, continuing in offline mode");
+                            showErrorMessage("Cannot connect to server, continuing in offline mode");
                         } else {
-                            showErrorMessage("⚠️ Cannot connect to server, but you can continue in offline mode");
+                            showErrorMessage("Cannot connect to server, but you can continue in offline mode");
                         }
+                    } else {
+                        // Store the client globally for other controllers to use
+                        HelloApplication.setWebSocketClient(clientHolder[0]);
+                        clientHolder[0].setCurrentUser(username);
                     }
 
-                    // Complete login regardless of connection status
                     completeLoginProcess(username);
                 });
 
             } catch (Exception e) {
-                System.err.println("❌ WebSocket initialization error: " + e.getMessage());
+                System.err.println("WebSocket initialization error: " + e.getMessage());
                 Platform.runLater(() -> {
                     if (autoLoginInProgress) {
-                        showErrorMessage("⚠️ Server connection issue, continuing in offline mode");
+                        showErrorMessage("Server connection issue, continuing in offline mode");
                     } else {
-                        showErrorMessage("⚠️ Server connection issue, but you can continue in offline mode");
+                        showErrorMessage("Server connection issue, but you can continue in offline mode");
                     }
                     completeLoginProcess(username);
                 });

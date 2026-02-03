@@ -3,24 +3,41 @@ package org.example.zoom.websocket;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.*;
-import java.util.*;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import org.java_websocket.WebSocket;
+import org.java_websocket.handshake.ClientHandshake;
+import org.java_websocket.server.WebSocketServer;
 
 public class SimpleNativeWebSocketServer {
-    private static final int DEFAULT_PORT = 8887;
-    private static final int[] FALLBACK_PORTS = {8888, 8889, 8890, 8891, 8892, 8893, 8894, 8895};
+
     private static SimpleNativeWebSocketServer instance;
-    private ServerSocketChannel serverChannel;
-    private Selector selector;
-    private final Map<SocketChannel, String> clients = new ConcurrentHashMap<>();
-    private final Map<String, String> userMeetings = new ConcurrentHashMap<>();
-    private Thread serverThread;
-    private volatile boolean running = false;
-    private int currentPort = -1;
+    private WebSocketServer webSocketServer;
+    private ExecutorService executorService;
+    private int port = 8887;
+    private volatile boolean isRunning = false;
+
+    private final ConcurrentHashMap<WebSocket, ClientInfo> clients = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Set<WebSocket>> meetingRooms = new ConcurrentHashMap<>();
+
+    private class ClientInfo {
+        String username;
+        String meetingId;
+        long connectTime;
+
+        ClientInfo(String username, String meetingId) {
+            this.username = username;
+            this.meetingId = meetingId;
+            this.connectTime = System.currentTimeMillis();
+        }
+    }
 
     private SimpleNativeWebSocketServer() {
-        System.out.println("🎯 Creating Simple WebSocket Server");
     }
 
     public static synchronized SimpleNativeWebSocketServer getInstance() {
@@ -30,293 +47,280 @@ public class SimpleNativeWebSocketServer {
         return instance;
     }
 
-    public void start() {
-        if (running) {
-            System.out.println("⚠️ Server is already running on port " + currentPort);
-            return;
-        }
-
-        // Try to find an available port
-        for (int port : getAllPortsToTry()) {
-            try {
-                serverChannel = ServerSocketChannel.open();
-                serverChannel.configureBlocking(false);
-                InetSocketAddress address = new InetSocketAddress("0.0.0.0", port);
-                serverChannel.bind(address);
-
-                selector = Selector.open();
-                serverChannel.register(selector, SelectionKey.OP_ACCEPT);
-
-                currentPort = port;
-                running = true;
-                serverThread = new Thread(this::runServer);
-                serverThread.setName("WebSocket-Server-" + port);
-                serverThread.setDaemon(true);
-                serverThread.start();
-
-                System.out.println("✅ WebSocket Server started on port " + port);
-                System.out.println("🌐 Listening on: 0.0.0.0:" + port);
-                return; // Success, exit the method
-
-            } catch (java.net.BindException e) {
-                cleanupResources();
-                System.out.println("⚠️ Port " + port + " is already in use, trying next port...");
-                continue; // Try next port
-            } catch (IOException e) {
-                cleanupResources();
-                System.err.println("❌ Error starting server on port " + port + ": " + e.getMessage());
-                continue;
-            }
-        }
-
-        // If we get here, no ports were available
-        System.err.println("❌ Failed to start WebSocket server: All ports are in use");
-        System.err.println("💡 Please check if another instance is running or try again later.");
+    public boolean start() {
+        return start(port);
     }
 
-    private int[] getAllPortsToTry() {
-        int[] ports = new int[FALLBACK_PORTS.length + 1];
-        ports[0] = DEFAULT_PORT;
-        System.arraycopy(FALLBACK_PORTS, 0, ports, 1, FALLBACK_PORTS.length);
-        return ports;
-    }
-
-    private void cleanupResources() {
-        try {
-            if (serverChannel != null && serverChannel.isOpen()) {
-                serverChannel.close();
-            }
-            if (selector != null && selector.isOpen()) {
-                selector.close();
-            }
-        } catch (IOException e) {
-            // Ignore cleanup errors
-        }
-        serverChannel = null;
-        selector = null;
-    }
-
-    public void stop() {
-        running = false;
-
-        // Interrupt server thread
-        if (serverThread != null) {
-            serverThread.interrupt();
-            try {
-                serverThread.join(3000); // Wait for thread to finish
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+    public synchronized boolean start(int port) {
+        if (isRunning) {
+            System.out.println("Server is already running on port " + this.port);
+            return true;
         }
 
-        // Close all client connections
-        for (SocketChannel client : new ArrayList<>(clients.keySet())) {
-            try {
-                client.close();
-            } catch (IOException e) {
-                // Ignore
-            }
-        }
-        clients.clear();
-        userMeetings.clear();
+        this.port = port;
 
         try {
-            if (selector != null && selector.isOpen()) {
-                selector.close();
-            }
-            if (serverChannel != null && serverChannel.isOpen()) {
-                serverChannel.close();
-            }
-        } catch (IOException e) {
-            System.err.println("Error closing server resources: " + e.getMessage());
-        }
+            webSocketServer = new WebSocketServer(new InetSocketAddress(port)) {
+                @Override
+                public void onOpen(WebSocket conn, ClientHandshake handshake) {
+                    String clientAddress = conn.getRemoteSocketAddress().toString();
+                    System.out.println("New client connected: " + clientAddress);
 
-        currentPort = -1;
-        System.out.println("🛑 WebSocket Server stopped");
-    }
+                    clients.put(conn, new ClientInfo("Unknown", "global"));
 
-    private void runServer() {
-        System.out.println("🚀 WebSocket Server thread started on port " + currentPort);
+                    String welcomeMsg = "CONNECTED|global|Server|Welcome to Zoom WebSocket Server";
+                    conn.send(welcomeMsg);
+                    System.out.println("Sent welcome to: " + clientAddress);
 
-        while (running && !Thread.currentThread().isInterrupted()) {
-            try {
-                int readyChannels = selector.select(1000); // Wait up to 1 second
-
-                if (readyChannels == 0) {
-                    continue;
+                    broadcast("SYSTEM|global|Server|New user connected from " + clientAddress);
                 }
 
-                Set<SelectionKey> selectedKeys = selector.selectedKeys();
-                Iterator<SelectionKey> iter = selectedKeys.iterator();
+                @Override
+                public void onClose(WebSocket conn, int code, String reason, boolean remote) {
+                    String clientAddress = conn.getRemoteSocketAddress().toString();
+                    ClientInfo info = clients.get(conn);
 
-                while (iter.hasNext()) {
-                    SelectionKey key = iter.next();
-                    iter.remove();
+                    if (info != null) {
+                        String username = info.username;
+                        String meetingId = info.meetingId;
 
-                    if (!key.isValid()) {
-                        continue;
-                    }
+                        System.out.println("Client disconnected: " + username + " from " + clientAddress);
 
-                    try {
-                        if (key.isAcceptable()) {
-                            acceptConnection(key);
-                        } else if (key.isReadable()) {
-                            readData(key);
+                        if (meetingId != null && !meetingId.equals("global")) {
+                            removeFromMeeting(conn, meetingId);
+                            broadcast("USER_LEFT|" + meetingId + "|" + username + "|left the meeting");
                         }
-                    } catch (CancelledKeyException e) {
-                        // Key was cancelled, skip it
+
+                        clients.remove(conn);
+
+                        broadcast("DISCONNECTED|global|Server|" + username + " disconnected");
+                    } else {
+                        System.out.println("Unknown client disconnected: " + clientAddress);
                     }
                 }
-            } catch (IOException e) {
-                if (running) {
-                    System.err.println("❌ Server error: " + e.getMessage());
+
+                @Override
+                public void onMessage(WebSocket conn, String message) {
+                    handleMessage(conn, message);
                 }
-            } catch (ClosedSelectorException e) {
-                // Normal when stopping
-                break;
-            }
-        }
 
-        System.out.println("🔌 WebSocket Server thread exiting");
-    }
-
-    private void acceptConnection(SelectionKey key) throws IOException {
-        ServerSocketChannel serverChannel = (ServerSocketChannel) key.channel();
-        SocketChannel clientChannel = serverChannel.accept();
-
-        if (clientChannel != null) {
-            clientChannel.configureBlocking(false);
-            clientChannel.register(selector, SelectionKey.OP_READ);
-            String clientId = "Anonymous-" + System.currentTimeMillis();
-            clients.put(clientChannel, clientId);
-
-            System.out.println("🔗 New connection from: " + clientChannel.getRemoteAddress() + " [ID: " + clientId + "]");
-            sendWelcomeMessage(clientChannel);
-        }
-    }
-
-    private void sendWelcomeMessage(SocketChannel clientChannel) {
-        String welcomeMessage = "WELCOME|global|server|Connected to WebSocket server on port " + currentPort;
-        sendMessageToClient(clientChannel, welcomeMessage);
-    }
-
-    private void readData(SelectionKey key) {
-        SocketChannel clientChannel = (SocketChannel) key.channel();
-
-        try {
-            ByteBuffer buffer = ByteBuffer.allocate(4096);
-            int bytesRead = clientChannel.read(buffer);
-
-            if (bytesRead == -1) {
-                // Client disconnected
-                disconnectClient(clientChannel);
-                return;
-            }
-
-            if (bytesRead > 0) {
-                buffer.flip();
-                byte[] bytes = new byte[buffer.remaining()];
-                buffer.get(bytes);
-                String message = new String(bytes).trim();
-                handleMessage(clientChannel, message);
-            }
-        } catch (IOException e) {
-            disconnectClient(clientChannel);
-        }
-    }
-
-    private void handleMessage(SocketChannel senderChannel, String message) {
-        System.out.println("📥 Received from " + clients.get(senderChannel) + ": " + message);
-
-        String[] parts = message.split("\\|", 4);
-        if (parts.length >= 4) {
-            String type = parts[0];
-            String meetingId = parts[1];
-            String username = parts[2];
-            String content = parts[3];
-
-            // Store user-meeting association
-            if (!"global".equals(meetingId)) {
-                userMeetings.put(username, meetingId);
-            }
-
-            // Update client username
-            clients.put(senderChannel, username);
-
-            // Broadcast to all other clients
-            broadcast(message, senderChannel);
-
-            System.out.println("📤 Broadcasted to " + (clients.size() - 1) + " clients");
-        } else {
-            System.err.println("⚠️ Invalid message format: " + message);
-        }
-    }
-
-    private void broadcast(String message, SocketChannel excludeChannel) {
-        int sentCount = 0;
-        for (Map.Entry<SocketChannel, String> entry : clients.entrySet()) {
-            SocketChannel clientChannel = entry.getKey();
-            if (clientChannel != excludeChannel) {
-                if (sendMessageToClient(clientChannel, message)) {
-                    sentCount++;
+                @Override
+                public void onMessage(WebSocket conn, ByteBuffer message) {
+                    String stringMessage = new String(message.array());
+                    handleMessage(conn, stringMessage);
                 }
-            }
-        }
-        if (sentCount > 0) {
-            System.out.println("📡 Message sent to " + sentCount + " client(s)");
-        }
-    }
 
-    private boolean sendMessageToClient(SocketChannel clientChannel, String message) {
-        try {
-            if (clientChannel.isOpen() && clientChannel.isConnected()) {
-                ByteBuffer buffer = ByteBuffer.wrap((message + "\n").getBytes());
-                clientChannel.write(buffer);
-                return true;
-            } else {
-                disconnectClient(clientChannel);
-                return false;
+                @Override
+                public void onError(WebSocket conn, Exception ex) {
+                    if (conn != null) {
+                        System.err.println("WebSocket error from " + conn.getRemoteSocketAddress() + ": " + ex.getMessage());
+                    } else {
+                        System.err.println("WebSocket server error: " + ex.getMessage());
+                    }
+                }
+
+                @Override
+                public void onStart() {
+                    System.out.println("WebSocket server started successfully on port " + getPort());
+                    System.out.println("Server address: ws://" + getAddress().getHostString() + ":" + getPort());
+                }
+            };
+
+            webSocketServer.setReuseAddr(true);
+            webSocketServer.start();
+            isRunning = true;
+            System.out.println("Server started on port " + port);
+            return true;
+
+        } catch (Exception e) {
+            System.err.println("Failed to start server on port " + port + ": " + e.getMessage());
+            isRunning = false;
+
+            if (port < 8895) {
+                System.out.println("Trying alternative port: " + (port + 1));
+                return start(port + 1);
             }
-        } catch (IOException e) {
-            System.err.println("❌ Failed to send message to client: " + e.getMessage());
-            disconnectClient(clientChannel);
             return false;
         }
     }
 
-    private void disconnectClient(SocketChannel clientChannel) {
-        String username = clients.remove(clientChannel);
-        if (username != null) {
-            String meetingId = userMeetings.remove(username);
-            if (meetingId != null) {
-                broadcast("USER_LEFT|" + meetingId + "|" + username + "|Disconnected", null);
-            }
-        }
-
+    private void handleMessage(WebSocket conn, String message) {
         try {
-            if (clientChannel.isOpen()) {
-                clientChannel.close();
+            System.out.println("Received from " + conn.getRemoteSocketAddress() + ": " + message);
+
+            String[] parts = message.split("\\|", 4);
+            if (parts.length >= 4) {
+                String type = parts[0];
+                String meetingId = parts[1];
+                String username = parts[2];
+                String content = parts[3];
+
+                ClientInfo info = clients.get(conn);
+                if (info != null) {
+                    info.username = username;
+                    info.meetingId = meetingId;
+
+                    if (!meetingId.equals("global")) {
+                        addToMeeting(conn, meetingId);
+                    }
+                }
+
+                switch (type) {
+                    case "CHAT":
+                    case "CHAT_MESSAGE":
+                        broadcastToMeeting(meetingId, message);
+                        System.out.println("Broadcasted CHAT to meeting " + meetingId + ": " + content);
+                        break;
+
+                    case "VIDEO_STATUS":
+                        broadcastToMeeting(meetingId, message);
+                        System.out.println("Broadcasted VIDEO_STATUS to meeting " + meetingId + ": " + content);
+                        break;
+
+                    case "VIDEO_FRAME":
+                        broadcastToMeeting(meetingId, message);
+                        break;
+
+                    case "USER_JOINED":
+                        broadcastToMeeting(meetingId, message);
+                        System.out.println("Broadcasted USER_JOINED to meeting " + meetingId + ": " + username);
+                        break;
+
+                    case "USER_LEFT":
+                        broadcastToMeeting(meetingId, message);
+                        System.out.println("Broadcasted USER_LEFT to meeting " + meetingId + ": " + username);
+                        break;
+
+                    case "MEETING_CREATED":
+                        broadcastToMeeting(meetingId, message);
+                        System.out.println("Broadcasted MEETING_CREATED to meeting " + meetingId + ": " + username);
+                        break;
+
+                    case "AUDIO_STATUS":
+                        broadcastToMeeting(meetingId, message);
+                        System.out.println("Broadcasted AUDIO_STATUS to meeting " + meetingId + ": " + content);
+                        break;
+
+                    case "AUDIO_CONTROL":
+                        broadcastToMeeting(meetingId, message);
+                        System.out.println("Broadcasted AUDIO_CONTROL to meeting " + meetingId + ": " + content);
+                        break;
+
+                    case "VIDEO_CONTROL":
+                        broadcastToMeeting(meetingId, message);
+                        System.out.println("Broadcasted VIDEO_CONTROL to meeting " + meetingId + ": " + content);
+                        break;
+
+                    case "FILE_SHARE":
+                        broadcastToMeeting(meetingId, message);
+                        System.out.println("Broadcasted FILE_SHARE to meeting " + meetingId + ": " + content);
+                        break;
+
+                    case "WEBRTC_SIGNAL":
+                        broadcastToMeeting(meetingId, message);
+                        System.out.println("Forwarded WEBRTC_SIGNAL in meeting " + meetingId);
+                        break;
+
+                    default:
+                        broadcastToMeeting(meetingId, message);
+                        System.out.println("Broadcasted unknown type " + type + " to meeting " + meetingId);
+                        break;
+                }
+            } else {
+                System.out.println("Simple message format, broadcasting to all: " + message);
+                broadcast("CHAT|global|System|" + message);
             }
-        } catch (IOException e) {
-            // Ignore
+
+        } catch (Exception e) {
+            System.err.println("Error handling message: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private void addToMeeting(WebSocket conn, String meetingId) {
+        meetingRooms.computeIfAbsent(meetingId, k -> Collections.synchronizedSet(new HashSet<>())).add(conn);
+
+        ClientInfo info = clients.get(conn);
+        if (info != null) {
+            info.meetingId = meetingId;
         }
 
-        System.out.println("❌ Client disconnected: " + (username != null ? username : "Unknown"));
+        System.out.println("Added " + conn.getRemoteSocketAddress() + " to meeting " + meetingId);
+    }
+
+    private void removeFromMeeting(WebSocket conn, String meetingId) {
+        Set<WebSocket> meetingClients = meetingRooms.get(meetingId);
+        if (meetingClients != null) {
+            meetingClients.remove(conn);
+            System.out.println("Removed " + conn.getRemoteSocketAddress() + " from meeting " + meetingId);
+
+            if (meetingClients.isEmpty()) {
+                meetingRooms.remove(meetingId);
+                System.out.println("Meeting room " + meetingId + " is now empty and removed");
+            }
+        }
+    }
+
+    private void broadcastToMeeting(String meetingId, String message) {
+        Set<WebSocket> meetingClients = meetingRooms.get(meetingId);
+        if (meetingClients != null && !meetingClients.isEmpty()) {
+            System.out.println("Broadcasting to meeting " + meetingId + " (" + meetingClients.size() + " clients): " +
+                    message.substring(0, Math.min(50, message.length())) + "...");
+
+            for (WebSocket client : meetingClients) {
+                if (client != null && client.isOpen()) {
+                    try {
+                        client.send(message);
+                    } catch (Exception e) {
+                        System.err.println("Error sending to client in meeting " + meetingId + ": " + e.getMessage());
+                    }
+                }
+            }
+        } else {
+            System.out.println("No clients in meeting " + meetingId + " to broadcast to");
+        }
+    }
+
+    private void broadcast(String message) {
+        if (webSocketServer != null) {
+            webSocketServer.broadcast(message);
+        }
+    }
+
+    public void stop() {
+        if (webSocketServer != null && isRunning) {
+            try {
+                for (WebSocket conn : clients.keySet()) {
+                    if (conn != null && conn.isOpen()) {
+                        conn.close();
+                    }
+                }
+                clients.clear();
+                meetingRooms.clear();
+
+                webSocketServer.stop();
+                isRunning = false;
+                System.out.println("WebSocket server stopped");
+
+            } catch (Exception e) {
+                System.err.println("Error stopping server: " + e.getMessage());
+            }
+        }
     }
 
     public boolean isRunning() {
-        return running;
+        return isRunning && webSocketServer != null;
     }
 
     public int getPort() {
-        return currentPort;
+        return port;
     }
 
     public int getClientCount() {
         return clients.size();
     }
 
-    public String getServerInfo() {
-        return "WebSocket Server running on port " + currentPort + " with " + clients.size() + " connected clients";
+    public int getMeetingCount() {
+        return meetingRooms.size();
     }
 }
