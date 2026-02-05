@@ -28,11 +28,8 @@ import javafx.util.Pair;
 import com.github.sarxos.webcam.Webcam;
 import javax.sound.sampled.*;
 import javafx.scene.paint.Color;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
+
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.text.SimpleDateFormat;
@@ -44,6 +41,9 @@ import javafx.embed.swing.SwingFXUtils;
 
 import javax.imageio.ImageIO;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 public class MeetingController {
 
@@ -88,6 +88,10 @@ public class MeetingController {
 
     @FXML private ImageView videoDisplay;
     @FXML private StackPane videoPlaceholder;
+
+    @FXML private Label chatStatusLabel;
+    @FXML private Button sendChatButton;
+    @FXML private Button fileButton;
 
     private enum VideoQuality {
         LOW(160, 120, 5),
@@ -152,6 +156,13 @@ public class MeetingController {
     private List<String> activeVideoStreams = new ArrayList<>();
     private FileTransferHandler fileTransferHandler;
 
+    // Chat-specific fields
+    private String lastMessageId = "";
+    private String currentUser;
+    private org.example.zoom.websocket.SimpleWebSocketClient webSocketClient;
+    private Map<String, FileTransferInfo> activeFileTransfers = new HashMap<>();
+    private String downloadsFolder = "meeting_downloads";
+
     private enum ScreenSize {
         SMALL(800, 600, "Small (800x600)"),
         MEDIUM(1024, 768, "Medium (1024x768)"),
@@ -176,29 +187,456 @@ public class MeetingController {
     public void initialize() {
         instance = this;
 
-        System.out.println("MeetingController INITIALIZING...");
-        System.out.println("User: " + HelloApplication.getLoggedInUser());
+        // Get current user
+        currentUser = HelloApplication.getLoggedInUser();
+        if (currentUser == null) {
+            currentUser = "Unknown User";
+        }
+
+        System.out.println("=== MEETING CONTROLLER INITIALIZE ===");
+        System.out.println("User: " + currentUser);
         System.out.println("Meeting ID: " + HelloApplication.getActiveMeetingId());
+        System.out.println("Is Host: " + HelloApplication.isMeetingHost());
+        System.out.println("WebSocket Connected: " + HelloApplication.isWebSocketConnected());
 
         fileTransferHandler = new FileTransferHandler(this);
-
         createVideoPlaceholder();
-
         initializeAudioVideoControllers();
-
         setupScrollableChat();
         setupScrollableParticipants();
         initializeParticipantTracking();
-
         updateParticipantsList();
         setupChat();
         updateMeetingInfo();
         updateButtonStyles();
         startMeetingTimer();
-
         setupScreenSizeControls();
 
+        // Initialize chat WebSocket connection
+        initializeChatWebSocketConnection();
+
         System.out.println("MeetingController initialized successfully");
+    }
+
+    private void initializeChatWebSocketConnection() {
+        // Get WebSocket client from HelloApplication
+        webSocketClient = HelloApplication.getWebSocketClient();
+
+        if (webSocketClient != null) {
+            // Set message handler for chat messages
+            try {
+                webSocketClient.getClass().getMethod("setMessageHandler", java.util.function.Consumer.class)
+                        .invoke(webSocketClient, (java.util.function.Consumer<String>) this::handleChatWebSocketMessage);
+                System.out.println("Chat message handler set on WebSocket client");
+            } catch (Exception e) {
+                System.out.println("Could not set message handler: " + e.getMessage());
+                // Try alternative approach
+                webSocketClient.setMessageHandler(this::handleChatWebSocketMessage);
+            }
+
+            // Update chat UI status
+            updateChatConnectionUI();
+            addSystemMessage("Chat connected to server");
+        } else {
+            addSystemMessage("Chat not connected to server - messages will be local only");
+            if (chatStatusLabel != null) {
+                chatStatusLabel.setText("Disconnected");
+                chatStatusLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-weight: bold;");
+            }
+        }
+
+        // Create downloads folder for meeting
+        createDownloadsFolder();
+    }
+
+    private void createDownloadsFolder() {
+        File folder = new File(downloadsFolder);
+        if (!folder.exists()) {
+            boolean created = folder.mkdirs();
+            System.out.println("Created meeting downloads folder: " + created + " at " + folder.getAbsolutePath());
+        }
+    }
+
+    private void updateChatConnectionUI() {
+        Platform.runLater(() -> {
+            boolean isConnected = webSocketClient != null && webSocketClient.isConnected();
+
+            if (chatStatusLabel != null) {
+                if (isConnected) {
+                    chatStatusLabel.setText("Connected");
+                    chatStatusLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-weight: bold;");
+                } else {
+                    chatStatusLabel.setText("Disconnected");
+                    chatStatusLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-weight: bold;");
+                }
+            }
+
+            if (sendChatButton != null) {
+                sendChatButton.setDisable(!isConnected);
+                if (!isConnected) {
+                    sendChatButton.setTooltip(new Tooltip("Not connected to server"));
+                } else {
+                    sendChatButton.setTooltip(null);
+                }
+            }
+
+            if (fileButton != null) {
+                fileButton.setDisable(!isConnected);
+                if (!isConnected) {
+                    fileButton.setTooltip(new Tooltip("Not connected to server"));
+                } else {
+                    fileButton.setTooltip(null);
+                }
+            }
+        });
+    }
+
+    private void handleChatWebSocketMessage(String message) {
+        System.out.println("MeetingController chat received: " + message);
+
+        String[] parts = message.split("\\|", 4);
+        if (parts.length >= 4) {
+            String type = parts[0];
+            String meetingId = parts[1];
+            String username = parts[2];
+            String content = parts[3];
+
+            // Skip if not for our meeting
+            String currentMeetingId = HelloApplication.getActiveMeetingId();
+            if (!meetingId.equals(currentMeetingId) && !meetingId.equals("global")) {
+                return;
+            }
+
+            if (username.equals(currentUser) && isOwnMessageEcho(content, type)) {
+                System.out.println("Skipping own message echo: " + content);
+                return;
+            }
+
+            Platform.runLater(() -> {
+                try {
+                    switch (type) {
+                        case "CHAT_MESSAGE":
+                        case "CHAT":
+                            handleIncomingChatMessage(username, content);
+                            break;
+
+                        case "FILE_TRANSFER":
+                            handleFileTransfer(username, content);
+                            break;
+
+                        case "FILE_SHARE": // Legacy support
+                            String fileName = content.replace("Shared file: ", "");
+                            addFileMessage(fileName, 0, username.equals(currentUser), "Shared");
+                            break;
+
+                        case "SYSTEM":
+                            addSystemMessage(content);
+                            break;
+
+                        case "USER_JOINED":
+                            addSystemMessage(username + " joined the meeting");
+                            break;
+
+                        case "USER_LEFT":
+                            addSystemMessage(username + " left the meeting");
+                            break;
+
+                        case "CONNECTED":
+                            addSystemMessage(content);
+                            updateChatConnectionUI();
+                            break;
+
+                        case "DISCONNECTED":
+                            addSystemMessage("Disconnected: " + content);
+                            updateChatConnectionUI();
+                            break;
+
+                        default:
+                            // For any other message type, treat as chat
+                            if (!type.startsWith("VIDEO_") && !type.startsWith("AUDIO_")) {
+                                handleIncomingChatMessage(username, content);
+                            }
+                            break;
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    addSystemMessage("Error handling message: " + e.getMessage());
+                }
+            });
+        } else {
+            Platform.runLater(() -> addSystemMessage("Message: " + message));
+        }
+    }
+
+    private boolean isOwnMessageEcho(String content, String type) {
+        if (type.equals("CHAT_MESSAGE") || type.equals("CHAT")) {
+            return content.contains(lastMessageId) ||
+                    (chatInput != null && content.equals(chatInput.getText().trim()));
+        }
+        return false;
+    }
+
+    @FXML
+    protected void onSendChat() {
+        if (chatInput == null) return;
+
+        String msg = chatInput.getText().trim();
+        if (!msg.isEmpty()) {
+            String username = currentUser;
+            String messageId = System.currentTimeMillis() + "_" + username;
+            lastMessageId = messageId;
+
+            System.out.println("=== SENDING CHAT MESSAGE FROM MEETING ===");
+            System.out.println("From: " + username);
+            System.out.println("Message: " + msg);
+
+            // Display locally immediately
+            addUserMessage(username + ": " + msg);
+            chatInput.clear();
+
+            String meetingId = HelloApplication.getActiveMeetingId();
+            if (meetingId != null) {
+                // Save to database
+                boolean saved = Database.saveChatMessage(meetingId, username, msg, "USER");
+                if (saved) {
+                    System.out.println("Chat message saved to database for user: " + username);
+                } else {
+                    System.err.println("Failed to save chat message to database");
+                }
+
+                // Send via WebSocket to all participants
+                if (webSocketClient != null && webSocketClient.isConnected()) {
+                    System.out.println("WebSocket is connected, sending message...");
+                    webSocketClient.sendMessage("CHAT_MESSAGE", meetingId, username, msg);
+                    System.out.println("Chat message sent via WebSocket");
+                } else {
+                    System.err.println("WebSocket NOT connected - chat message not sent to other participants");
+                    addSystemMessage("Warning: Chat message saved locally but not sent to other participants (no connection)");
+                }
+            } else {
+                System.err.println("No active meeting ID");
+            }
+        }
+    }
+
+    @FXML
+    protected void onSendFileInMeeting() {
+        if (stage == null) {
+            stage = (Stage) chatBox.getScene().getWindow();
+        }
+
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Select a File to Send");
+        File file = fileChooser.showOpenDialog(stage);
+
+        if (file != null) {
+            try {
+                String fileName = file.getName();
+                long fileSize = file.length();
+                String fileId = UUID.randomUUID().toString();
+
+                // Check file size (limit to 10MB for demo)
+                long maxSize = 10 * 1024 * 1024; // 10MB
+                if (fileSize > maxSize) {
+                    showAlert("File Too Large",
+                            "File size (" + formatFileSize(fileSize) + ") exceeds 10MB limit.",
+                            Alert.AlertType.ERROR);
+                    return;
+                }
+
+                // Read file bytes
+                byte[] fileBytes = Files.readAllBytes(file.toPath());
+                String base64Data = Base64.getEncoder().encodeToString(fileBytes);
+
+                // Send file in a single message (for simplicity)
+                String fileMessage = fileId + "|" + fileName + "|" + fileSize + "|" + base64Data;
+
+                String meetingId = HelloApplication.getActiveMeetingId();
+                if (webSocketClient != null && webSocketClient.isConnected() && meetingId != null) {
+                    webSocketClient.sendMessage("FILE_TRANSFER", meetingId, currentUser, fileMessage);
+
+                    addFileMessage(fileName, fileSize, true, "Sent");
+                    addSystemMessage("File sent: " + fileName + " (" + formatFileSize(fileSize) + ")");
+                } else {
+                    addFileMessage(fileName, fileSize, true, "Cannot send - not connected");
+                    addSystemMessage("File sharing requires server connection");
+                }
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                showAlert("Error", "Failed to send file: " + e.getMessage(), Alert.AlertType.ERROR);
+            }
+        }
+    }
+
+    private void handleFileTransfer(String username, String content) {
+        String[] fileParts = content.split("\\|", 4);
+        if (fileParts.length >= 4) {
+            String fileId = fileParts[0];
+            String fileName = fileParts[1];
+            long fileSize = Long.parseLong(fileParts[2]);
+            String base64Data = fileParts[3];
+
+            // Ask user if they want to save the file
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+            alert.setTitle("Incoming File");
+            alert.setHeaderText("File from " + username);
+            alert.setContentText("File: " + fileName + "\n" +
+                    "Size: " + formatFileSize(fileSize) + "\n" +
+                    "Do you want to save this file?");
+
+            ButtonType yesButton = new ButtonType("Save", ButtonBar.ButtonData.YES);
+            ButtonType noButton = new ButtonType("Cancel", ButtonBar.ButtonData.NO);
+            alert.getButtonTypes().setAll(yesButton, noButton);
+
+            alert.showAndWait().ifPresent(response -> {
+                if (response == yesButton) {
+                    // Save the file
+                    saveReceivedFile(username, fileName, fileSize, base64Data);
+                } else {
+                    addSystemMessage("Cancelled receiving file: " + fileName);
+                }
+            });
+        }
+    }
+
+    private void saveReceivedFile(String sender, String fileName, long fileSize, String base64Data) {
+        try {
+            // Decode base64 data
+            byte[] fileBytes = Base64.getDecoder().decode(base64Data);
+
+            // Generate unique filename to avoid conflicts
+            String uniqueFileName = getUniqueFileName(fileName);
+            File outputFile = new File(downloadsFolder, uniqueFileName);
+
+            // Write file to disk
+            try (FileOutputStream fos = new FileOutputStream(outputFile)) {
+                fos.write(fileBytes);
+            }
+
+            addFileMessage(fileName, fileSize, false, "Saved");
+            addSystemMessage("File saved: " + outputFile.getAbsolutePath());
+
+            // Ask if user wants to open the file
+            Alert openAlert = new Alert(Alert.AlertType.CONFIRMATION);
+            openAlert.setTitle("File Saved");
+            openAlert.setHeaderText("File saved successfully");
+            openAlert.setContentText("File: " + fileName + "\n" +
+                    "Saved to: " + outputFile.getAbsolutePath() + "\n" +
+                    "Do you want to open the file?");
+
+            openAlert.showAndWait().ifPresent(response -> {
+                if (response == ButtonType.OK) {
+                    try {
+                        java.awt.Desktop.getDesktop().open(outputFile);
+                    } catch (Exception e) {
+                        showAlert("Error", "Could not open file: " + e.getMessage(), Alert.AlertType.ERROR);
+                    }
+                }
+            });
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            addSystemMessage("Failed to save file: " + fileName);
+            showAlert("Error", "Failed to save file: " + e.getMessage(), Alert.AlertType.ERROR);
+        }
+    }
+
+    private String getUniqueFileName(String originalName) {
+        File file = new File(downloadsFolder, originalName);
+        if (!file.exists()) {
+            return originalName;
+        }
+
+        // Add timestamp to filename
+        String nameWithoutExt = originalName;
+        String extension = "";
+        int dotIndex = originalName.lastIndexOf('.');
+        if (dotIndex > 0) {
+            nameWithoutExt = originalName.substring(0, dotIndex);
+            extension = originalName.substring(dotIndex);
+        }
+
+        String timestamp = "_" + System.currentTimeMillis();
+        return nameWithoutExt + timestamp + extension;
+    }
+
+    private void addFileMessage(String fileName, long fileSize, boolean isOwnFile, String status) {
+        Platform.runLater(() -> {
+            if (chatBox != null) {
+                String fileInfo = (isOwnFile ? "You sent: " : "Received: ") + fileName;
+                if (fileSize > 0) {
+                    fileInfo += " (" + formatFileSize(fileSize) + ")";
+                }
+                fileInfo += " - " + status;
+
+                Label fileLabel = new Label(fileInfo);
+                if (isOwnFile) {
+                    fileLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: #3498db; -fx-background-color: #e3f2fd; -fx-padding: 5 10; -fx-border-radius: 5;");
+                } else {
+                    fileLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: #2ecc71; -fx-background-color: #e8f5e9; -fx-padding: 5 10; -fx-border-radius: 5;");
+                }
+
+                // Make it clickable to open the file
+                fileLabel.setOnMouseClicked(event -> {
+                    if (!isOwnFile && status.equals("Saved")) {
+                        openSavedFile(fileName);
+                    }
+                });
+
+                chatBox.getChildren().add(fileLabel);
+                scrollToBottom();
+            }
+        });
+    }
+
+    private void openSavedFile(String fileName) {
+        try {
+            // Find the file in downloads folder
+            File folder = new File(downloadsFolder);
+            File[] files = folder.listFiles((dir, name) -> name.startsWith(fileName.replaceFirst("[.][^.]+$", "")));
+
+            if (files != null && files.length > 0) {
+                // Open the most recent file with this name
+                File fileToOpen = files[0];
+                for (File file : files) {
+                    if (file.lastModified() > fileToOpen.lastModified()) {
+                        fileToOpen = file;
+                    }
+                }
+
+                java.awt.Desktop.getDesktop().open(fileToOpen);
+            } else {
+                showAlert("File Not Found",
+                        "Could not find saved file: " + fileName + "\n" +
+                                "Check the downloads folder: " + folder.getAbsolutePath(),
+                        Alert.AlertType.WARNING);
+            }
+        } catch (Exception e) {
+            showAlert("Error", "Could not open file: " + e.getMessage(), Alert.AlertType.ERROR);
+        }
+    }
+
+    private String formatFileSize(long size) {
+        if (size < 1024) return size + " B";
+        if (size < 1024 * 1024) return String.format("%.1f KB", size / 1024.0);
+        if (size < 1024 * 1024 * 1024) return String.format("%.1f MB", size / (1024.0 * 1024.0));
+        return String.format("%.1f GB", size / (1024.0 * 1024.0 * 1024.0));
+    }
+
+    // Simple class to track file transfer info
+    private class FileTransferInfo {
+        String fileId;
+        String fileName;
+        long fileSize;
+        StringBuilder fileData;
+
+        public FileTransferInfo(String fileId, String fileName, long fileSize) {
+            this.fileId = fileId;
+            this.fileName = fileName;
+            this.fileSize = fileSize;
+            this.fileData = new StringBuilder();
+        }
     }
 
     private void createVideoPlaceholder() {
@@ -807,9 +1245,10 @@ public class MeetingController {
     private void setupChat() {
         if (chatInput == null) return;
 
+        // Set up Enter key for sending messages
         chatInput.setOnKeyPressed(event -> {
-            switch (event.getCode()) {
-                case ENTER -> onSendChat();
+            if (event.getCode() == javafx.scene.input.KeyCode.ENTER) {
+                onSendChat();
             }
         });
 
@@ -824,7 +1263,10 @@ public class MeetingController {
 
     private void loadChatHistory() {
         String meetingId = HelloApplication.getActiveMeetingId();
-        if (meetingId != null) return;
+        if (meetingId == null) {
+            System.out.println("No meeting ID available to load chat history");
+            return;
+        }
 
         System.out.println("Loading chat history for meeting: " + meetingId);
         List<Database.ChatMessage> chatHistory = Database.getChatMessages(meetingId);
@@ -846,33 +1288,23 @@ public class MeetingController {
         scrollToBottom();
     }
 
-    @FXML
-    protected void onSendChat() {
-        if (chatInput == null) return;
+    public void handleIncomingChatMessage(String username, String message) {
+        Platform.runLater(() -> {
+            // Don't display own messages again
+            if (username.equals(currentUser)) {
+                System.out.println("Ignoring own message from: " + username);
+                return;
+            }
 
-        String msg = chatInput.getText().trim();
-        if (!msg.isEmpty()) {
-            String username = HelloApplication.getLoggedInUser();
-            if (username == null) username = "Me";
+            System.out.println("Received chat message from " + username + ": " + message);
+            addUserMessage(username + ": " + message);
 
-            addUserMessage(username + ": " + msg);
-            chatInput.clear();
-
+            // Save to database
             String meetingId = HelloApplication.getActiveMeetingId();
             if (meetingId != null) {
-                boolean saved = Database.saveChatMessage(meetingId, username, msg, "USER");
-                if (saved) {
-                    System.out.println("Chat message saved to database for user: " + username);
-                } else {
-                    System.err.println("Failed to save chat message to database");
-                }
+                Database.saveChatMessage(meetingId, username, message, "USER");
             }
-
-            if (HelloApplication.isWebSocketConnected() && HelloApplication.getActiveMeetingId() != null) {
-                HelloApplication.sendWebSocketMessage("CHAT", HelloApplication.getActiveMeetingId(), username, msg);
-                System.out.println("Sent chat message via WebSocket: " + msg);
-            }
-        }
+        });
     }
 
     private void addUserMessage(String text) {
@@ -936,13 +1368,9 @@ public class MeetingController {
         updateButtonStyles();
     }
 
-    // ADD THIS METHOD TO FIX THE ERROR
     @FXML
     protected void onToggleWebRTC() {
         System.out.println("onToggleWebRTC() called - WebRTC toggle functionality");
-        // This is a placeholder for WebRTC functionality
-        // You can implement WebRTC video streaming here if needed
-
         addSystemMessage("WebRTC functionality not yet implemented");
     }
 
@@ -1366,7 +1794,8 @@ public class MeetingController {
 
     public void handleWebSocketMessage(String message) {
         try {
-            System.out.println("MeetingController received: " + message);
+            System.out.println("=== MEETING CONTROLLER RECEIVED WEBSOCKET MESSAGE ===");
+            System.out.println("Full message: " + message);
 
             String[] parts = message.split("\\|", 4);
             if (parts.length >= 4) {
@@ -1375,8 +1804,10 @@ public class MeetingController {
                 String username = parts[2];
                 String content = parts[3];
 
-                // Skip our own messages
-                if (username.equals(HelloApplication.getLoggedInUser())) {
+                System.out.println("Parsed: Type=" + type + ", Meeting=" + meetingId + ", User=" + username + ", Content=" + content);
+
+                // Skip our own messages (they're already displayed)
+                if (username.equals(currentUser)) {
                     System.out.println("Skipping own message: " + type);
                     return;
                 }
@@ -1384,17 +1815,23 @@ public class MeetingController {
                 // Check meeting ID
                 String currentMeetingId = HelloApplication.getActiveMeetingId();
                 if (!meetingId.equals(currentMeetingId) && !meetingId.equals("global")) {
-                    System.out.println("Ignoring - wrong meeting ID");
+                    System.out.println("Ignoring - wrong meeting ID. Current: " + currentMeetingId + ", Received: " + meetingId);
                     return;
                 }
 
                 Platform.runLater(() -> {
                     try {
-                        if ("VIDEO_FRAME".equals(type)) {
+                        System.out.println("Processing message type: " + type);
+
+                        if ("CHAT_MESSAGE".equals(type)) {
+                            System.out.println("Handling CHAT_MESSAGE from " + username);
+                            handleIncomingChatMessage(username, content);
+                        } else if ("CHAT".equals(type)) { // Backward compatibility
+                            System.out.println("Handling CHAT from " + username);
+                            handleIncomingChatMessage(username, content);
+                        } else if ("VIDEO_FRAME".equals(type)) {
                             System.out.println("Video frame from: " + username);
                             handleVideoFrameFromServer(username, content);
-                        } else if ("CHAT".equals(type) || "CHAT_MESSAGE".equals(type)) {
-                            handleChatMessage(username, content);
                         } else if ("VIDEO_STATUS".equals(type)) {
                             if ("VIDEO_STARTED".equals(content)) {
                                 addSystemMessage(username + " started video");
@@ -1416,16 +1853,19 @@ public class MeetingController {
                         } else if ("FILE_TRANSFER".equals(type)) {
                             handleFileTransferMessage(username, content);
                         } else {
-                            // For unknown types, treat as regular message
-                            handleChatMessage(username, content);
+                            System.out.println("Unknown message type: " + type);
                         }
                     } catch (Exception e) {
                         System.err.println("Error in Platform.runLater: " + e.getMessage());
+                        e.printStackTrace();
                     }
                 });
+            } else {
+                System.err.println("Invalid WebSocket message format: " + message);
             }
         } catch (Exception e) {
             System.err.println("Error in handleWebSocketMessage: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -1441,15 +1881,6 @@ public class MeetingController {
             }
         } catch (Exception e) {
             System.err.println("Error handling video frame from server: " + e.getMessage());
-        }
-    }
-
-    private void handleChatMessage(String username, String message) {
-        addUserMessage(username + ": " + message);
-
-        String meetingId = HelloApplication.getActiveMeetingId();
-        if (meetingId != null && username != null) {
-            Database.saveChatMessage(meetingId, username, message, "USER");
         }
     }
 
@@ -1574,13 +2005,6 @@ public class MeetingController {
             }
             scrollToBottom();
         });
-    }
-
-    private String formatFileSize(long size) {
-        if (size < 1024) return size + " B";
-        if (size < 1024 * 1024) return String.format("%.1f KB", size / 1024.0);
-        if (size < 1024 * 1024 * 1024) return String.format("%.1f MB", size / (1024.0 * 1024.0));
-        return String.format("%.1f GB", size / (1024.0 * 1024.0 * 1024.0));
     }
 
     private void createPlaceholderVideo(String username) {
@@ -2394,6 +2818,16 @@ public class MeetingController {
         alert.setHeaderText(null);
         alert.setContentText(message);
         alert.showAndWait();
+    }
+
+    private void showAlert(String title, String message, Alert.AlertType type) {
+        Platform.runLater(() -> {
+            Alert alert = new Alert(type);
+            alert.setTitle(title);
+            alert.setHeaderText(null);
+            alert.setContentText(message);
+            alert.showAndWait();
+        });
     }
 
     @FXML

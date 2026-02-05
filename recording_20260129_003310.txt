@@ -1,7 +1,0 @@
-Zoom Meeting Recording
-Date: Thu Jan 29 00:33:10 GMT+06:00 2026
-Duration: 0 seconds
-Resolution: 640x480
-FPS: 15
-User: blackman2
-Meeting: null

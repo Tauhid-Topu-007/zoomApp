@@ -1365,7 +1365,8 @@ public class HelloApplication extends Application {
     }
 
     private static void handleWebSocketMessage(String message) {
-        System.out.println("Application received: " + message);
+        System.out.println("=== HELLO APPLICATION RECEIVED WEBSOCKET MESSAGE ===");
+        System.out.println("Full message: " + message);
 
         String[] parts = message.split("\\|", 4);
         if (parts.length >= 4) {
@@ -1374,112 +1375,55 @@ public class HelloApplication extends Application {
             String username = parts[2];
             String content = parts[3];
 
+            System.out.println("Parsed: Type=" + type + ", Meeting=" + meetingId + ", User=" + username + ", Content=" + content);
+
+            // Skip our own messages
             if (username.equals(loggedInUser)) {
                 System.out.println("Ignoring own message echo: " + type);
                 return;
             }
 
-            if (!meetingId.equals(getActiveMeetingId()) && !meetingId.equals("global")) {
-                System.out.println("Message not for current meeting. Current: " + getActiveMeetingId() + ", Message: " + meetingId);
+            // Check if this message is for our current meeting
+            String currentMeetingId = getActiveMeetingId();
+            if (!meetingId.equals(currentMeetingId) && !meetingId.equals("global")) {
+                System.out.println("Message not for current meeting. Current: " + currentMeetingId + ", Message: " + meetingId);
                 return;
             }
 
-            switch (type) {
-                case "VIDEO_STATUS":
-                    handleVideoStatus(username, content);
-                    break;
-
-                case "VIDEO_FRAME":
-                    System.out.println("Received VIDEO_FRAME from: " + username + " (content length: " + content.length() + ")");
-                    handleVideoFrameDirectly(username, content);
-                    break;
-
-                case "CHAT":
-                case "CHAT_MESSAGE":
-                    Platform.runLater(() -> {
-                        MeetingController meetingController = MeetingController.getInstance();
-                        if (meetingController != null) {
-                            meetingController.handleWebSocketMessage(message);
-                        }
-                    });
-                    break;
-
-                case "USER_JOINED":
-                    Platform.runLater(() -> {
-                        addSystemMessage(username + " joined the meeting");
-                        MeetingController meetingController = MeetingController.getInstance();
-                        if (meetingController != null) {
-                            meetingController.addParticipant(username);
-                        }
-                    });
-                    break;
-
-                case "USER_LEFT":
-                    Platform.runLater(() -> {
-                        addSystemMessage(username + " left the meeting");
-                        MeetingController meetingController = MeetingController.getInstance();
-                        if (meetingController != null) {
-                            meetingController.removeParticipant(username);
-                        }
-                    });
-                    break;
-
-                case "AUDIO_STATUS":
-                    Platform.runLater(() -> {
-                        addSystemMessage(username + " " + content);
-                    });
-                    break;
-
-                case "CONNECTED":
-                    Platform.runLater(() -> {
-                        addSystemMessage("Connected to server: " + content);
-                    });
-                    break;
-
-                default:
-                    Platform.runLater(() -> {
-                        MeetingController meetingController = MeetingController.getInstance();
-                        if (meetingController != null) {
-                            meetingController.handleWebSocketMessage(message);
-                        }
-                    });
-                    break;
-            }
-        } else {
-            System.err.println("Invalid message format: " + message);
-        }
-    }
-
-    private static void handleVideoFrameDirectly(String username, String base64Image) {
-        try {
-            System.out.println("Converting base64 to image...");
-
-            Image videoFrame = convertBase64ToImage(base64Image);
-
-            if (videoFrame == null) {
-                System.err.println("Failed to convert base64 to image");
-                return;
-            }
-
-            System.out.println("Image created: " + videoFrame.getWidth() + "x" + videoFrame.getHeight());
-
+            // Route the message to the appropriate handler
             Platform.runLater(() -> {
                 MeetingController meetingController = MeetingController.getInstance();
                 if (meetingController != null) {
-                    System.out.println("Found MeetingController, displaying frame");
-                    meetingController.displayVideoFrame(username, videoFrame);
+                    System.out.println("Forwarding message to MeetingController");
+                    // Forward the complete message to MeetingController
+                    meetingController.handleWebSocketMessage(message);
                 } else {
-                    System.err.println("MeetingController is null! Can't display video");
-                    if (videoControlsController != null) {
-                        videoControlsController.displayVideoFrame(videoFrame);
-                        System.out.println("Updated video controls directly");
+                    System.out.println("MeetingController not available, handling locally");
+                    // If MeetingController is not available, handle it here
+                    switch (type) {
+                        case "CHAT_MESSAGE":
+                        case "CHAT":
+                            addSystemMessage(username + ": " + content);
+                            break;
+                        case "USER_JOINED":
+                            addSystemMessage(username + " joined the meeting");
+                            break;
+                        case "USER_LEFT":
+                            addSystemMessage(username + " left the meeting");
+                            break;
+                        case "VIDEO_STATUS":
+                            handleVideoStatus(username, content);
+                            break;
+                        case "VIDEO_FRAME":
+                            handleVideoFrame(username, content);
+                            break;
+                        default:
+                            System.out.println("Unhandled message type: " + type);
                     }
                 }
             });
-
-        } catch (Exception e) {
-            System.err.println("Error handling video frame: " + e.getMessage());
-            e.printStackTrace();
+        } else {
+            System.err.println("Invalid WebSocket message format: " + message);
         }
     }
 
@@ -1786,9 +1730,18 @@ public class HelloApplication extends Application {
 
     public static void sendWebSocketMessage(String type, String meetingId, String username, String content) {
         if (webSocketClient != null && webSocketClient.isConnected()) {
+            System.out.println("=== SENDING WEBSOCKET MESSAGE ===");
+            System.out.println("Type: " + type);
+            System.out.println("Meeting ID: " + meetingId);
+            System.out.println("Username: " + username);
+            System.out.println("Content: " + content);
+
             webSocketClient.sendMessage(type, meetingId, username, content);
+            System.out.println("Message sent successfully");
         } else {
             System.err.println("Cannot send message - WebSocket not connected");
+            System.err.println("WebSocket client: " + webSocketClient);
+            System.err.println("WebSocket connected: " + (webSocketClient != null ? webSocketClient.isConnected() : "null client"));
         }
     }
 
