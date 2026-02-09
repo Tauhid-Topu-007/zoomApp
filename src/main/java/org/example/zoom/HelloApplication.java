@@ -68,6 +68,11 @@ public class HelloApplication extends Application {
     private static String stunServer = "stun:stun.l.google.com:19302";
     private static String turnServer = "";
 
+    // Video streaming tracking
+    private static boolean isVideoStreaming = false;
+    private static int videoFramesSent = 0;
+    private static int videoFramesReceived = 0;
+
     public interface ConnectionStatusListener {
         void onConnectionStatusChanged(boolean connected, String status);
     }
@@ -202,7 +207,7 @@ public class HelloApplication extends Application {
             stopWebRTCSession();
 
             if (isWebSocketConnected()) {
-                sendWebSocketMessage("MEETING_ENDED", meetingId, "Meeting ended by host");
+                sendWebSocketMessage("MEETING_ENDED", meetingId, loggedInUser, "Meeting ended by host");
             }
 
             activeMeetings.remove(meetingId);
@@ -233,7 +238,7 @@ public class HelloApplication extends Application {
             removeParticipantFromMeeting(activeMeetingId, loggedInUser);
 
             if (isWebSocketConnected()) {
-                sendWebSocketMessage("USER_LEFT", activeMeetingId, loggedInUser + " left the meeting");
+                sendWebSocketMessage("USER_LEFT", activeMeetingId, loggedInUser, "left the meeting");
             }
 
             removeParticipant(loggedInUser);
@@ -263,6 +268,7 @@ public class HelloApplication extends Application {
 
     public static void toggleVideo() {
         videoOn = !videoOn;
+        isVideoStreaming = videoOn;
 
         System.out.println("VIDEO TOGGLE");
         System.out.println("New state: " + (videoOn ? "ON" : "OFF"));
@@ -284,6 +290,7 @@ public class HelloApplication extends Application {
         } else {
             addSystemMessage("You stopped video streaming");
             System.out.println("Video STOPPED");
+            videoFramesSent = 0;
         }
 
         if (isWebSocketConnected() && activeMeetingId != null && loggedInUser != null) {
@@ -341,6 +348,10 @@ public class HelloApplication extends Application {
 
     public static boolean isVideoOn() {
         return videoOn;
+    }
+
+    public static boolean isVideoStreaming() {
+        return isVideoStreaming;
     }
 
     public static void startVideo() {
@@ -419,6 +430,10 @@ public class HelloApplication extends Application {
                     DashboardController dashboardController = (DashboardController) controller;
                     setConnectionStatusListener(dashboardController);
                     System.out.println("Dashboard controller loaded and registered for connection updates");
+                } else if (controller instanceof MeetingController) {
+                    meetingController = (MeetingController) controller;
+                    meetingController.setStage(primaryStage);
+                    System.out.println("Meeting controller registered and stage set");
                 }
 
                 System.out.println("Root set to: " + fxml);
@@ -1248,7 +1263,10 @@ public class HelloApplication extends Application {
             try {
                 String message = "VIDEO_FRAME|" + meetingId + "|" + username + "|" + base64Image;
                 webSocketClient.send(message);
-                System.out.println("Sent video frame from: " + username + " (" + base64Image.length() + " chars)");
+                videoFramesSent++;
+                if (videoFramesSent % 10 == 0) {
+                    System.out.println("Sent " + videoFramesSent + " video frames from: " + username + " (" + base64Image.length() + " chars)");
+                }
             } catch (Exception e) {
                 System.err.println("Failed to send video frame: " + e.getMessage());
             }
@@ -1265,7 +1283,7 @@ public class HelloApplication extends Application {
         try {
             String base64Image = convertImageToBase64(image);
             if (base64Image != null && !base64Image.isEmpty()) {
-                sendWebSocketMessage("VIDEO_FRAME", getActiveMeetingId(), base64Image);
+                sendWebSocketMessage("VIDEO_FRAME", getActiveMeetingId(), loggedInUser, base64Image);
             }
         } catch (Exception e) {
             System.err.println("Error sending video frame: " + e.getMessage());
@@ -1311,6 +1329,11 @@ public class HelloApplication extends Application {
 
     private static void handleVideoFrame(String username, String base64Image) {
         try {
+            videoFramesReceived++;
+            if (videoFramesReceived % 10 == 0) {
+                System.out.println("Received " + videoFramesReceived + " video frames from: " + username);
+            }
+
             Image videoFrame = convertBase64ToImage(base64Image);
             if (videoFrame != null) {
                 Platform.runLater(() -> {
@@ -1480,7 +1503,7 @@ public class HelloApplication extends Application {
         addParticipantToMeeting(meetingId, hostName);
 
         if (isWebSocketConnected()) {
-            sendWebSocketMessage("MEETING_CREATED", meetingId, "New meeting created by " + hostName);
+            sendWebSocketMessage("MEETING_CREATED", meetingId, hostName, "New meeting created by " + hostName);
             System.out.println("New meeting created via WebSocket: " + meetingId + " by " + hostName);
         } else {
             System.out.println("New meeting created locally: " + meetingId + " by " + hostName + " (WebSocket offline)");
@@ -1535,7 +1558,7 @@ public class HelloApplication extends Application {
         addParticipantToMeeting(meetingId, participantName);
 
         if (isWebSocketConnected()) {
-            sendWebSocketMessage("USER_JOINED", meetingId, participantName + " joined the meeting");
+            sendWebSocketMessage("USER_JOINED", meetingId, participantName, participantName + " joined the meeting");
             System.out.println("Joined meeting via WebSocket: " + meetingId + " as " + participantName);
         } else {
             System.out.println("Joined meeting locally: " + meetingId + " as " + participantName + " (WebSocket offline)");
@@ -1772,12 +1795,12 @@ public class HelloApplication extends Application {
         if (audioMuted) {
             addSystemMessage("You muted your audio");
             if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "muted their audio");
+                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), loggedInUser, "muted their audio");
             }
         } else {
             addSystemMessage("You unmuted your audio");
             if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "unmuted their audio");
+                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), loggedInUser, "unmuted their audio");
             }
         }
 
@@ -1799,12 +1822,12 @@ public class HelloApplication extends Application {
         if (allMuted) {
             addSystemMessage("You muted all participants");
             if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("AUDIO_CONTROL", getActiveMeetingId(), "MUTE_ALL");
+                sendWebSocketMessage("AUDIO_CONTROL", getActiveMeetingId(), loggedInUser, "MUTE_ALL");
             }
         } else {
             addSystemMessage("You unmuted all participants");
             if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("AUDIO_CONTROL", getActiveMeetingId(), "UNMUTE_ALL");
+                sendWebSocketMessage("AUDIO_CONTROL", getActiveMeetingId(), loggedInUser, "UNMUTE_ALL");
             }
         }
 
@@ -1821,12 +1844,12 @@ public class HelloApplication extends Application {
         if (isDeafened) {
             addSystemMessage("You deafened yourself");
             if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "deafened themselves");
+                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), loggedInUser, "deafened themselves");
             }
         } else {
             addSystemMessage("You undeafened yourself");
             if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), "undeafened themselves");
+                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), loggedInUser, "undeafened themselves");
             }
         }
 
@@ -1884,12 +1907,12 @@ public class HelloApplication extends Application {
         if (isRecording) {
             addSystemMessage("You started recording");
             if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("VIDEO_CONTROL", getActiveMeetingId(), "START_RECORDING");
+                sendWebSocketMessage("VIDEO_CONTROL", getActiveMeetingId(), loggedInUser, "START_RECORDING");
             }
         } else {
             addSystemMessage("You stopped recording");
             if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("VIDEO_CONTROL", getActiveMeetingId(), "STOP_RECORDING");
+                sendWebSocketMessage("VIDEO_CONTROL", getActiveMeetingId(), loggedInUser, "STOP_RECORDING");
             }
         }
 
