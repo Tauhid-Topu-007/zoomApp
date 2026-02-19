@@ -1,8 +1,9 @@
-// server/server.js - CommonJS version
+// server/server.js - CommonJS version with WiFi IP support (FIXED)
 const { WebSocketServer } = require('ws');
 const { networkInterfaces } = require('os');
 const { createServer } = require('http');
 const express = require('express');
+const readline = require('readline');
 
 const PORT = 8887;
 const STUN_PORT = 3478;
@@ -26,7 +27,7 @@ function getPublicIP() {
     }
 }
 
-// Get local IP addresses
+// Get local IP addresses (including WiFi)
 function getLocalIPs() {
     const interfaces = networkInterfaces();
     const ips = [];
@@ -41,8 +42,39 @@ function getLocalIPs() {
     return ips;
 }
 
+// Get WiFi IP addresses specifically
+function getWifiIPs() {
+    const interfaces = networkInterfaces();
+    const wifiIPs = [];
+
+    for (const name of Object.keys(interfaces)) {
+        // Check for common WiFi interface names
+        if (name.toLowerCase().includes('wlan') ||
+            name.toLowerCase().includes('wi-fi') ||
+            name.toLowerCase().includes('wifi') ||
+            name.toLowerCase().includes('wireless')) {
+
+            for (const net of interfaces[name]) {
+                if ((net.family === 'IPv4' || net.family === 4) && !net.internal) {
+                    wifiIPs.push(net.address);
+                }
+            }
+        }
+    }
+
+    // If no dedicated WiFi interface found, return all non-internal IPs
+    if (wifiIPs.length === 0) {
+        return getLocalIPs();
+    }
+
+    return wifiIPs;
+}
+
 // STUN/TURN server configuration
 const publicIP = getPublicIP();
+const wifiIPs = getWifiIPs();
+const localIPs = getLocalIPs();
+
 const stunConfig = {
     iceServers: [
         {
@@ -70,7 +102,8 @@ const stunConfig = {
 
 // Express app for WebRTC signaling API
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -226,13 +259,15 @@ app.get('/health', (req, res) => {
         uptime: Math.floor(process.uptime()),
         stunEnabled: true,
         turnEnabled: true,
-        publicIP: publicIP
+        publicIP: publicIP,
+        wifiIPs: wifiIPs,
+        localIPs: localIPs
     });
 });
 
 // Simple root endpoint
 app.get('/', (req, res) => {
-    const localIPs = getLocalIPs();
+    // Use the already declared variables from outer scope
     const serverStats = {
         clients: clients.size,
         meetings: meetings.size,
@@ -247,7 +282,7 @@ app.get('/', (req, res) => {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Zoom WebSocket Server with STUN/TURN</title>
+            <title>Zoom WebSocket Server with WiFi IP Support</title>
             <style>
                 * {
                     margin: 0;
@@ -298,6 +333,15 @@ app.get('/', (req, res) => {
                     font-weight: bold;
                 }
 
+                .wifi-badge {
+                    background: #3498db;
+                    color: white;
+                    padding: 5px 15px;
+                    border-radius: 20px;
+                    font-size: 0.9rem;
+                    font-weight: bold;
+                }
+
                 .content {
                     display: grid;
                     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -328,6 +372,10 @@ app.get('/', (req, res) => {
 
                 .card-warning {
                     border-left-color: #f39c12;
+                }
+
+                .card-wifi {
+                    border-left-color: #9b59b6;
                 }
 
                 h2 {
@@ -379,6 +427,15 @@ app.get('/', (req, res) => {
                     border-radius: 5px;
                     text-align: center;
                     border: 1px solid #3498db;
+                }
+
+                .wifi-ip-item {
+                    background: #f0f7ff;
+                    padding: 10px;
+                    border-radius: 5px;
+                    text-align: center;
+                    border: 2px solid #9b59b6;
+                    font-weight: bold;
                 }
 
                 .stats-grid {
@@ -451,7 +508,10 @@ app.get('/', (req, res) => {
                         🚀 Zoom WebSocket Server
                         <span class="status-badge">RUNNING</span>
                     </h1>
-                    <p>Real-time video conferencing with WebRTC and STUN/TURN support</p>
+                    <div style="margin-top: 10px;">
+                        <span class="wifi-badge">📶 WiFi IP Support Enabled</span>
+                    </div>
+                    <p>Real-time video conferencing with WebRTC and manual WiFi IP configuration</p>
                 </header>
 
                 <div class="content">
@@ -462,6 +522,22 @@ app.get('/', (req, res) => {
                         <p><strong>STUN Server:</strong> <code>stun:${publicIP}:${STUN_PORT}</code></p>
                         <p><strong>TURN Server:</strong> <code>turn:${publicIP}:${TURN_PORT}</code></p>
                         <p><strong>TURN Credentials:</strong> zoomuser / zoompass123</p>
+                    </div>
+
+                    <div class="card card-wifi">
+                        <h2>📶 WiFi IP Addresses</h2>
+                        <p><strong>Use these IPs for direct WiFi communication:</strong></p>
+                        <div class="ip-list">
+                            ${wifiIPs.map(ip => `
+                                <div class="wifi-ip-item">
+                                    <code style="font-size: 1.1rem;">${ip}:${PORT}</code>
+                                    <button class="copy-btn" onclick="copyToClipboard('${ip}:${PORT}')">Copy</button>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <p style="margin-top: 15px; color: #7f8c8d;">
+                            <small>Share these IPs with other devices on the same WiFi network</small>
+                        </p>
                     </div>
 
                     <div class="card card-info">
@@ -498,12 +574,12 @@ app.get('/', (req, res) => {
                                 <button class="copy-btn" onclick="copyToClipboard('http://localhost:${PORT}/api/ice-servers')">Copy</button></li>
                         </ul>
 
-                        <h3>Your Network IPs:</h3>
+                        <h3>WiFi Network IPs (for other devices):</h3>
                         <div class="ip-list">
-                            ${localIPs.map(ip => `
+                            ${wifiIPs.map(ip => `
                                 <div class="ip-item">
-                                    <code>${ip}</code>
-                                    <button class="copy-btn" onclick="copyToClipboard('${ip}')">Copy IP</button>
+                                    <code>ws://${ip}:${PORT}</code>
+                                    <button class="copy-btn" onclick="copyToClipboard('ws://${ip}:${PORT}')">Copy</button>
                                 </div>
                             `).join('')}
                         </div>
@@ -522,6 +598,19 @@ app.get('/', (req, res) => {
                         </ul>
                     </div>
 
+                    <div class="card card-info">
+                        <h2>📱 Manual WiFi IP Configuration</h2>
+                        <p><strong>How to connect using manual WiFi IP:</strong></p>
+                        <ol style="padding-left: 20px; margin: 15px 0;">
+                            <li>Note the WiFi IP address from above</li>
+                            <li>On the client device, go to Settings → Server Settings</li>
+                            <li>Choose "Specify WiFi IP" option</li>
+                            <li>Enter the WiFi IP address from the server</li>
+                            <li>Connect using port ${PORT}</li>
+                        </ol>
+                        <p style="color: #27ae60;"><strong>✅ This ensures direct communication between devices on the same WiFi network</strong></p>
+                    </div>
+
                     <div class="card card-success">
                         <h2>🎯 WebRTC Configuration</h2>
                         <ul>
@@ -529,24 +618,26 @@ app.get('/', (req, res) => {
                             <li><strong>TURN Server:</strong> Optional relay for strict NATs</li>
                             <li><strong>Signaling:</strong> WebSocket + REST API</li>
                             <li><strong>ICE Protocol:</strong> Full support</li>
-                            <li><strong>Cross-platform:</strong> Works on all devices</li>
+                            <li><strong>Manual WiFi IP:</strong> Direct connection support</li>
                         </ul>
                     </div>
 
                     <div class="card card-info">
                         <h2>🚀 Quick Start</h2>
                         <ol style="padding-left: 20px; margin: 15px 0;">
-                            <li>Note your IP address: <strong>${publicIP}</strong></li>
-                            <li>On client devices, connect to: <code>ws://${publicIP}:${PORT}</code></li>
+                            <li>Note your <strong>WiFi IP address</strong> from above</li>
+                            <li>Share this IP with other devices on the same WiFi</li>
+                            <li>On client devices, use "Manual Connect" → "Specify WiFi IP"</li>
+                            <li>Enter the server's WiFi IP address and port ${PORT}</li>
                             <li>Ensure firewall allows port ${PORT}</li>
-                            <li>For internet access, forward port ${PORT} on router</li>
                         </ol>
                     </div>
                 </div>
 
                 <footer>
-                    <p>Zoom WebSocket Server v1.0.0 | WebRTC with STUN/TURN support</p>
+                    <p>Zoom WebSocket Server v2.0.0 | WebRTC with Manual WiFi IP Support</p>
                     <p>⏳ Waiting for client connections...</p>
+                    <p style="color: #9b59b6;">📶 Use WiFi IP addresses for direct device communication</p>
                 </footer>
             </div>
 
@@ -578,19 +669,27 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Start server
-const localIPs = getLocalIPs();
+// Start server - REMOVED the duplicate localIPs declaration
+const serverLocalIPs = getLocalIPs(); // Renamed to avoid conflict
+const serverWifiIPs = getWifiIPs();
 httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n🚀 ZOOM WEB SOCKET SERVER WITH STUN/TURN`);
-    console.log(`=========================================`);
+    console.log(`\n🚀 ZOOM WEB SOCKET SERVER WITH MANUAL WiFi IP SUPPORT`);
+    console.log(`=========================================================`);
     console.log(`✅ Server Status: RUNNING`);
     console.log(`📍 Signaling Port: ${PORT}`);
     console.log(`🌐 Public IP: ${publicIP}`);
     console.log(`🎯 STUN Server: stun:${publicIP}:${STUN_PORT}`);
     console.log(`📡 TURN Server: turn:${publicIP}:${TURN_PORT}`);
+
+    console.log(`\n📶 WiFi IP ADDRESSES (USE THESE FOR MANUAL CONNECTION):`);
+    console.log(`----------------------------------------------------`);
+    serverWifiIPs.forEach(ip => {
+        console.log(`   ✅ ws://${ip}:${PORT}  (Share this IP with other devices)`);
+    });
+
     console.log(`\n🔗 WebSocket URLs:`);
     console.log(`   - ws://localhost:${PORT}`);
-    localIPs.forEach(ip => {
+    serverLocalIPs.forEach(ip => {
         console.log(`   - ws://${ip}:${PORT}`);
     });
 
@@ -603,7 +702,20 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`   1. STUN Servers: Configured for NAT traversal`);
     console.log(`   2. TURN Server: Optional relay for strict NATs`);
     console.log(`   3. Signaling: WebSocket + REST API`);
-    console.log(`   4. ICE Protocol: Full support`);
+    console.log(`   4. Manual WiFi IP: Direct connection support`);
+
+    console.log(`\n📱 MANUAL CONNECTION INSTRUCTIONS:`);
+    console.log(`-----------------------------------`);
+    console.log(`1. On server device, note the WiFi IP address:`);
+    serverWifiIPs.forEach(ip => {
+        console.log(`   → ${ip}:${PORT}`);
+    });
+    console.log(`2. On client device, go to Settings → Server Settings`);
+    console.log(`3. Choose "Specify WiFi IP" option`);
+    console.log(`4. Enter the server's WiFi IP address`);
+    console.log(`5. Connect using port ${PORT}`);
+    console.log(`6. Both devices must be on the same WiFi network`);
+
     console.log(`\n⏳ Waiting for connections...\n`);
 });
 
@@ -639,9 +751,20 @@ wss.on('connection', (ws, req) => {
         data: stunConfig
     }));
 
-    const welcomeMessage = `SYSTEM|global|Server|CONNECTED|${userId}|Welcome! ICE servers configured`;
+    // Send WiFi IP information to client
+    ws.send(JSON.stringify({
+        type: 'WIFI_IPS',
+        data: {
+            wifiIPs: wifiIPs,
+            serverIp: publicIP,
+            localIPs: localIPs
+        }
+    }));
+
+    const welcomeMessage = `SYSTEM|global|Server|CONNECTED|${userId}|Welcome! ICE servers configured. WiFi IPs: ${wifiIPs.join(', ')}`;
     ws.send(welcomeMessage);
     console.log(`📤 Sent welcome with ICE config to ${userId}`);
+    console.log(`📶 Sent WiFi IPs to client: ${wifiIPs.join(', ')}`);
 
     // Notify others
     broadcast(`SYSTEM|global|Server|USER_JOINED|${userId}|${userId} joined from ${clientIp}`, ws);
@@ -903,6 +1026,16 @@ function handleUserJoined(ws, userId, meetingId, content) {
     ws.send(JSON.stringify({
         type: 'ICE_SERVERS',
         data: stunConfig
+    }));
+
+    // Send WiFi IP information
+    ws.send(JSON.stringify({
+        type: 'WIFI_IPS',
+        data: {
+            wifiIPs: wifiIPs,
+            serverIp: publicIP,
+            localIPs: localIPs
+        }
     }));
 
     // Notify other participants about new WebRTC peer

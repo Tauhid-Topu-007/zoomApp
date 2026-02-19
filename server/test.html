@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+</head>
+<body>
+<h1>WebSocket Connection Test</h1>
+<div id="status">Connecting...</div>
+<div id="messages"></div>
+
+<script>
+    const statusDiv = document.getElementById('status');
+    const messagesDiv = document.getElementById('messages');
+
+    function log(message) {
+        messagesDiv.innerHTML += '<div>' + message + '</div>';
+    }
+
+    // Try different connection URLs
+    const urls = [
+        'ws://localhost:8887',
+        'ws://127.0.0.1:8887',
+        'ws://' + window.location.hostname + ':8887'
+    ];
+
+    let currentUrlIndex = 0;
+
+    function tryNextUrl() {
+        if (currentUrlIndex >= urls.length) {
+            statusDiv.innerHTML = '❌ All connection attempts failed';
+            statusDiv.style.color = 'red';
+            return;
+        }
+
+        const url = urls[currentUrlIndex];
+        statusDiv.innerHTML = '🔄 Trying ' + url + '...';
+
+        try {
+            const ws = new WebSocket(url);
+
+            ws.onopen = function() {
+                statusDiv.innerHTML = '✅ Connected to ' + url;
+                statusDiv.style.color = 'green';
+                log('✅ Connected to ' + url);
+                ws.send('Hello from browser!');
+            };
+
+            ws.onmessage = function(event) {
+                log('📩 Received: ' + event.data);
+            };
+
+            ws.onerror = function(error) {
+                log('❌ Error with ' + url + ': ' + error);
+                currentUrlIndex++;
+                tryNextUrl();
+            };
+
+            ws.onclose = function() {
+                log('🔌 Disconnected from ' + url);
+            };
+        } catch (e) {
+            log('❌ Exception: ' + e);
+            currentUrlIndex++;
+            tryNextUrl();
+        }
+    }
+
+    tryNextUrl();
+</script>
+</body>
+</html>

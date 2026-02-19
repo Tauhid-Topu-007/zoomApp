@@ -73,6 +73,10 @@ public class HelloApplication extends Application {
     private static int videoFramesSent = 0;
     private static int videoFramesReceived = 0;
 
+    // NEW: WiFi IP configuration for manual connection
+    private static String wifiIpAddress = "";
+    private static boolean useManualWifiIp = false;
+
     public interface ConnectionStatusListener {
         void onConnectionStatusChanged(boolean connected, String status);
     }
@@ -916,7 +920,91 @@ public class HelloApplication extends Application {
         }
     }
 
+    // MODIFIED: Enhanced manual connection dialog with WiFi IP option
     public static void showManualConnectionDialog() {
+        // First, show WiFi IP configuration option
+        Alert wifiChoiceAlert = new Alert(Alert.AlertType.CONFIRMATION);
+        wifiChoiceAlert.setTitle("WiFi IP Configuration");
+        wifiChoiceAlert.setHeaderText("Manual Server Connection");
+        wifiChoiceAlert.setContentText("Do you want to manually specify a WiFi IP address for direct communication?");
+
+        ButtonType specifyWifiButton = new ButtonType("Specify WiFi IP");
+        ButtonType standardButton = new ButtonType("Standard Connection");
+        ButtonType cancelButton = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+        wifiChoiceAlert.getButtonTypes().setAll(specifyWifiButton, standardButton, cancelButton);
+
+        Optional<ButtonType> wifiChoiceResult = wifiChoiceAlert.showAndWait();
+
+        if (wifiChoiceResult.isPresent()) {
+            if (wifiChoiceResult.get() == specifyWifiButton) {
+                // Show WiFi IP configuration dialog
+                showWifiIpConfigurationDialog();
+            } else if (wifiChoiceResult.get() == standardButton) {
+                // Show standard connection dialog
+                showStandardConnectionDialog();
+            }
+        }
+    }
+
+    // NEW: WiFi IP configuration dialog
+    private static void showWifiIpConfigurationDialog() {
+        // First, show list of detected WiFi IPs
+        List<String> localIPs = getLocalIPAddresses();
+
+        StringBuilder ipInfo = new StringBuilder();
+        ipInfo.append("Detected IP addresses on this device:\n\n");
+        for (String ip : localIPs) {
+            ipInfo.append("• ").append(ip).append("\n");
+        }
+        ipInfo.append("\nYou can use one of these IPs or enter a custom one.");
+
+        Alert ipInfoAlert = new Alert(Alert.AlertType.INFORMATION);
+        ipInfoAlert.setTitle("Detected IP Addresses");
+        ipInfoAlert.setHeaderText("Your Device's IP Addresses");
+        ipInfoAlert.setContentText(ipInfo.toString());
+        ipInfoAlert.showAndWait();
+
+        // Dialog for WiFi IP configuration
+        TextInputDialog wifiIpDialog = new TextInputDialog(localIPs.isEmpty() ? "" : localIPs.get(0));
+        wifiIpDialog.setTitle("WiFi IP Configuration");
+        wifiIpDialog.setHeaderText("Enter WiFi IP Address for Communication");
+        wifiIpDialog.setContentText("WiFi IP Address (e.g., 192.168.1.100):");
+
+        Optional<String> wifiIpResult = wifiIpDialog.showAndWait();
+        if (wifiIpResult.isPresent() && !wifiIpResult.get().trim().isEmpty()) {
+            String wifiIp = wifiIpResult.get().trim();
+
+            if (!isValidIPAddress(wifiIp) && !wifiIp.equals("localhost")) {
+                showAlert(Alert.AlertType.ERROR, "Invalid IP",
+                        "Please enter a valid IP address (e.g., 192.168.1.100)");
+                return;
+            }
+
+            // Now ask for port
+            TextInputDialog portDialog = new TextInputDialog("8887");
+            portDialog.setTitle("Server Port");
+            portDialog.setHeaderText("Server Port Configuration");
+            portDialog.setContentText("Enter server port (default: 8887):");
+
+            Optional<String> portResult = portDialog.showAndWait();
+            String port = portResult.isPresent() ? portResult.get().trim() : "8887";
+
+            if (port.isEmpty()) {
+                port = "8887";
+            }
+
+            // Save the WiFi IP configuration
+            setWifiIpAddress(wifiIp);
+            setUseManualWifiIp(true);
+
+            // Connect using the specified WiFi IP
+            connectToServerManual(wifiIp, port);
+        }
+    }
+
+    // NEW: Standard connection dialog
+    private static void showStandardConnectionDialog() {
         TextInputDialog ipDialog = new TextInputDialog("192.168.1.");
         ipDialog.setTitle("Manual Server Connection");
         ipDialog.setHeaderText("Connect to Server on Different Device");
@@ -1049,7 +1137,30 @@ public class HelloApplication extends Application {
     }
 
     public static String getCurrentServerUrl() {
+        // If manual WiFi IP is set, use it for the server URL
+        if (useManualWifiIp && !wifiIpAddress.isEmpty()) {
+            return "ws://" + wifiIpAddress + ":" + serverPort;
+        }
         return "ws://" + serverIp + ":" + serverPort;
+    }
+
+    // NEW: Getters and setters for WiFi IP configuration
+    public static void setWifiIpAddress(String ip) {
+        wifiIpAddress = ip;
+        System.out.println("WiFi IP address set to: " + ip);
+    }
+
+    public static String getWifiIpAddress() {
+        return wifiIpAddress;
+    }
+
+    public static void setUseManualWifiIp(boolean use) {
+        useManualWifiIp = use;
+        System.out.println("Manual WiFi IP mode: " + (use ? "ENABLED" : "DISABLED"));
+    }
+
+    public static boolean isUseManualWifiIp() {
+        return useManualWifiIp;
     }
 
     public static String getServerIp() {
@@ -1457,6 +1568,59 @@ public class HelloApplication extends Application {
         if (meetingId != null && webRTCEnabled && webRTCManager != null) {
             startWebRTCSession();
         }
+    }
+
+    // NEW: Get the actual WiFi IP address that others can connect to
+    public static String getActualWifiIP() {
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface iface = interfaces.nextElement();
+
+                // Skip loopback and down interfaces
+                if (iface.isLoopback() || !iface.isUp()) continue;
+
+                // Look for WiFi interfaces (common names)
+                String displayName = iface.getDisplayName().toLowerCase();
+                if (displayName.contains("wlan") ||
+                        displayName.contains("wi-fi") ||
+                        displayName.contains("wireless") ||
+                        displayName.contains("wifi")) {
+
+                    Enumeration<InetAddress> addresses = iface.getInetAddresses();
+                    while (addresses.hasMoreElements()) {
+                        InetAddress addr = addresses.nextElement();
+                        if (addr instanceof Inet4Address) {
+                            String ip = addr.getHostAddress();
+                            System.out.println("✅ Found WiFi IP: " + ip);
+                            return ip;
+                        }
+                    }
+                }
+            }
+
+            // If no dedicated WiFi interface found, return the first non-loopback IPv4
+            Enumeration<NetworkInterface> interfaces2 = NetworkInterface.getNetworkInterfaces();
+            while (interfaces2.hasMoreElements()) {
+                NetworkInterface iface = interfaces2.nextElement();
+                if (iface.isLoopback() || !iface.isUp()) continue;
+
+                Enumeration<InetAddress> addresses = iface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress addr = addresses.nextElement();
+                    if (addr instanceof Inet4Address) {
+                        String ip = addr.getHostAddress();
+                        if (!ip.startsWith("127.") && !ip.startsWith("169.254.")) {
+                            System.out.println("✅ Found network IP: " + ip);
+                            return ip;
+                        }
+                    }
+                }
+            }
+        } catch (SocketException e) {
+            System.err.println("Error getting network interfaces: " + e.getMessage());
+        }
+        return null;
     }
 
     public static String getActiveMeetingId() {
