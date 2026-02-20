@@ -64,18 +64,10 @@ public class HelloApplication extends Application {
 
     private static volatile boolean stageReady = false;
 
-    private static boolean webRTCEnabledField = true;
-    private static String stunServer = "stun:stun.l.google.com:19302";
-    private static String turnServer = "";
-
     // Video streaming tracking
     private static boolean isVideoStreaming = false;
     private static int videoFramesSent = 0;
     private static int videoFramesReceived = 0;
-
-    // NEW: WiFi IP configuration for manual connection
-    private static String wifiIpAddress = "";
-    private static boolean useManualWifiIp = false;
 
     public interface ConnectionStatusListener {
         void onConnectionStatusChanged(boolean connected, String status);
@@ -88,6 +80,7 @@ public class HelloApplication extends Application {
 
         Database.initializeDatabase();
 
+        // Initialize WebRTC manager as client only
         webRTCManager = WebRTCManager.getInstance();
 
         setRoot("login-view.fxml");
@@ -95,6 +88,8 @@ public class HelloApplication extends Application {
         stage.show();
 
         System.out.println("Primary stage initialized and ready");
+        System.out.println("Make sure Node.js server is running on port 8887");
+        System.out.println("Run: node server/server.js");
     }
 
     private void initializeWebRTC() {
@@ -650,7 +645,7 @@ public class HelloApplication extends Application {
 
         StringBuilder content = new StringBuilder();
         content.append("Please make sure:\n\n");
-        content.append("• The Zoom server is running on another device\n");
+        content.append("• The Node.js server (server.js) is running on another device\n");
         content.append("• Both devices are on the same WiFi network\n");
         content.append("• Firewall allows port 8887\n\n");
 
@@ -693,8 +688,9 @@ public class HelloApplication extends Application {
             if (currentUrl.contains("localhost")) {
                 showAlert(Alert.AlertType.ERROR, "Server Status",
                         "Local server is not running\n\n" +
-                                "The WebSocket server needs to be started on this computer " +
-                                "or connect to another computer running the server.");
+                                "The Node.js WebSocket server needs to be started on this computer " +
+                                "or connect to another computer running the server.\n\n" +
+                                "Run: node server/server.js");
             } else {
                 showAlert(Alert.AlertType.ERROR, "Server Status",
                         "Cannot connect to server at:\n" + currentUrl +
@@ -920,91 +916,7 @@ public class HelloApplication extends Application {
         }
     }
 
-    // MODIFIED: Enhanced manual connection dialog with WiFi IP option
     public static void showManualConnectionDialog() {
-        // First, show WiFi IP configuration option
-        Alert wifiChoiceAlert = new Alert(Alert.AlertType.CONFIRMATION);
-        wifiChoiceAlert.setTitle("WiFi IP Configuration");
-        wifiChoiceAlert.setHeaderText("Manual Server Connection");
-        wifiChoiceAlert.setContentText("Do you want to manually specify a WiFi IP address for direct communication?");
-
-        ButtonType specifyWifiButton = new ButtonType("Specify WiFi IP");
-        ButtonType standardButton = new ButtonType("Standard Connection");
-        ButtonType cancelButton = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
-
-        wifiChoiceAlert.getButtonTypes().setAll(specifyWifiButton, standardButton, cancelButton);
-
-        Optional<ButtonType> wifiChoiceResult = wifiChoiceAlert.showAndWait();
-
-        if (wifiChoiceResult.isPresent()) {
-            if (wifiChoiceResult.get() == specifyWifiButton) {
-                // Show WiFi IP configuration dialog
-                showWifiIpConfigurationDialog();
-            } else if (wifiChoiceResult.get() == standardButton) {
-                // Show standard connection dialog
-                showStandardConnectionDialog();
-            }
-        }
-    }
-
-    // NEW: WiFi IP configuration dialog
-    private static void showWifiIpConfigurationDialog() {
-        // First, show list of detected WiFi IPs
-        List<String> localIPs = getLocalIPAddresses();
-
-        StringBuilder ipInfo = new StringBuilder();
-        ipInfo.append("Detected IP addresses on this device:\n\n");
-        for (String ip : localIPs) {
-            ipInfo.append("• ").append(ip).append("\n");
-        }
-        ipInfo.append("\nYou can use one of these IPs or enter a custom one.");
-
-        Alert ipInfoAlert = new Alert(Alert.AlertType.INFORMATION);
-        ipInfoAlert.setTitle("Detected IP Addresses");
-        ipInfoAlert.setHeaderText("Your Device's IP Addresses");
-        ipInfoAlert.setContentText(ipInfo.toString());
-        ipInfoAlert.showAndWait();
-
-        // Dialog for WiFi IP configuration
-        TextInputDialog wifiIpDialog = new TextInputDialog(localIPs.isEmpty() ? "" : localIPs.get(0));
-        wifiIpDialog.setTitle("WiFi IP Configuration");
-        wifiIpDialog.setHeaderText("Enter WiFi IP Address for Communication");
-        wifiIpDialog.setContentText("WiFi IP Address (e.g., 192.168.1.100):");
-
-        Optional<String> wifiIpResult = wifiIpDialog.showAndWait();
-        if (wifiIpResult.isPresent() && !wifiIpResult.get().trim().isEmpty()) {
-            String wifiIp = wifiIpResult.get().trim();
-
-            if (!isValidIPAddress(wifiIp) && !wifiIp.equals("localhost")) {
-                showAlert(Alert.AlertType.ERROR, "Invalid IP",
-                        "Please enter a valid IP address (e.g., 192.168.1.100)");
-                return;
-            }
-
-            // Now ask for port
-            TextInputDialog portDialog = new TextInputDialog("8887");
-            portDialog.setTitle("Server Port");
-            portDialog.setHeaderText("Server Port Configuration");
-            portDialog.setContentText("Enter server port (default: 8887):");
-
-            Optional<String> portResult = portDialog.showAndWait();
-            String port = portResult.isPresent() ? portResult.get().trim() : "8887";
-
-            if (port.isEmpty()) {
-                port = "8887";
-            }
-
-            // Save the WiFi IP configuration
-            setWifiIpAddress(wifiIp);
-            setUseManualWifiIp(true);
-
-            // Connect using the specified WiFi IP
-            connectToServerManual(wifiIp, port);
-        }
-    }
-
-    // NEW: Standard connection dialog
-    private static void showStandardConnectionDialog() {
         TextInputDialog ipDialog = new TextInputDialog("192.168.1.");
         ipDialog.setTitle("Manual Server Connection");
         ipDialog.setHeaderText("Connect to Server on Different Device");
@@ -1137,30 +1049,7 @@ public class HelloApplication extends Application {
     }
 
     public static String getCurrentServerUrl() {
-        // If manual WiFi IP is set, use it for the server URL
-        if (useManualWifiIp && !wifiIpAddress.isEmpty()) {
-            return "ws://" + wifiIpAddress + ":" + serverPort;
-        }
         return "ws://" + serverIp + ":" + serverPort;
-    }
-
-    // NEW: Getters and setters for WiFi IP configuration
-    public static void setWifiIpAddress(String ip) {
-        wifiIpAddress = ip;
-        System.out.println("WiFi IP address set to: " + ip);
-    }
-
-    public static String getWifiIpAddress() {
-        return wifiIpAddress;
-    }
-
-    public static void setUseManualWifiIp(boolean use) {
-        useManualWifiIp = use;
-        System.out.println("Manual WiFi IP mode: " + (use ? "ENABLED" : "DISABLED"));
-    }
-
-    public static boolean isUseManualWifiIp() {
-        return useManualWifiIp;
     }
 
     public static String getServerIp() {
@@ -1305,6 +1194,7 @@ public class HelloApplication extends Application {
 
             if (!success && serverUrl.contains("localhost")) {
                 System.out.println("Localhost connection failed - server likely not running on this device");
+                System.out.println("Run: node server/server.js");
             }
 
             System.out.println("Connection test result for " + serverUrl + ": " +
@@ -1321,7 +1211,8 @@ public class HelloApplication extends Application {
             }
 
             if (e.getMessage().contains("Connection refused") && serverUrl.contains("localhost")) {
-                System.out.println("Hint: WebSocket server is not running on this device. Connect to another computer's IP.");
+                System.out.println("Hint: Node.js WebSocket server is not running on this device.");
+                System.out.println("Start it with: node server/server.js");
             }
             return false;
         }
@@ -1346,7 +1237,8 @@ public class HelloApplication extends Application {
         }
 
         guide.append("CONNECTION STEPS:\n");
-        guide.append("1. Run the application on Server device\n");
+        guide.append("1. Run the Node.js server on Server device\n");
+        guide.append("   > node server/server.js\n");
         guide.append("2. Note the Server IP address from above\n");
         guide.append("3. On Client device, use 'Manual Connect'\n");
         guide.append("4. Enter Server IP address\n");
@@ -1356,7 +1248,8 @@ public class HelloApplication extends Application {
         guide.append("• Ensure both devices on same WiFi\n");
         guide.append("• Disable VPN temporarily\n");
         guide.append("• Check firewall settings on Server\n");
-        guide.append("• Verify Server application is running\n");
+        guide.append("• Verify Node.js server is running\n");
+        guide.append("• Port 8887 must be open\n");
 
         Platform.runLater(() -> {
             Alert alert = new Alert(Alert.AlertType.INFORMATION);
@@ -1568,59 +1461,6 @@ public class HelloApplication extends Application {
         if (meetingId != null && webRTCEnabled && webRTCManager != null) {
             startWebRTCSession();
         }
-    }
-
-    // NEW: Get the actual WiFi IP address that others can connect to
-    public static String getActualWifiIP() {
-        try {
-            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
-            while (interfaces.hasMoreElements()) {
-                NetworkInterface iface = interfaces.nextElement();
-
-                // Skip loopback and down interfaces
-                if (iface.isLoopback() || !iface.isUp()) continue;
-
-                // Look for WiFi interfaces (common names)
-                String displayName = iface.getDisplayName().toLowerCase();
-                if (displayName.contains("wlan") ||
-                        displayName.contains("wi-fi") ||
-                        displayName.contains("wireless") ||
-                        displayName.contains("wifi")) {
-
-                    Enumeration<InetAddress> addresses = iface.getInetAddresses();
-                    while (addresses.hasMoreElements()) {
-                        InetAddress addr = addresses.nextElement();
-                        if (addr instanceof Inet4Address) {
-                            String ip = addr.getHostAddress();
-                            System.out.println("✅ Found WiFi IP: " + ip);
-                            return ip;
-                        }
-                    }
-                }
-            }
-
-            // If no dedicated WiFi interface found, return the first non-loopback IPv4
-            Enumeration<NetworkInterface> interfaces2 = NetworkInterface.getNetworkInterfaces();
-            while (interfaces2.hasMoreElements()) {
-                NetworkInterface iface = interfaces2.nextElement();
-                if (iface.isLoopback() || !iface.isUp()) continue;
-
-                Enumeration<InetAddress> addresses = iface.getInetAddresses();
-                while (addresses.hasMoreElements()) {
-                    InetAddress addr = addresses.nextElement();
-                    if (addr instanceof Inet4Address) {
-                        String ip = addr.getHostAddress();
-                        if (!ip.startsWith("127.") && !ip.startsWith("169.254.")) {
-                            System.out.println("✅ Found network IP: " + ip);
-                            return ip;
-                        }
-                    }
-                }
-            }
-        } catch (SocketException e) {
-            System.err.println("Error getting network interfaces: " + e.getMessage());
-        }
-        return null;
     }
 
     public static String getActiveMeetingId() {
@@ -2193,7 +2033,8 @@ public class HelloApplication extends Application {
             System.out.println("2. Turn off VPN if using one");
             System.out.println("3. Check firewall settings");
             System.out.println("4. Try different IP addresses from the list above");
-            System.out.println("5. Ensure server is running on the host computer");
+            System.out.println("5. Ensure Node.js server is running on the host computer");
+            System.out.println("6. Run: node server/server.js");
 
             Platform.runLater(() -> {
                 Alert alert = new Alert(Alert.AlertType.INFORMATION);
@@ -2219,7 +2060,8 @@ public class HelloApplication extends Application {
                 message.append("• Make sure all devices are on same WiFi\n");
                 message.append("• Turn off VPN if using one\n");
                 message.append("• Check firewall settings\n");
-                message.append("• Ensure server is running on host computer");
+                message.append("• Ensure Node.js server is running on host computer\n");
+                message.append("• Run: node server/server.js");
 
                 alert.setContentText(message.toString());
                 alert.showAndWait();
@@ -2257,7 +2099,7 @@ public class HelloApplication extends Application {
                 alert.setHeaderText("Cannot connect to localhost:8887");
 
                 StringBuilder content = new StringBuilder();
-                content.append("The WebSocket server is not running on this device.\n\n");
+                content.append("The Node.js WebSocket server is not running on this device.\n\n");
 
                 if (!localIPs.isEmpty()) {
                     content.append("If you're trying to connect to another computer:\n");
