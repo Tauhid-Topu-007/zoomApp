@@ -42,6 +42,7 @@ public class HelloApplication extends Application {
 
     private static String serverIp = "localhost";
     private static String serverPort = "8887";
+    private static final int DEFAULT_PORT = 8887; // Add this constant
 
     private static boolean connectionInitialized = false;
     private static ConnectionStatusListener connectionStatusListener;
@@ -88,7 +89,7 @@ public class HelloApplication extends Application {
         stage.show();
 
         System.out.println("Primary stage initialized and ready");
-        System.out.println("Make sure Node.js server is running on port 8887");
+        System.out.println("Make sure Node.js server is running on port " + DEFAULT_PORT);
         System.out.println("Run: node server/server.js");
     }
 
@@ -647,7 +648,7 @@ public class HelloApplication extends Application {
         content.append("Please make sure:\n\n");
         content.append("• The Node.js server (server.js) is running on another device\n");
         content.append("• Both devices are on the same WiFi network\n");
-        content.append("• Firewall allows port 8887\n\n");
+        content.append("• Firewall allows port " + DEFAULT_PORT + "\n\n");
 
         if (!localIPs.isEmpty()) {
             content.append("Your network IP addresses:\n");
@@ -1149,6 +1150,82 @@ public class HelloApplication extends Application {
         return availableServers;
     }
 
+    // Enhanced connection testing method
+    public static boolean testConnectionAdvanced(String serverUrl) {
+        System.out.println("🔍 Testing connection to: " + serverUrl);
+
+        // Extract IP and port
+        String urlWithoutProtocol = serverUrl.replace("ws://", "");
+        String[] parts = urlWithoutProtocol.split(":");
+        String ip = parts[0];
+        String port = (parts.length > 1) ? parts[1] : String.valueOf(DEFAULT_PORT);
+
+        // Try different connection methods
+        String[] urlsToTest = {
+                serverUrl,
+                "http://" + ip + ":" + port + "/health",
+                "http://" + ip + ":" + port + "/ping",
+                "ws://" + ip + ":" + port
+        };
+
+        // Test HTTP endpoints first
+        for (String testUrl : urlsToTest) {
+            if (!testUrl.startsWith("ws://")) {
+                try {
+                    System.out.println("   Trying HTTP: " + testUrl);
+                    java.net.URL url = new java.net.URL(testUrl);
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(2000);
+                    conn.setReadTimeout(2000);
+                    conn.setRequestMethod("GET");
+
+                    int responseCode = conn.getResponseCode();
+                    if (responseCode == 200) {
+                        System.out.println("   ✅ HTTP connection successful!");
+                        return true;
+                    } else {
+                        System.out.println("   ❌ HTTP returned code: " + responseCode);
+                    }
+                } catch (java.net.ConnectException e) {
+                    System.out.println("   ❌ Connection refused: " + e.getMessage());
+                    if (e.getMessage().contains("refused")) {
+                        System.out.println("      → Server not running or firewall blocking port " + port);
+                    }
+                } catch (java.net.SocketTimeoutException e) {
+                    System.out.println("   ❌ Connection timeout");
+                } catch (Exception e) {
+                    System.out.println("   ❌ Failed: " + e.getMessage());
+                }
+            }
+        }
+
+        // Try ping as last resort
+        if (!ip.equals("localhost") && !ip.equals("127.0.0.1")) {
+            try {
+                System.out.println("   Trying ping to " + ip + "...");
+                Process p;
+                if (System.getProperty("os.name").toLowerCase().contains("win")) {
+                    p = Runtime.getRuntime().exec("ping -n 2 " + ip);
+                } else {
+                    p = Runtime.getRuntime().exec("ping -c 2 " + ip);
+                }
+                int exitCode = p.waitFor();
+                if (exitCode == 0) {
+                    System.out.println("   ✅ Ping successful to " + ip);
+                    System.out.println("   ⚠️  Server might be running but port " + port + " is blocked");
+                    System.out.println("      → Check Windows Firewall on the server machine");
+                    System.out.println("      → Run: netsh advfirewall firewall add rule name=\"Zoom WebSocket\" dir=in action=allow protocol=TCP localport=" + port);
+                } else {
+                    System.out.println("   ❌ Ping failed - check network connectivity");
+                }
+            } catch (Exception e) {
+                System.out.println("   ❌ Ping test failed: " + e.getMessage());
+            }
+        }
+
+        return false;
+    }
+
     public static boolean testConnection(String serverUrl) {
         final AtomicBoolean connectionSuccess = new AtomicBoolean(false);
         final AtomicBoolean receivedDisconnect = new AtomicBoolean(false);
@@ -1231,7 +1308,7 @@ public class HelloApplication extends Application {
         } else {
             guide.append("Your Server IP Addresses:\n");
             for (String ip : localIPs) {
-                guide.append(ip).append(":8887\n");
+                guide.append(ip).append(":").append(DEFAULT_PORT).append("\n");
             }
             guide.append("\n");
         }
@@ -1249,7 +1326,8 @@ public class HelloApplication extends Application {
         guide.append("• Disable VPN temporarily\n");
         guide.append("• Check firewall settings on Server\n");
         guide.append("• Verify Node.js server is running\n");
-        guide.append("• Port 8887 must be open\n");
+        guide.append("• Port ").append(DEFAULT_PORT).append(" must be open\n");
+        guide.append("• On Windows, run: netsh advfirewall firewall add rule name=\"Zoom WebSocket\" dir=in action=allow protocol=TCP localport=").append(DEFAULT_PORT).append("\n");
 
         Platform.runLater(() -> {
             Alert alert = new Alert(Alert.AlertType.INFORMATION);

@@ -1,12 +1,22 @@
-// server/server.js - Corrected version for multi-laptop support
+// server/server.js - Enhanced multi-laptop connection solution with debugging
 const { WebSocketServer } = require('ws');
 const { networkInterfaces } = require('os');
 const { createServer } = require('http');
 const express = require('express');
+const os = require('os');
 
 const PORT = 8887;
 const STUN_PORT = 3478;
 const TURN_PORT = 5349;
+
+// Add better error handling
+process.on('uncaughtException', (err) => {
+    console.error('\n❌ Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('\n❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 // Get all available network interfaces with detailed information
 function getNetworkInfo() {
@@ -15,7 +25,8 @@ function getNetworkInfo() {
         all: [],
         ipv4: [],
         ipv6: [],
-        details: {}
+        details: {},
+        hostname: os.hostname()
     };
 
     for (const [name, nets] of Object.entries(interfaces)) {
@@ -26,6 +37,7 @@ function getNetworkInfo() {
                     address: net.address,
                     family: net.family,
                     mac: net.mac,
+                    netmask: net.netmask,
                     internal: net.internal
                 };
                 networkInfo.details[name].push(info);
@@ -64,7 +76,7 @@ const networkInfo = getNetworkInfo();
 const publicIP = getPublicIP();
 const localIPs = networkInfo.ipv4;
 
-// STUN/TURN server configuration
+// STUN/TURN server configuration with multiple fallbacks
 const stunConfig = {
     iceServers: [
         {
@@ -73,7 +85,9 @@ const stunConfig = {
                 'stun:stun1.l.google.com:19302',
                 'stun:stun2.l.google.com:19302',
                 'stun:stun3.l.google.com:19302',
-                'stun:stun4.l.google.com:19302'
+                'stun:stun4.l.google.com:19302',
+                'stun:stun.services.mozilla.com',
+                'stun:stun.stunprotocol.org:3478'
             ]
         },
         // Self-hosted STUN server
@@ -87,36 +101,64 @@ const stunConfig = {
             credential: 'zoompass123'
         }
     ],
-    iceCandidatePoolSize: 10
+    iceCandidatePoolSize: 10,
+    iceTransportPolicy: 'all',
+    bundlePolicy: 'max-bundle'
 };
 
 // Express app for WebRTC signaling API
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// CORS and headers
 app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
     next();
 });
 
 // HTTP server
 const httpServer = createServer(app);
 
-// WebSocket server for signaling - CORRECTED: only use 'server' option, not 'port'
+// WebSocket server for signaling - listen on all interfaces
 const wss = new WebSocketServer({
-    server: httpServer
-    // Do NOT include 'port' here when using 'server'
+    server: httpServer,
+    perMessageDeflate: false,
+    clientTracking: true,
+    maxPayload: 50 * 1024 * 1024 // 50MB limit for video
 });
 
 const clients = new Map();
 const meetings = new Map();
 const peerConnections = new Map(); // Store peer connections
 
+// Debug endpoint to test connectivity
+app.get('/ping', (req, res) => {
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    console.log(`🏓 Ping from: ${clientIp}`);
+    res.json({
+        pong: true,
+        time: Date.now(),
+        yourIp: clientIp,
+        serverIps: localIPs
+    });
+});
+
 // Enhanced health check endpoint with network info
 app.get('/health', (req, res) => {
-    const clientIp = req.ip || req.connection.remoteAddress;
-    console.log(`📊 Health check from: ${clientIp}`);
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const clientPort = req.socket.remotePort;
+
+    console.log(`📊 Health check from: ${clientIp}:${clientPort}`);
+
+    // Log request headers for debugging
+    console.log('   Headers:', req.headers);
 
     res.json({
         status: 'healthy',
@@ -131,23 +173,39 @@ app.get('/health', (req, res) => {
         publicIP: publicIP,
         availableIPs: localIPs,
         port: PORT,
-        yourIP: clientIp
+        yourIP: clientIp,
+        yourPort: clientPort,
+        hostname: networkInfo.hostname
     });
 });
 
 // API endpoint for WebRTC ICE servers configuration
 app.get('/api/ice-servers', (req, res) => {
-    console.log('📡 Serving ICE servers configuration');
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    console.log(`📡 Serving ICE servers configuration to: ${clientIp}`);
     res.json(stunConfig);
+});
+
+// Network info endpoint for clients
+app.get('/api/network-info', (req, res) => {
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    console.log(`🌐 Network info requested from: ${clientIp}`);
+    res.json({
+        serverIPs: localIPs,
+        publicIP: publicIP,
+        port: PORT,
+        yourIP: clientIp,
+        hostname: networkInfo.hostname,
+        connectionURLs: localIPs.map(ip => `ws://${ip}:${PORT}`),
+        interfaces: networkInfo.details
+    });
 });
 
 // API endpoint to create peer connection offer
 app.post('/api/peer-offer', (req, res) => {
     const { meetingId, fromUserId, toUserId, sdp } = req.body;
-
     console.log(`📡 Peer offer from ${fromUserId} to ${toUserId} in ${meetingId}`);
 
-    // Store the offer
     if (!peerConnections.has(meetingId)) {
         peerConnections.set(meetingId, new Map());
     }
@@ -167,7 +225,6 @@ app.post('/api/peer-offer', (req, res) => {
 // API endpoint to create peer connection answer
 app.post('/api/peer-answer', (req, res) => {
     const { meetingId, fromUserId, toUserId, sdp } = req.body;
-
     console.log(`📡 Peer answer from ${fromUserId} to ${toUserId} in ${meetingId}`);
 
     const meetingPeers = peerConnections.get(meetingId);
@@ -187,7 +244,6 @@ app.post('/api/peer-answer', (req, res) => {
 // API endpoint to exchange ICE candidates
 app.post('/api/ice-candidate', (req, res) => {
     const { meetingId, fromUserId, toUserId, candidate } = req.body;
-
     console.log(`📡 ICE candidate from ${fromUserId} to ${toUserId} in ${meetingId}`);
 
     if (!peerConnections.has(meetingId)) {
@@ -249,7 +305,8 @@ app.get('/api/meeting-participants/:meetingId', (req, res) => {
                     id: userId,
                     audioMuted: userInfo.audioMuted,
                     videoOn: userInfo.videoOn,
-                    isRecording: userInfo.isRecording
+                    isRecording: userInfo.isRecording,
+                    ip: userInfo.ip
                 };
             }
         }
@@ -259,21 +316,10 @@ app.get('/api/meeting-participants/:meetingId', (req, res) => {
     res.json({ participants });
 });
 
-// Network info endpoint for clients
-app.get('/api/network-info', (req, res) => {
-    const clientIp = req.ip || req.connection.remoteAddress;
-    res.json({
-        serverIPs: localIPs,
-        publicIP: publicIP,
-        port: PORT,
-        yourIP: clientIp,
-        connectionURLs: localIPs.map(ip => `ws://${ip}:${PORT}`)
-    });
-});
-
-// Simple root endpoint with enhanced connection info
+// Simple root endpoint with enhanced connection info and diagnostics
 app.get('/', (req, res) => {
-    const clientIp = req.ip || req.connection.remoteAddress;
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const clientPort = req.socket.remotePort;
     const serverStats = {
         clients: clients.size,
         meetings: meetings.size,
@@ -282,13 +328,18 @@ app.get('/', (req, res) => {
         uptime: Math.floor(process.uptime())
     };
 
+    // Generate firewall command based on OS
+    const firewallCmd = process.platform === 'win32'
+        ? 'netsh advfirewall firewall add rule name="Zoom WebSocket" dir=in action=allow protocol=TCP localport=8887'
+        : 'sudo ufw allow 8887/tcp';
+
     res.send(`
         <!DOCTYPE html>
         <html lang="en">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Zoom WebSocket Server - Multi-Laptop Support</title>
+            <title>Zoom WebSocket Server - Multi-Laptop Diagnostic</title>
             <style>
                 * {
                     margin: 0;
@@ -306,7 +357,7 @@ app.get('/', (req, res) => {
                 }
 
                 .container {
-                    max-width: 1200px;
+                    max-width: 1400px;
                     margin: 0 auto;
                     background: white;
                     border-radius: 15px;
@@ -328,6 +379,7 @@ app.get('/', (req, res) => {
                     align-items: center;
                     justify-content: center;
                     gap: 15px;
+                    flex-wrap: wrap;
                 }
 
                 .status-badge {
@@ -339,9 +391,18 @@ app.get('/', (req, res) => {
                     font-weight: bold;
                 }
 
+                .warning-badge {
+                    background: #f39c12;
+                    color: white;
+                    padding: 5px 15px;
+                    border-radius: 20px;
+                    font-size: 0.9rem;
+                    font-weight: bold;
+                }
+
                 .content {
                     display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+                    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
                     gap: 20px;
                     padding: 30px;
                 }
@@ -375,6 +436,10 @@ app.get('/', (req, res) => {
                     border-left-color: #9b59b6;
                 }
 
+                .card-danger {
+                    border-left-color: #e74c3c;
+                }
+
                 h2 {
                     color: #2c3e50;
                     margin-bottom: 15px;
@@ -401,6 +466,7 @@ app.get('/', (req, res) => {
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
+                    flex-wrap: wrap;
                 }
 
                 code {
@@ -414,7 +480,7 @@ app.get('/', (req, res) => {
 
                 .ip-list {
                     display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+                    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
                     gap: 10px;
                 }
 
@@ -431,11 +497,13 @@ app.get('/', (req, res) => {
                 .ip-item:hover {
                     background: #3498db;
                     color: white;
+                    transform: translateY(-2px);
                 }
 
                 .ip-item code {
                     background: transparent;
                     color: inherit;
+                    font-size: 1rem;
                 }
 
                 .stats-grid {
@@ -469,22 +537,38 @@ app.get('/', (req, res) => {
                     background: #3498db;
                     color: white;
                     border: none;
-                    padding: 5px 10px;
+                    padding: 8px 15px;
                     border-radius: 4px;
                     cursor: pointer;
-                    font-size: 0.8rem;
+                    font-size: 0.9rem;
                     transition: background 0.3s;
-                    margin-left: 10px;
+                    margin: 5px;
                 }
 
                 .copy-btn:hover {
                     background: #2980b9;
                 }
 
+                .test-btn {
+                    background: #27ae60;
+                    color: white;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 1rem;
+                    transition: background 0.3s;
+                    margin: 5px;
+                }
+
+                .test-btn:hover {
+                    background: #219a52;
+                }
+
                 .client-info {
                     background: #f1c40f;
                     color: #2c3e50;
-                    padding: 10px;
+                    padding: 15px;
                     border-radius: 5px;
                     margin-top: 10px;
                     font-weight: bold;
@@ -513,6 +597,36 @@ app.get('/', (req, res) => {
                     border: 1px solid #c3e6cb;
                     border-radius: 5px;
                 }
+
+                .diagnostic-panel {
+                    background: #1e1e1e;
+                    color: #00ff00;
+                    padding: 15px;
+                    border-radius: 5px;
+                    font-family: monospace;
+                    margin-top: 10px;
+                    max-height: 300px;
+                    overflow-y: auto;
+                }
+
+                .step {
+                    margin: 10px 0;
+                    padding: 10px;
+                    border-left: 3px solid #3498db;
+                    background: #f8f9fa;
+                }
+
+                .step-number {
+                    display: inline-block;
+                    width: 25px;
+                    height: 25px;
+                    background: #3498db;
+                    color: white;
+                    border-radius: 50%;
+                    text-align: center;
+                    line-height: 25px;
+                    margin-right: 10px;
+                }
             </style>
         </head>
         <body>
@@ -521,23 +635,27 @@ app.get('/', (req, res) => {
                     <h1>
                         🚀 Zoom WebSocket Server
                         <span class="status-badge">MULTI-LAPTOP SUPPORT</span>
+                        <span class="warning-badge">v2.0 Diagnostic</span>
                     </h1>
                     <p>Connect multiple laptops for video conferencing with WebRTC</p>
+                    <p><strong>Hostname:</strong> ${networkInfo.hostname} | <strong>Your IP:</strong> ${clientIp}</p>
                 </header>
 
                 <div class="content">
                     <div class="card card-success">
-                        <h2>✅ Server Information</h2>
-                        <p><strong>Status:</strong> <span style="color: green;">RUNNING</span></p>
+                        <h2>✅ Server Status</h2>
+                        <p><strong>Status:</strong> <span style="color: green; font-weight: bold;">RUNNING</span></p>
                         <p><strong>Port:</strong> ${PORT}</p>
                         <p><strong>Public IP:</strong> ${publicIP}</p>
-                        <p><strong>Your IP (from request):</strong> ${clientIp}</p>
+                        <p><strong>Your IP (from request):</strong> ${clientIp}:${clientPort}</p>
                         <p><strong>Uptime:</strong> ${serverStats.uptime}s</p>
+                        <p><strong>Connected Clients:</strong> ${serverStats.clients}</p>
+                        <p><strong>Active Meetings:</strong> ${serverStats.meetings}</p>
                     </div>
 
                     <div class="card card-primary">
                         <h2>🔗 Connection URLs for Other Laptops</h2>
-                        <p>Use one of these addresses to connect from other laptops:</p>
+                        <p>Use ONE of these addresses to connect from other laptops:</p>
                         <div class="ip-list">
                             ${localIPs.map(ip => `
                                 <div class="ip-item" onclick="copyToClipboard('ws://${ip}:${PORT}')">
@@ -548,94 +666,155 @@ app.get('/', (req, res) => {
                             `).join('')}
                         </div>
                         <div class="client-info">
-                            <strong>Your laptop's IP:</strong> ${clientIp}
+                            <strong>Your laptop's connection info:</strong><br>
+                            IP: ${clientIp}<br>
+                            Port: ${clientPort}
                         </div>
                     </div>
 
                     <div class="card card-info">
-                        <h2>📊 Server Statistics</h2>
+                        <h2>📊 Live Statistics</h2>
                         <div class="stats-grid">
                             <div class="stat-item">
-                                <div class="stat-value">${serverStats.clients}</div>
+                                <div class="stat-value" id="clientCount">${serverStats.clients}</div>
                                 <div class="stat-label">Connected Laptops</div>
                             </div>
                             <div class="stat-item">
-                                <div class="stat-value">${serverStats.meetings}</div>
+                                <div class="stat-value" id="meetingCount">${serverStats.meetings}</div>
                                 <div class="stat-label">Active Meetings</div>
                             </div>
                             <div class="stat-item">
-                                <div class="stat-value">${serverStats.webRTCConnections}</div>
+                                <div class="stat-value" id="webrtcCount">${serverStats.webRTCConnections}</div>
                                 <div class="stat-label">WebRTC Pairs</div>
                             </div>
                         </div>
                     </div>
 
                     <div class="card card-info">
-                        <h2>📡 Network Details</h2>
-                        <h3>Available Network Interfaces:</h3>
+                        <h2>📡 Network Interfaces</h2>
+                        <h3>Available on this laptop:</h3>
                         <ul>
                             ${Object.entries(networkInfo.details).map(([name, addrs]) => `
-                                <li><strong>${name}:</strong>
-                                    ${addrs.map(addr => `<code>${addr.address}</code>`).join(', ')}
+                                <li>
+                                    <strong>${name}:</strong>
+                                    ${addrs.map(addr => `<code>${addr.address}</code> (${addr.family})`).join(', ')}
+                                    <br><small>MAC: ${addrs[0]?.mac || 'N/A'}</small>
                                 </li>
                             `).join('')}
                         </ul>
                     </div>
 
                     <div class="card card-warning">
-                        <h2>🔧 API Endpoints</h2>
-                        <ul>
-                            <li><code>GET /health</code> - Server health status</li>
-                            <li><code>GET /api/network-info</code> - Network information</li>
-                            <li><code>GET /api/ice-servers</code> - ICE servers config</li>
-                            <li><code>POST /api/peer-offer</code> - Store peer offer</li>
-                            <li><code>POST /api/peer-answer</code> - Store peer answer</li>
-                            <li><code>POST /api/ice-candidate</code> - Store ICE candidate</li>
-                        </ul>
+                        <h2>🔧 Diagnostic Tools</h2>
+                        <button class="test-btn" onclick="testLocalConnection()">📊 Test Local Connection</button>
+                        <button class="test-btn" onclick="testAllInterfaces()">🌐 Test All Interfaces</button>
+                        <button class="test-btn" onclick="checkFirewall()">🔥 Check Firewall</button>
+                        <button class="test-btn" onclick="showNetworkInfo()">📋 Network Info</button>
+
+                        <div id="diagnosticOutput" class="diagnostic-panel">
+                            Ready to run diagnostics...
+                        </div>
+                    </div>
+
+                    <div class="card card-danger">
+                        <h2>⚠️ Quick Troubleshooting</h2>
+                        <div class="step">
+                            <span class="step-number">1</span>
+                            <strong>Check if server is listening:</strong>
+                            <code>netstat -an | find "8887"</code>
+                            <button class="copy-btn" onclick="copyToClipboard('netstat -an | find \"8887\"')">Copy</button>
+                        </div>
+                        <div class="step">
+                            <span class="step-number">2</span>
+                            <strong>Add Windows Firewall rule (Run as Admin):</strong>
+                            <code>${firewallCmd}</code>
+                            <button class="copy-btn" onclick="copyToClipboard('${firewallCmd}')">Copy</button>
+                        </div>
+                        <div class="step">
+                            <span class="step-number">3</span>
+                            <strong>Test from client laptop:</strong>
+                            <code>curl http://${localIPs[0] || 'SERVER_IP'}:${PORT}/health</code>
+                            <button class="copy-btn" onclick="copyToClipboard('curl http://${localIPs[0] || 'SERVER_IP'}:${PORT}/health')">Copy</button>
+                        </div>
+                        <div class="step">
+                            <span class="step-number">4</span>
+                            <strong>Ping test from client:</strong>
+                            <code>ping ${localIPs[0] || 'SERVER_IP'}</code>
+                            <button class="copy-btn" onclick="copyToClipboard('ping ${localIPs[0] || 'SERVER_IP'}')">Copy</button>
+                        </div>
                     </div>
 
                     <div class="card card-success">
                         <h2>🎯 Multi-Laptop Setup Guide</h2>
-                        <ol style="padding-left: 20px; margin: 15px 0;">
-                            <li><strong>On THIS laptop (HOST):</strong>
-                                <ul>
-                                    <li>Server is already running</li>
-                                    <li>Note your IP address from above</li>
-                                    <li>Keep this terminal open</li>
-                                </ul>
-                            </li>
-                            <li><strong>On OTHER laptops (CLIENTS):</strong>
-                                <ul>
-                                    <li>Run the JavaFX application</li>
-                                    <li>When prompted, choose "Enter Server IP"</li>
-                                    <li>Enter this laptop's IP: <code>${localIPs[0] || '192.168.x.x'}</code></li>
-                                    <li>Port: <code>8887</code></li>
-                                </ul>
-                            </li>
-                        </ol>
+                        <div class="step">
+                            <span class="step-number">1</span>
+                            <strong>On THIS laptop (HOST):</strong>
+                            <ul>
+                                <li>Server is already running</li>
+                                <li>Note your IP from above: <code>${localIPs[0] || '192.168.x.x'}</code></li>
+                                <li>Keep this terminal open</li>
+                                <li>Run firewall command if needed</li>
+                            </ul>
+                        </div>
+                        <div class="step">
+                            <span class="step-number">2</span>
+                            <strong>On OTHER laptops (CLIENTS):</strong>
+                            <ul>
+                                <li>Open Command Prompt and ping the host: <code>ping ${localIPs[0] || 'SERVER_IP'}</code></li>
+                                <li>If ping works, test port: <code>telnet ${localIPs[0] || 'SERVER_IP'} ${PORT}</code></li>
+                                <li>Run the JavaFX application</li>
+                                <li>When prompted, choose "Enter Server IP"</li>
+                                <li>Enter this laptop's IP: <code>${localIPs[0] || '192.168.x.x'}</code></li>
+                                <li>Port: <code>8887</code></li>
+                            </ul>
+                        </div>
                     </div>
 
                     <div class="network-test">
-                        <h3>🔍 Quick Network Test</h3>
-                        <p>From another laptop, run this command:</p>
-                        <code>curl http://${localIPs[0] || 'localhost'}:${PORT}/health</code>
-                        <button class="copy-btn" onclick="copyToClipboard('curl http://${localIPs[0] || 'localhost'}:${PORT}/health')">Copy</button>
+                        <h3>🔍 Quick Network Test from Browser</h3>
+                        <p>Click to test connectivity:</p>
+                        <button class="test-btn" onclick="testPing()">🏓 Ping Server</button>
+                        <button class="test-btn" onclick="testHealth()">❤️ Health Check</button>
+                        <button class="test-btn" onclick="testWebSocket()">🔌 WebSocket Test</button>
+                        <div id="testResult" style="margin-top: 10px;"></div>
                     </div>
 
                     <div class="troubleshooting">
-                        <h3>⚠️ Troubleshooting</h3>
-                        <ul>
-                            <li><strong>Connection refused?</strong> Check Windows Firewall</li>
-                            <li><strong>Can't see server?</strong> Make sure both laptops on same WiFi</li>
-                            <li><strong>Different IPs?</strong> Use the one that matches your network</li>
-                            <li><strong>VPN active?</strong> Disable VPN temporarily</li>
-                        </ul>
+                        <h3>📋 Common Issues & Solutions</h3>
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <tr style="background: #e9ecef;">
+                                <th style="padding: 10px; text-align: left;">Issue</th>
+                                <th style="padding: 10px; text-align: left;">Solution</th>
+                            </tr>
+                            <tr>
+                                <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">Connection refused</td>
+                                <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">Run firewall command on host</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">Ping works, connection fails</td>
+                                <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">Check antivirus blocking port 8887</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">Different IP ranges</td>
+                                <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">Connect all laptops to same WiFi</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">VPN active</td>
+                                <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">Disable VPN on all laptops</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 10px;">Corporate network</td>
+                                <td style="padding: 10px;">Use mobile hotspot instead</td>
+                            </tr>
+                        </table>
                     </div>
                 </div>
 
                 <footer>
                     <p>Zoom WebSocket Server v2.0 | Multi-Laptop Support | WebRTC with STUN/TURN</p>
-                    <p>⏳ Connected Laptops: ${serverStats.clients}</p>
+                    <p>⏳ Connected Laptops: <span id="footerClientCount">${serverStats.clients}</span> |
+                       Active Meetings: <span id="footerMeetingCount">${serverStats.meetings}</span></p>
+                    <p>🔧 For support, run diagnostics above or check firewall settings</p>
                 </footer>
             </div>
 
@@ -644,8 +823,6 @@ app.get('/', (req, res) => {
                     navigator.clipboard.writeText(text).then(() => {
                         alert('✅ Copied to clipboard: ' + text);
                     }).catch(err => {
-                        console.error('Failed to copy: ', err);
-                        // Fallback
                         const textarea = document.createElement('textarea');
                         textarea.value = text;
                         document.body.appendChild(textarea);
@@ -656,107 +833,160 @@ app.get('/', (req, res) => {
                     });
                 }
 
-                // Auto-refresh stats every 10 seconds
+                function appendToDiagnostic(message) {
+                    const output = document.getElementById('diagnosticOutput');
+                    output.innerHTML += message + '\\n';
+                    output.scrollTop = output.scrollHeight;
+                }
+
+                async function testLocalConnection() {
+                    const output = document.getElementById('diagnosticOutput');
+                    output.innerHTML = 'Running local connection test...\\n';
+
+                    try {
+                        const response = await fetch('/ping');
+                        const data = await response.json();
+                        output.innerHTML += '✅ Local connection successful\\n';
+                        output.innerHTML += '📊 Server time: ' + new Date(data.time).toLocaleTimeString() + '\\n';
+                        output.innerHTML += '🌐 Your IP: ' + data.yourIp + '\\n';
+                        output.innerHTML += '🔌 Server IPs: ' + data.serverIps.join(', ') + '\\n';
+                    } catch (error) {
+                        output.innerHTML += '❌ Local connection failed: ' + error + '\\n';
+                    }
+                }
+
+                async function testAllInterfaces() {
+                    const output = document.getElementById('diagnosticOutput');
+                    output.innerHTML = 'Testing all network interfaces...\\n';
+
+                    const ips = ${JSON.stringify(localIPs)};
+
+                    for (const ip of ips) {
+                        try {
+                            const response = await fetch('http://' + ip + ':${PORT}/ping', {
+                                timeout: 2000
+                            });
+                            const data = await response.json();
+                            output.innerHTML += '✅ ' + ip + ':${PORT} - reachable\\n';
+                        } catch (error) {
+                            output.innerHTML += '❌ ' + ip + ':${PORT} - not reachable\\n';
+                        }
+                    }
+                }
+
+                function checkFirewall() {
+                    const output = document.getElementById('diagnosticOutput');
+                    output.innerHTML = 'Firewall Check Instructions:\\n';
+                    output.innerHTML += '1. Open Command Prompt as Administrator\\n';
+                    output.innerHTML += '2. Run: netsh advfirewall firewall show rule name="Zoom WebSocket"\\n';
+                    output.innerHTML += '3. If no rule exists, add it:\\n';
+                    output.innerHTML += '   netsh advfirewall firewall add rule name="Zoom WebSocket" dir=in action=allow protocol=TCP localport=8887\\n';
+                }
+
+                function showNetworkInfo() {
+                    const output = document.getElementById('diagnosticOutput');
+                    output.innerHTML = 'Network Information:\\n';
+                    output.innerHTML += 'Hostname: ${networkInfo.hostname}\\n';
+                    output.innerHTML += 'Your IP: ${clientIp}\\n';
+                    output.innerHTML += 'Available IPs for clients:\\n';
+                    ${JSON.stringify(localIPs)}.forEach(ip => {
+                        output.innerHTML += '  - ws://' + ip + ':${PORT}\\n';
+                    });
+                }
+
+                async function testPing() {
+                    const result = document.getElementById('testResult');
+                    result.innerHTML = 'Testing ping...';
+                    try {
+                        const response = await fetch('/ping');
+                        const data = await response.json();
+                        result.innerHTML = '✅ Ping successful! Response time: ' + (Date.now() - data.time) + 'ms';
+                    } catch (error) {
+                        result.innerHTML = '❌ Ping failed: ' + error;
+                    }
+                }
+
+                async function testHealth() {
+                    const result = document.getElementById('testResult');
+                    result.innerHTML = 'Testing health...';
+                    try {
+                        const response = await fetch('/health');
+                        const data = await response.json();
+                        result.innerHTML = '✅ Server healthy! Connected clients: ' + data.clients;
+                    } catch (error) {
+                        result.innerHTML = '❌ Health check failed: ' + error;
+                    }
+                }
+
+                function testWebSocket() {
+                    const result = document.getElementById('testResult');
+                    result.innerHTML = 'Testing WebSocket connection...';
+
+                    try {
+                        const ws = new WebSocket('ws://' + window.location.host);
+
+                        ws.onopen = function() {
+                            result.innerHTML = '✅ WebSocket connected successfully!';
+                            ws.close();
+                        };
+
+                        ws.onerror = function(error) {
+                            result.innerHTML = '❌ WebSocket connection failed';
+                        };
+
+                        ws.onclose = function() {
+                            if (result.innerHTML.includes('Testing')) {
+                                result.innerHTML = '❌ WebSocket connection failed - check if server is running';
+                            }
+                        };
+                    } catch (error) {
+                        result.innerHTML = '❌ WebSocket test failed: ' + error;
+                    }
+                }
+
+                // Auto-refresh stats
                 setInterval(() => {
                     fetch('/health')
                         .then(response => response.json())
                         .then(data => {
-                            // Update stats
-                            document.querySelectorAll('.stat-item')[0].querySelector('.stat-value').textContent = data.clients;
-                            document.querySelectorAll('.stat-item')[1].querySelector('.stat-value').textContent = data.meetings;
-                            document.querySelectorAll('.stat-item')[2].querySelector('.stat-value').textContent = data.peerConnections;
-
-                            // Update footer
-                            document.querySelector('footer p:last-child').innerHTML =
-                                '⏳ Connected Laptops: ' + data.clients;
+                            document.getElementById('clientCount').textContent = data.clients;
+                            document.getElementById('meetingCount').textContent = data.meetings;
+                            document.getElementById('webrtcCount').textContent = data.peerConnections;
+                            document.getElementById('footerClientCount').textContent = data.clients;
+                            document.getElementById('footerMeetingCount').textContent = data.meetings;
                         })
                         .catch(error => console.error('Error fetching stats:', error));
-                }, 10000);
-
-                // Test connection from browser
-                function testConnection() {
-                    fetch('/health')
-                        .then(response => response.json())
-                        .then(data => {
-                            alert('✅ Server is healthy!\\n' +
-                                  'Connected clients: ' + data.clients + '\\n' +
-                                  'Your IP: ' + data.yourIP);
-                        })
-                        .catch(error => {
-                            alert('❌ Cannot connect to server: ' + error);
-                        });
-                }
+                }, 5000);
             </script>
         </body>
         </html>
     `);
 });
 
-// Start server with explicit binding - FIXED: use httpServer.listen, not wss.listen
-httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log('\n' + '='.repeat(60));
-    console.log('🚀 ZOOM WEB SOCKET SERVER WITH MULTI-LAPTOP SUPPORT');
-    console.log('='.repeat(60));
-    console.log(`✅ Server Status: RUNNING`);
-    console.log(`📍 Signaling Port: ${PORT}`);
-    console.log(`🌐 Public IP: ${publicIP}`);
-    console.log(`🎯 STUN Server: stun:${publicIP}:${STUN_PORT}`);
-    console.log(`📡 TURN Server: turn:${publicIP}:${TURN_PORT}`);
-
-    console.log('\n📡 CONNECTION URLS FOR OTHER LAPTOPS:');
-    console.log('   ' + '-'.repeat(40));
-    localIPs.forEach((ip, index) => {
-        console.log(`   ${index + 1}. ws://${ip}:${PORT}`);
-    });
-
-    console.log('\n🔧 Network Interfaces Detected:');
-    Object.entries(networkInfo.details).forEach(([name, addrs]) => {
-        console.log(`   📶 ${name}: ${addrs.map(a => a.address).join(', ')}`);
-    });
-
-    console.log('\n📊 Web Interface:');
-    console.log(`   http://localhost:${PORT}/`);
-    localIPs.forEach(ip => {
-        console.log(`   http://${ip}:${PORT}/`);
-    });
-
-    console.log('\n🔍 Quick Test Commands:');
-    console.log(`   curl http://localhost:${PORT}/health`);
-    localIPs.forEach(ip => {
-        console.log(`   curl http://${ip}:${PORT}/health`);
-    });
-
-    console.log('\n🎯 Multi-Laptop Connection Guide:');
-    console.log('   1. On THIS laptop (HOST):');
-    console.log('      - Server is running');
-    console.log('      - Note your IP from above');
-    console.log('      - Keep this terminal open');
-    console.log('\n   2. On OTHER laptops (CLIENTS):');
-    console.log('      - Run JavaFX application');
-    console.log('      - Choose "Enter Server IP" when prompted');
-    console.log(`      - Enter: ${localIPs[0] || '192.168.x.x'}`);
-    console.log('      - Port: 8887');
-
-    console.log('\n⚠️  Firewall Setup (if clients can\'t connect):');
-    console.log('   Windows: netsh advfirewall firewall add rule name="Zoom WebSocket" dir=in action=allow protocol=TCP localport=8887');
-    console.log('   Mac/Linux: sudo ufw allow 8887/tcp');
-
-    console.log('\n⏳ Waiting for connections...\n');
-    console.log('='.repeat(60));
-});
-
-// Rest of your existing WebSocket handling code remains exactly the same...
-// [All your existing WebSocket event handlers, message handlers, etc. stay unchanged]
-
 // WebSocket connection handling
 const CONNECTION_TIMEOUT = 30000;
 
-wss.on('connection', (ws, req) => {
-    const clientIp = req.socket.remoteAddress.replace(/^.*:/, '');
-    const clientPort = req.socket.remotePort;
-    console.log(`🔗 New client connected from: ${clientIp}:${clientPort}`);
+wss.on('listening', () => {
+    console.log('\n✅ WebSocket server is listening on all interfaces:');
+    console.log('   ' + '-'.repeat(40));
+    localIPs.forEach(ip => {
+        console.log(`   🔗 ws://${ip}:${PORT}`);
+        console.log(`   🌐 http://${ip}:${PORT}`);
+    });
+});
 
-    const userId = `User-${Math.floor(Math.random() * 1000)}`;
+wss.on('connection', (ws, req) => {
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const clientPort = req.socket.remotePort;
+
+    console.log('\n' + '='.repeat(50));
+    console.log(`🔌 NEW CONNECTION ATTEMPT`);
+    console.log(`   IP: ${clientIp}`);
+    console.log(`   Port: ${clientPort}`);
+    console.log(`   Headers:`, req.headers);
+    console.log('='.repeat(50));
+
+    const userId = `User-${Math.floor(Math.random() * 10000)}`;
     const connectionId = `${userId}-${Date.now()}`;
 
     clients.set(ws, {
@@ -771,8 +1001,24 @@ wss.on('connection', (ws, req) => {
         connectedAt: new Date(),
         lastActivity: new Date(),
         webrtcReady: false,
-        iceCandidates: []
+        iceCandidates: [],
+        userAgent: req.headers['user-agent'] || 'Unknown'
     });
+
+    console.log(`✅ Connection established - UserID: ${userId}`);
+    console.log(`📊 Total connected clients: ${clients.size}`);
+
+    // Send connection success message
+    ws.send(JSON.stringify({
+        type: 'CONNECTION_SUCCESS',
+        data: {
+            userId: userId,
+            message: 'Connected to server successfully',
+            serverIPs: localIPs,
+            yourIP: clientIp,
+            timestamp: Date.now()
+        }
+    }));
 
     // Send network info to new client
     ws.send(JSON.stringify({
@@ -780,11 +1026,12 @@ wss.on('connection', (ws, req) => {
         data: {
             serverIPs: localIPs,
             yourIP: clientIp,
-            port: PORT
+            port: PORT,
+            hostname: networkInfo.hostname
         }
     }));
 
-    // Send ICE server configuration immediately
+    // Send ICE server configuration
     ws.send(JSON.stringify({
         type: 'ICE_SERVERS',
         data: stunConfig
@@ -792,7 +1039,7 @@ wss.on('connection', (ws, req) => {
 
     const welcomeMessage = `SYSTEM|global|Server|CONNECTED|${userId}|Welcome! Your IP: ${clientIp}`;
     ws.send(welcomeMessage);
-    console.log(`📤 Sent welcome to ${userId} (IP: ${clientIp})`);
+    console.log(`📤 Sent welcome to ${userId}`);
 
     // Notify others
     broadcast(`SYSTEM|global|Server|USER_JOINED|${userId}|${userId} joined from ${clientIp}`, ws);
@@ -802,7 +1049,8 @@ wss.on('connection', (ws, req) => {
         if (ws.readyState === 1) {
             try {
                 ws.ping();
-                clients.get(ws).lastActivity = new Date();
+                const info = clients.get(ws);
+                if (info) info.lastActivity = new Date();
             } catch (error) {
                 console.log(`❌ Ping failed for ${userId}:`, error.message);
             }
@@ -830,20 +1078,22 @@ wss.on('connection', (ws, req) => {
 
         const msg = message.toString();
 
+        // Log first 100 chars of message
+        console.log(`📨 From ${userId}: ${msg.substring(0, 100)}${msg.length > 100 ? '...' : ''}`);
+
         // Check if it's a JSON WebRTC message
         try {
             const jsonMsg = JSON.parse(msg);
-            if (jsonMsg.type && jsonMsg.type.startsWith('WEBRTC_')) {
-                handleWebRTCMessage(ws, userId, jsonMsg);
+            if (jsonMsg.type) {
+                handleJsonMessage(ws, userId, jsonMsg);
                 return;
             }
         } catch (e) {
             // Not JSON, process as regular message
         }
 
-        console.log(`📨 ${userId}: ${msg.substring(0, 100)}${msg.length > 100 ? '...' : ''}`);
-
-        const parts = msg.split('|', 4);
+        // Handle pipe-delimited messages
+        const parts = msg.split('|');
         if (parts.length >= 4) {
             const type = parts[0];
             const meetingId = parts[1];
@@ -873,8 +1123,8 @@ wss.on('connection', (ws, req) => {
                     handleVideoStatus(ws, userId, meetingId, content);
                     break;
                 case 'VIDEO_FRAME':
-                    // For WebRTC, we'll handle video frames differently
-                    console.log(`🎥 ${userId} sending video frame via WebRTC`);
+                    console.log(`🎥 ${userId} sending video frame (${content.length} chars)`);
+                    broadcastToMeeting(msg, meetingId, ws);
                     break;
                 case 'WEBRTC_SIGNAL':
                     handleWebRTCSignal(ws, userId, meetingId, content);
@@ -906,11 +1156,11 @@ wss.on('connection', (ws, req) => {
         if (userInfo && userInfo.currentMeeting) {
             broadcastToMeeting(`USER_LEFT|${userInfo.currentMeeting}|${userId}|${userId} disconnected`, userInfo.currentMeeting, ws);
             removeUserFromMeeting(userInfo.currentMeeting, userId);
-
-            // Clean up WebRTC connections
             cleanupWebRTCConnections(userInfo.currentMeeting, userId);
         }
+
         clients.delete(ws);
+        console.log(`📊 Remaining clients: ${clients.size}`);
         broadcast(`SYSTEM|global|Server|USER_LEFT|${userId}|${userId} left`);
     });
 
@@ -921,44 +1171,40 @@ wss.on('connection', (ws, req) => {
     });
 });
 
-// [All your existing function definitions remain exactly the same]
-// WebRTC Message Handler
-function handleWebRTCMessage(ws, userId, message) {
+// JSON Message Handler
+function handleJsonMessage(ws, userId, message) {
     const { type, data } = message;
-    console.log(`📡 WebRTC message from ${userId}: ${type}`);
+    console.log(`📡 JSON message from ${userId}: ${type}`);
 
     switch (type) {
         case 'WEBRTC_OFFER':
-            // Forward offer to target user
-            forwardWebRTCMessage(data.targetUserId, {
-                type: 'WEBRTC_OFFER',
-                data: {
+            if (data.targetUserId) {
+                forwardToUser(data.targetUserId, JSON.stringify({
+                    type: 'WEBRTC_OFFER',
                     fromUserId: userId,
                     sdp: data.sdp
-                }
-            });
+                }));
+            }
             break;
 
         case 'WEBRTC_ANSWER':
-            // Forward answer to target user
-            forwardWebRTCMessage(data.targetUserId, {
-                type: 'WEBRTC_ANSWER',
-                data: {
+            if (data.targetUserId) {
+                forwardToUser(data.targetUserId, JSON.stringify({
+                    type: 'WEBRTC_ANSWER',
                     fromUserId: userId,
                     sdp: data.sdp
-                }
-            });
+                }));
+            }
             break;
 
         case 'WEBRTC_ICE_CANDIDATE':
-            // Forward ICE candidate to target user
-            forwardWebRTCMessage(data.targetUserId, {
-                type: 'WEBRTC_ICE_CANDIDATE',
-                data: {
+            if (data.targetUserId) {
+                forwardToUser(data.targetUserId, JSON.stringify({
+                    type: 'WEBRTC_ICE_CANDIDATE',
                     fromUserId: userId,
                     candidate: data.candidate
-                }
-            });
+                }));
+            }
             break;
 
         case 'WEBRTC_READY':
@@ -968,41 +1214,48 @@ function handleWebRTCMessage(ws, userId, message) {
                 console.log(`✅ ${userId} WebRTC ready`);
             }
             break;
+
+        case 'PING':
+            ws.send(JSON.stringify({
+                type: 'PONG',
+                timestamp: Date.now(),
+                userId: userId
+            }));
+            break;
     }
 }
 
-function forwardWebRTCMessage(targetUserId, message) {
+function forwardToUser(targetUserId, message) {
     for (const [client, userInfo] of clients) {
         if (userInfo.id === targetUserId && client.readyState === 1) {
-            client.send(JSON.stringify(message));
-            console.log(`📡 Forwarded ${message.type} from ${message.data.fromUserId} to ${targetUserId}`);
-            return;
+            client.send(message);
+            console.log(`📡 Forwarded message to ${targetUserId}`);
+            return true;
         }
     }
-    console.log(`❌ Target user ${targetUserId} not found for WebRTC forwarding`);
+    console.log(`❌ Target user ${targetUserId} not found`);
+    return false;
 }
 
 function handleWebRTCSignal(ws, userId, meetingId, content) {
-    // Legacy WebRTC signaling support
     broadcastToMeeting(`WEBRTC_SIGNAL|${meetingId}|${userId}|${content}`, meetingId, ws);
 }
 
 function cleanupWebRTCConnections(meetingId, userId) {
     const meetingPeers = peerConnections.get(meetingId);
     if (meetingPeers) {
-        // Remove all connections involving this user
         for (const [key, value] of meetingPeers.entries()) {
             if (key.includes(userId)) {
                 meetingPeers.delete(key);
-                console.log(`🗑️  Cleaned up WebRTC connection: ${key}`);
+                console.log(`🗑️ Cleaned up WebRTC connection: ${key}`);
             }
         }
     }
 }
 
-// Existing handler functions
+// Meeting handler functions
 function handleChatMessage(ws, userId, meetingId, content) {
-    console.log(`💬 ${userId} in meeting ${meetingId}: ${content}`);
+    console.log(`💬 ${userId} in meeting ${meetingId}: ${content.substring(0, 50)}...`);
     broadcastToMeeting(`CHAT|${meetingId}|${userId}|${content}`, meetingId, ws);
 }
 
@@ -1057,7 +1310,7 @@ function handleUserJoined(ws, userId, meetingId, content) {
         data: stunConfig
     }));
 
-    // Notify other participants about new WebRTC peer
+    // Notify other participants about new peer
     broadcastToMeeting(JSON.stringify({
         type: 'WEBRTC_NEW_PEER',
         data: { userId: userId }
@@ -1076,7 +1329,6 @@ function handleUserLeft(ws, userId, meetingId, content) {
     broadcastToMeeting(`USER_LEFT|${meetingId}|${userId}|${content}`, meetingId, ws);
     broadcastToMeeting(`SYSTEM|${meetingId}|Server|USER_LEFT|${userId}|left the meeting`, meetingId);
 
-    // Notify about WebRTC peer removal
     broadcastToMeeting(JSON.stringify({
         type: 'WEBRTC_PEER_LEFT',
         data: { userId: userId }
@@ -1100,10 +1352,9 @@ function handleMeetingEnded(ws, userId, meetingId, content) {
             }
         }
 
-        // Clean up all WebRTC connections for this meeting
         peerConnections.delete(meetingId);
         meetings.delete(meetingId);
-        console.log(`🗑️  Cleaned up all WebRTC connections for meeting ${meetingId}`);
+        console.log(`🗑️ Cleaned up all data for meeting ${meetingId}`);
     }
 }
 
@@ -1158,7 +1409,9 @@ function broadcastToMeeting(message, meetingId, sender) {
             }
         }
     }
-    console.log(`📤 Broadcast to meeting ${meetingId}: ${message.substring(0, 50)}... (sent to ${sentCount} participants)`);
+    if (sentCount > 0) {
+        console.log(`📤 Broadcast to meeting ${meetingId}: sent to ${sentCount} participants`);
+    }
 }
 
 function removeUserFromMeeting(meetingId, userId) {
@@ -1168,7 +1421,7 @@ function removeUserFromMeeting(meetingId, userId) {
 
         if (meeting.participants.size === 0) {
             meetings.delete(meetingId);
-            console.log(`🗑️  Meeting ${meetingId} removed (no participants)`);
+            console.log(`🗑️ Meeting ${meetingId} removed (no participants)`);
         } else if (meeting.host === userId) {
             const newHost = Array.from(meeting.participants)[0];
             meeting.host = newHost;
@@ -1190,62 +1443,140 @@ function broadcast(message, sender) {
             }
         }
     }
-    console.log(`📤 Global broadcast: ${message.substring(0, 50)}... (sent to ${sentCount} clients)`);
+    if (sentCount > 0) {
+        console.log(`📤 Global broadcast: sent to ${sentCount} clients`);
+    }
 }
+
+// Start server with explicit binding
+httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log('\n' + '='.repeat(70));
+    console.log('🚀 ZOOM WEB SOCKET SERVER WITH MULTI-LAPTOP SUPPORT');
+    console.log('='.repeat(70));
+    console.log(`✅ Server Status: RUNNING`);
+    console.log(`📍 Port: ${PORT}`);
+    console.log(`💻 Hostname: ${networkInfo.hostname}`);
+    console.log(`🌐 Public IP: ${publicIP}`);
+    console.log(`🎯 STUN Server: stun:${publicIP}:${STUN_PORT}`);
+    console.log(`📡 TURN Server: turn:${publicIP}:${TURN_PORT}`);
+
+    console.log('\n📡 CONNECTION URLs FOR OTHER LAPTOPS:');
+    console.log('   ' + '-'.repeat(50));
+    localIPs.forEach((ip, index) => {
+        console.log(`   ${index + 1}. ws://${ip}:${PORT}`);
+        console.log(`      http://${ip}:${PORT} (Web Interface)`);
+    });
+
+    console.log('\n🔧 NETWORK INTERFACES:');
+    Object.entries(networkInfo.details).forEach(([name, addrs]) => {
+        console.log(`   📶 ${name}:`);
+        addrs.forEach(addr => {
+            console.log(`      - ${addr.address} (${addr.family})`);
+        });
+    });
+
+    console.log('\n🔍 QUICK TESTS:');
+    console.log(`   From THIS laptop: curl http://localhost:${PORT}/health`);
+    console.log(`   From CLIENT laptop: curl http://${localIPs[0] || 'SERVER_IP'}:${PORT}/health`);
+
+    console.log('\n⚠️  WINDOWS FIREWALL (Run as Administrator):');
+    console.log(`   netsh advfirewall firewall add rule name="Zoom WebSocket" dir=in action=allow protocol=TCP localport=${PORT}`);
+
+    console.log('\n🎯 MULTI-LAPTOP SETUP:');
+    console.log('   1. On THIS laptop (HOST):');
+    console.log(`      - Server is running on IP: ${localIPs[0] || '192.168.x.x'}`);
+    console.log('      - Keep this terminal open');
+    console.log('      - Run firewall command if needed');
+    console.log('\n   2. On OTHER laptops (CLIENTS):');
+    console.log('      - Open Command Prompt and ping the host:');
+    console.log(`        ping ${localIPs[0] || 'SERVER_IP'}`);
+    console.log('      - If ping works, test port:');
+    console.log(`        telnet ${localIPs[0] || 'SERVER_IP'} ${PORT}`);
+    console.log('      - Run JavaFX application');
+    console.log('      - Choose "Enter Server IP"');
+    console.log(`      - Enter: ${localIPs[0] || '192.168.x.x'}`);
+    console.log('      - Port: 8887');
+
+    console.log('\n📊 Web Interface:');
+    localIPs.forEach(ip => {
+        console.log(`   http://${ip}:${PORT}/`);
+    });
+
+    console.log('\n⏳ Waiting for connections...\n');
+    console.log('='.repeat(70));
+});
 
 // Server monitoring
 setInterval(() => {
-    console.log(`\n📊 Server Status - Connected Laptops: ${clients.size}, Meetings: ${meetings.size}, WebRTC Pairs: ${Array.from(peerConnections.values()).reduce((total, meeting) => total + meeting.size, 0)}`);
+    console.log('\n' + '-'.repeat(40));
+    console.log(`📊 SERVER STATUS UPDATE`);
+    console.log(`   Connected Clients: ${clients.size}`);
+    console.log(`   Active Meetings: ${meetings.size}`);
+    console.log(`   WebRTC Pairs: ${Array.from(peerConnections.values()).reduce((total, meeting) => total + meeting.size, 0)}`);
 
-    for (const [meetingId, meeting] of meetings) {
-        console.log(`   Meeting ${meetingId}:`);
-        console.log(`     - Host: ${meeting.host}`);
-        console.log(`     - Participants: ${meeting.participants.size}`);
-        console.log(`     - WebRTC: ${meeting.webrtcEnabled ? 'Enabled' : 'Disabled'}`);
-
-        // Show participant details
-        for (const participant of meeting.participants) {
-            for (const [client, userInfo] of clients) {
-                if (userInfo.id === participant) {
-                    console.log(`       • ${participant} (IP: ${userInfo.ip}, Audio: ${userInfo.audioMuted ? 'Muted' : 'Unmuted'}, Video: ${userInfo.videoOn ? 'On' : 'Off'})`);
-                    break;
-                }
+    if (clients.size > 0) {
+        console.log(`   👤 Connected clients:`);
+        for (const [_, info] of clients) {
+            console.log(`      - ${info.id} (${info.ip})`);
+            if (info.currentMeeting) {
+                console.log(`        📅 In meeting: ${info.currentMeeting}`);
             }
         }
     }
 
-    // Show WebRTC connections
-    for (const [meetingId, meetingPeers] of peerConnections) {
-        if (meetingPeers.size > 0) {
-            console.log(`   WebRTC Connections in ${meetingId}:`);
-            for (const [key, value] of meetingPeers.entries()) {
-                console.log(`       • ${key} - ${value.type} (${new Date(value.timestamp).toLocaleTimeString()})`);
-            }
+    if (meetings.size > 0) {
+        console.log(`   📅 Active meetings:`);
+        for (const [id, meeting] of meetings) {
+            console.log(`      - Meeting ${id}: ${meeting.participants.size} participants (Host: ${meeting.host})`);
         }
     }
+    console.log('-'.repeat(40));
 }, 30000);
 
 // Handle server errors
 wss.on('error', (error) => {
-    console.error('❌ Server error:', error);
+    console.error('❌ WebSocket Server error:', error);
+});
+
+httpServer.on('error', (error) => {
+    console.error('❌ HTTP Server error:', error);
+    if (error.code === 'EADDRINUSE') {
+        console.error(`   Port ${PORT} is already in use!`);
+        console.error('   Close other applications using this port or change PORT variable');
+    }
 });
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-    console.log('\nShutting down WebSocket server...');
+    console.log('\n🛑 Shutting down WebSocket server...');
 
     // Notify all clients
+    const shutdownMsg = 'SYSTEM|global|Server|SHUTDOWN|Server is shutting down';
     for (const [client, userInfo] of clients) {
         if (client.readyState === 1) {
-            client.send('SYSTEM|global|Server|SHUTDOWN|Server is shutting down');
+            try {
+                client.send(shutdownMsg);
+            } catch (error) {
+                // Ignore errors during shutdown
+            }
         }
     }
 
+    // Close server
     wss.close(() => {
-        console.log('✅ WebSocket server closed gracefully');
-        process.exit(0);
+        console.log('✅ WebSocket server closed');
+        httpServer.close(() => {
+            console.log('✅ HTTP server closed');
+            process.exit(0);
+        });
     });
+
+    // Force exit after 5 seconds
+    setTimeout(() => {
+        console.log('⚠️ Forcing exit...');
+        process.exit(1);
+    }, 5000);
 });
 
-// Export for testing if needed
+// Export for testing
 module.exports = { wss, clients, meetings, peerConnections };
