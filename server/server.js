@@ -1,4 +1,4 @@
-// server/server.js - CommonJS version
+// server/server.js - Corrected version for multi-laptop support
 const { WebSocketServer } = require('ws');
 const { networkInterfaces } = require('os');
 const { createServer } = require('http');
@@ -7,6 +7,40 @@ const express = require('express');
 const PORT = 8887;
 const STUN_PORT = 3478;
 const TURN_PORT = 5349;
+
+// Get all available network interfaces with detailed information
+function getNetworkInfo() {
+    const interfaces = networkInterfaces();
+    const networkInfo = {
+        all: [],
+        ipv4: [],
+        ipv6: [],
+        details: {}
+    };
+
+    for (const [name, nets] of Object.entries(interfaces)) {
+        networkInfo.details[name] = [];
+        for (const net of nets) {
+            if (!net.internal) { // Skip internal/loopback
+                const info = {
+                    address: net.address,
+                    family: net.family,
+                    mac: net.mac,
+                    internal: net.internal
+                };
+                networkInfo.details[name].push(info);
+                networkInfo.all.push(net.address);
+
+                if (net.family === 'IPv4' || net.family === 4) {
+                    networkInfo.ipv4.push(net.address);
+                } else {
+                    networkInfo.ipv6.push(net.address);
+                }
+            }
+        }
+    }
+    return networkInfo;
+}
 
 // Get public IP address
 function getPublicIP() {
@@ -26,23 +60,11 @@ function getPublicIP() {
     }
 }
 
-// Get local IP addresses
-function getLocalIPs() {
-    const interfaces = networkInterfaces();
-    const ips = [];
-
-    for (const name of Object.keys(interfaces)) {
-        for (const net of interfaces[name]) {
-            if ((net.family === 'IPv4' || net.family === 4) && !net.internal) {
-                ips.push(net.address);
-            }
-        }
-    }
-    return ips;
-}
+const networkInfo = getNetworkInfo();
+const publicIP = getPublicIP();
+const localIPs = networkInfo.ipv4;
 
 // STUN/TURN server configuration
-const publicIP = getPublicIP();
 const stunConfig = {
     iceServers: [
         {
@@ -81,15 +103,37 @@ app.use((req, res, next) => {
 // HTTP server
 const httpServer = createServer(app);
 
-// WebSocket server for signaling
+// WebSocket server for signaling - CORRECTED: only use 'server' option, not 'port'
 const wss = new WebSocketServer({
-    server: httpServer,
-    host: '0.0.0.0'
+    server: httpServer
+    // Do NOT include 'port' here when using 'server'
 });
 
 const clients = new Map();
 const meetings = new Map();
 const peerConnections = new Map(); // Store peer connections
+
+// Enhanced health check endpoint with network info
+app.get('/health', (req, res) => {
+    const clientIp = req.ip || req.connection.remoteAddress;
+    console.log(`📊 Health check from: ${clientIp}`);
+
+    res.json({
+        status: 'healthy',
+        serverTime: new Date().toISOString(),
+        clients: clients.size,
+        meetings: meetings.size,
+        peerConnections: Array.from(peerConnections.values())
+            .reduce((total, meeting) => total + meeting.size, 0),
+        uptime: Math.floor(process.uptime()),
+        stunEnabled: true,
+        turnEnabled: true,
+        publicIP: publicIP,
+        availableIPs: localIPs,
+        port: PORT,
+        yourIP: clientIp
+    });
+});
 
 // API endpoint for WebRTC ICE servers configuration
 app.get('/api/ice-servers', (req, res) => {
@@ -215,24 +259,21 @@ app.get('/api/meeting-participants/:meetingId', (req, res) => {
     res.json({ participants });
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
+// Network info endpoint for clients
+app.get('/api/network-info', (req, res) => {
+    const clientIp = req.ip || req.connection.remoteAddress;
     res.json({
-        status: 'healthy',
-        clients: clients.size,
-        meetings: meetings.size,
-        peerConnections: Array.from(peerConnections.values())
-            .reduce((total, meeting) => total + meeting.size, 0),
-        uptime: Math.floor(process.uptime()),
-        stunEnabled: true,
-        turnEnabled: true,
-        publicIP: publicIP
+        serverIPs: localIPs,
+        publicIP: publicIP,
+        port: PORT,
+        yourIP: clientIp,
+        connectionURLs: localIPs.map(ip => `ws://${ip}:${PORT}`)
     });
 });
 
-// Simple root endpoint
+// Simple root endpoint with enhanced connection info
 app.get('/', (req, res) => {
-    const localIPs = getLocalIPs();
+    const clientIp = req.ip || req.connection.remoteAddress;
     const serverStats = {
         clients: clients.size,
         meetings: meetings.size,
@@ -247,7 +288,7 @@ app.get('/', (req, res) => {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Zoom WebSocket Server with STUN/TURN</title>
+            <title>Zoom WebSocket Server - Multi-Laptop Support</title>
             <style>
                 * {
                     margin: 0;
@@ -300,7 +341,7 @@ app.get('/', (req, res) => {
 
                 .content {
                     display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
                     gap: 20px;
                     padding: 30px;
                 }
@@ -328,6 +369,10 @@ app.get('/', (req, res) => {
 
                 .card-warning {
                     border-left-color: #f39c12;
+                }
+
+                .card-primary {
+                    border-left-color: #9b59b6;
                 }
 
                 h2 {
@@ -369,16 +414,28 @@ app.get('/', (req, res) => {
 
                 .ip-list {
                     display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
                     gap: 10px;
                 }
 
                 .ip-item {
                     background: white;
-                    padding: 10px;
-                    border-radius: 5px;
+                    padding: 15px;
+                    border-radius: 8px;
                     text-align: center;
-                    border: 1px solid #3498db;
+                    border: 2px solid #3498db;
+                    cursor: pointer;
+                    transition: all 0.3s;
+                }
+
+                .ip-item:hover {
+                    background: #3498db;
+                    color: white;
+                }
+
+                .ip-item code {
+                    background: transparent;
+                    color: inherit;
                 }
 
                 .stats-grid {
@@ -417,10 +474,20 @@ app.get('/', (req, res) => {
                     cursor: pointer;
                     font-size: 0.8rem;
                     transition: background 0.3s;
+                    margin-left: 10px;
                 }
 
                 .copy-btn:hover {
                     background: #2980b9;
+                }
+
+                .client-info {
+                    background: #f1c40f;
+                    color: #2c3e50;
+                    padding: 10px;
+                    border-radius: 5px;
+                    margin-top: 10px;
+                    font-weight: bold;
                 }
 
                 footer {
@@ -431,16 +498,20 @@ app.get('/', (req, res) => {
                     margin-top: 30px;
                 }
 
-                @media (max-width: 768px) {
-                    .content {
-                        padding: 20px;
-                    }
+                .troubleshooting {
+                    background: #fff3cd;
+                    border: 1px solid #ffeeba;
+                    padding: 15px;
+                    border-radius: 5px;
+                    margin-top: 20px;
+                }
 
-                    h1 {
-                        font-size: 2rem;
-                        flex-direction: column;
-                        gap: 10px;
-                    }
+                .network-test {
+                    margin-top: 20px;
+                    padding: 15px;
+                    background: #d4edda;
+                    border: 1px solid #c3e6cb;
+                    border-radius: 5px;
                 }
             </style>
         </head>
@@ -449,19 +520,36 @@ app.get('/', (req, res) => {
                 <header>
                     <h1>
                         🚀 Zoom WebSocket Server
-                        <span class="status-badge">RUNNING</span>
+                        <span class="status-badge">MULTI-LAPTOP SUPPORT</span>
                     </h1>
-                    <p>Real-time video conferencing with WebRTC and STUN/TURN support</p>
+                    <p>Connect multiple laptops for video conferencing with WebRTC</p>
                 </header>
 
                 <div class="content">
                     <div class="card card-success">
                         <h2>✅ Server Information</h2>
+                        <p><strong>Status:</strong> <span style="color: green;">RUNNING</span></p>
                         <p><strong>Port:</strong> ${PORT}</p>
                         <p><strong>Public IP:</strong> ${publicIP}</p>
-                        <p><strong>STUN Server:</strong> <code>stun:${publicIP}:${STUN_PORT}</code></p>
-                        <p><strong>TURN Server:</strong> <code>turn:${publicIP}:${TURN_PORT}</code></p>
-                        <p><strong>TURN Credentials:</strong> zoomuser / zoompass123</p>
+                        <p><strong>Your IP (from request):</strong> ${clientIp}</p>
+                        <p><strong>Uptime:</strong> ${serverStats.uptime}s</p>
+                    </div>
+
+                    <div class="card card-primary">
+                        <h2>🔗 Connection URLs for Other Laptops</h2>
+                        <p>Use one of these addresses to connect from other laptops:</p>
+                        <div class="ip-list">
+                            ${localIPs.map(ip => `
+                                <div class="ip-item" onclick="copyToClipboard('ws://${ip}:${PORT}')">
+                                    <code>ws://${ip}:${PORT}</code>
+                                    <br>
+                                    <small>Click to copy</small>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="client-info">
+                            <strong>Your laptop's IP:</strong> ${clientIp}
+                        </div>
                     </div>
 
                     <div class="card card-info">
@@ -469,7 +557,7 @@ app.get('/', (req, res) => {
                         <div class="stats-grid">
                             <div class="stat-item">
                                 <div class="stat-value">${serverStats.clients}</div>
-                                <div class="stat-label">Connected Clients</div>
+                                <div class="stat-label">Connected Laptops</div>
                             </div>
                             <div class="stat-item">
                                 <div class="stat-value">${serverStats.meetings}</div>
@@ -479,87 +567,96 @@ app.get('/', (req, res) => {
                                 <div class="stat-value">${serverStats.webRTCConnections}</div>
                                 <div class="stat-label">WebRTC Pairs</div>
                             </div>
-                            <div class="stat-item">
-                                <div class="stat-value">${serverStats.uptime}s</div>
-                                <div class="stat-label">Uptime</div>
-                            </div>
                         </div>
                     </div>
 
                     <div class="card card-info">
-                        <h2>🔗 Connection URLs</h2>
-                        <h3>Local Access:</h3>
+                        <h2>📡 Network Details</h2>
+                        <h3>Available Network Interfaces:</h3>
                         <ul>
-                            <li>WebSocket: <code>ws://localhost:${PORT}</code>
-                                <button class="copy-btn" onclick="copyToClipboard('ws://localhost:${PORT}')">Copy</button></li>
-                            <li>Health Check: <code>http://localhost:${PORT}/health</code>
-                                <button class="copy-btn" onclick="copyToClipboard('http://localhost:${PORT}/health')">Copy</button></li>
-                            <li>ICE Servers: <code>http://localhost:${PORT}/api/ice-servers</code>
-                                <button class="copy-btn" onclick="copyToClipboard('http://localhost:${PORT}/api/ice-servers')">Copy</button></li>
-                        </ul>
-
-                        <h3>Your Network IPs:</h3>
-                        <div class="ip-list">
-                            ${localIPs.map(ip => `
-                                <div class="ip-item">
-                                    <code>${ip}</code>
-                                    <button class="copy-btn" onclick="copyToClipboard('${ip}')">Copy IP</button>
-                                </div>
+                            ${Object.entries(networkInfo.details).map(([name, addrs]) => `
+                                <li><strong>${name}:</strong>
+                                    ${addrs.map(addr => `<code>${addr.address}</code>`).join(', ')}
+                                </li>
                             `).join('')}
-                        </div>
+                        </ul>
                     </div>
 
                     <div class="card card-warning">
                         <h2>🔧 API Endpoints</h2>
                         <ul>
                             <li><code>GET /health</code> - Server health status</li>
-                            <li><code>GET /api/ice-servers</code> - ICE servers configuration</li>
+                            <li><code>GET /api/network-info</code> - Network information</li>
+                            <li><code>GET /api/ice-servers</code> - ICE servers config</li>
                             <li><code>POST /api/peer-offer</code> - Store peer offer</li>
                             <li><code>POST /api/peer-answer</code> - Store peer answer</li>
                             <li><code>POST /api/ice-candidate</code> - Store ICE candidate</li>
-                            <li><code>GET /api/peer-data/:meetingId/:fromUserId/:toUserId</code> - Get peer connection data</li>
-                            <li><code>GET /api/meeting-participants/:meetingId</code> - Get meeting participants</li>
                         </ul>
                     </div>
 
                     <div class="card card-success">
-                        <h2>🎯 WebRTC Configuration</h2>
-                        <ul>
-                            <li><strong>STUN Servers:</strong> Configured for NAT traversal</li>
-                            <li><strong>TURN Server:</strong> Optional relay for strict NATs</li>
-                            <li><strong>Signaling:</strong> WebSocket + REST API</li>
-                            <li><strong>ICE Protocol:</strong> Full support</li>
-                            <li><strong>Cross-platform:</strong> Works on all devices</li>
-                        </ul>
+                        <h2>🎯 Multi-Laptop Setup Guide</h2>
+                        <ol style="padding-left: 20px; margin: 15px 0;">
+                            <li><strong>On THIS laptop (HOST):</strong>
+                                <ul>
+                                    <li>Server is already running</li>
+                                    <li>Note your IP address from above</li>
+                                    <li>Keep this terminal open</li>
+                                </ul>
+                            </li>
+                            <li><strong>On OTHER laptops (CLIENTS):</strong>
+                                <ul>
+                                    <li>Run the JavaFX application</li>
+                                    <li>When prompted, choose "Enter Server IP"</li>
+                                    <li>Enter this laptop's IP: <code>${localIPs[0] || '192.168.x.x'}</code></li>
+                                    <li>Port: <code>8887</code></li>
+                                </ul>
+                            </li>
+                        </ol>
                     </div>
 
-                    <div class="card card-info">
-                        <h2>🚀 Quick Start</h2>
-                        <ol style="padding-left: 20px; margin: 15px 0;">
-                            <li>Note your IP address: <strong>${publicIP}</strong></li>
-                            <li>On client devices, connect to: <code>ws://${publicIP}:${PORT}</code></li>
-                            <li>Ensure firewall allows port ${PORT}</li>
-                            <li>For internet access, forward port ${PORT} on router</li>
-                        </ol>
+                    <div class="network-test">
+                        <h3>🔍 Quick Network Test</h3>
+                        <p>From another laptop, run this command:</p>
+                        <code>curl http://${localIPs[0] || 'localhost'}:${PORT}/health</code>
+                        <button class="copy-btn" onclick="copyToClipboard('curl http://${localIPs[0] || 'localhost'}:${PORT}/health')">Copy</button>
+                    </div>
+
+                    <div class="troubleshooting">
+                        <h3>⚠️ Troubleshooting</h3>
+                        <ul>
+                            <li><strong>Connection refused?</strong> Check Windows Firewall</li>
+                            <li><strong>Can't see server?</strong> Make sure both laptops on same WiFi</li>
+                            <li><strong>Different IPs?</strong> Use the one that matches your network</li>
+                            <li><strong>VPN active?</strong> Disable VPN temporarily</li>
+                        </ul>
                     </div>
                 </div>
 
                 <footer>
-                    <p>Zoom WebSocket Server v1.0.0 | WebRTC with STUN/TURN support</p>
-                    <p>⏳ Waiting for client connections...</p>
+                    <p>Zoom WebSocket Server v2.0 | Multi-Laptop Support | WebRTC with STUN/TURN</p>
+                    <p>⏳ Connected Laptops: ${serverStats.clients}</p>
                 </footer>
             </div>
 
             <script>
                 function copyToClipboard(text) {
                     navigator.clipboard.writeText(text).then(() => {
-                        alert('Copied to clipboard: ' + text);
+                        alert('✅ Copied to clipboard: ' + text);
                     }).catch(err => {
                         console.error('Failed to copy: ', err);
+                        // Fallback
+                        const textarea = document.createElement('textarea');
+                        textarea.value = text;
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                        alert('✅ Copied to clipboard: ' + text);
                     });
                 }
 
-                // Auto-refresh stats every 30 seconds
+                // Auto-refresh stats every 10 seconds
                 setInterval(() => {
                     fetch('/health')
                         .then(response => response.json())
@@ -568,44 +665,88 @@ app.get('/', (req, res) => {
                             document.querySelectorAll('.stat-item')[0].querySelector('.stat-value').textContent = data.clients;
                             document.querySelectorAll('.stat-item')[1].querySelector('.stat-value').textContent = data.meetings;
                             document.querySelectorAll('.stat-item')[2].querySelector('.stat-value').textContent = data.peerConnections;
-                            document.querySelectorAll('.stat-item')[3].querySelector('.stat-value').textContent = data.uptime + 's';
+
+                            // Update footer
+                            document.querySelector('footer p:last-child').innerHTML =
+                                '⏳ Connected Laptops: ' + data.clients;
                         })
                         .catch(error => console.error('Error fetching stats:', error));
-                }, 30000);
+                }, 10000);
+
+                // Test connection from browser
+                function testConnection() {
+                    fetch('/health')
+                        .then(response => response.json())
+                        .then(data => {
+                            alert('✅ Server is healthy!\\n' +
+                                  'Connected clients: ' + data.clients + '\\n' +
+                                  'Your IP: ' + data.yourIP);
+                        })
+                        .catch(error => {
+                            alert('❌ Cannot connect to server: ' + error);
+                        });
+                }
             </script>
         </body>
         </html>
     `);
 });
 
-// Start server
-const localIPs = getLocalIPs();
+// Start server with explicit binding - FIXED: use httpServer.listen, not wss.listen
 httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n🚀 ZOOM WEB SOCKET SERVER WITH STUN/TURN`);
-    console.log(`=========================================`);
+    console.log('\n' + '='.repeat(60));
+    console.log('🚀 ZOOM WEB SOCKET SERVER WITH MULTI-LAPTOP SUPPORT');
+    console.log('='.repeat(60));
     console.log(`✅ Server Status: RUNNING`);
     console.log(`📍 Signaling Port: ${PORT}`);
     console.log(`🌐 Public IP: ${publicIP}`);
     console.log(`🎯 STUN Server: stun:${publicIP}:${STUN_PORT}`);
     console.log(`📡 TURN Server: turn:${publicIP}:${TURN_PORT}`);
-    console.log(`\n🔗 WebSocket URLs:`);
-    console.log(`   - ws://localhost:${PORT}`);
-    localIPs.forEach(ip => {
-        console.log(`   - ws://${ip}:${PORT}`);
+
+    console.log('\n📡 CONNECTION URLS FOR OTHER LAPTOPS:');
+    console.log('   ' + '-'.repeat(40));
+    localIPs.forEach((ip, index) => {
+        console.log(`   ${index + 1}. ws://${ip}:${PORT}`);
     });
 
-    console.log(`\n🔧 API Endpoints:`);
-    console.log(`   - ICE Servers: http://localhost:${PORT}/api/ice-servers`);
-    console.log(`   - Health Check: http://localhost:${PORT}/health`);
-    console.log(`   - Web Interface: http://localhost:${PORT}/`);
+    console.log('\n🔧 Network Interfaces Detected:');
+    Object.entries(networkInfo.details).forEach(([name, addrs]) => {
+        console.log(`   📶 ${name}: ${addrs.map(a => a.address).join(', ')}`);
+    });
 
-    console.log(`\n🎯 WebRTC Configuration:`);
-    console.log(`   1. STUN Servers: Configured for NAT traversal`);
-    console.log(`   2. TURN Server: Optional relay for strict NATs`);
-    console.log(`   3. Signaling: WebSocket + REST API`);
-    console.log(`   4. ICE Protocol: Full support`);
-    console.log(`\n⏳ Waiting for connections...\n`);
+    console.log('\n📊 Web Interface:');
+    console.log(`   http://localhost:${PORT}/`);
+    localIPs.forEach(ip => {
+        console.log(`   http://${ip}:${PORT}/`);
+    });
+
+    console.log('\n🔍 Quick Test Commands:');
+    console.log(`   curl http://localhost:${PORT}/health`);
+    localIPs.forEach(ip => {
+        console.log(`   curl http://${ip}:${PORT}/health`);
+    });
+
+    console.log('\n🎯 Multi-Laptop Connection Guide:');
+    console.log('   1. On THIS laptop (HOST):');
+    console.log('      - Server is running');
+    console.log('      - Note your IP from above');
+    console.log('      - Keep this terminal open');
+    console.log('\n   2. On OTHER laptops (CLIENTS):');
+    console.log('      - Run JavaFX application');
+    console.log('      - Choose "Enter Server IP" when prompted');
+    console.log(`      - Enter: ${localIPs[0] || '192.168.x.x'}`);
+    console.log('      - Port: 8887');
+
+    console.log('\n⚠️  Firewall Setup (if clients can\'t connect):');
+    console.log('   Windows: netsh advfirewall firewall add rule name="Zoom WebSocket" dir=in action=allow protocol=TCP localport=8887');
+    console.log('   Mac/Linux: sudo ufw allow 8887/tcp');
+
+    console.log('\n⏳ Waiting for connections...\n');
+    console.log('='.repeat(60));
 });
+
+// Rest of your existing WebSocket handling code remains exactly the same...
+// [All your existing WebSocket event handlers, message handlers, etc. stay unchanged]
 
 // WebSocket connection handling
 const CONNECTION_TIMEOUT = 30000;
@@ -633,15 +774,25 @@ wss.on('connection', (ws, req) => {
         iceCandidates: []
     });
 
+    // Send network info to new client
+    ws.send(JSON.stringify({
+        type: 'NETWORK_INFO',
+        data: {
+            serverIPs: localIPs,
+            yourIP: clientIp,
+            port: PORT
+        }
+    }));
+
     // Send ICE server configuration immediately
     ws.send(JSON.stringify({
         type: 'ICE_SERVERS',
         data: stunConfig
     }));
 
-    const welcomeMessage = `SYSTEM|global|Server|CONNECTED|${userId}|Welcome! ICE servers configured`;
+    const welcomeMessage = `SYSTEM|global|Server|CONNECTED|${userId}|Welcome! Your IP: ${clientIp}`;
     ws.send(welcomeMessage);
-    console.log(`📤 Sent welcome with ICE config to ${userId}`);
+    console.log(`📤 Sent welcome to ${userId} (IP: ${clientIp})`);
 
     // Notify others
     broadcast(`SYSTEM|global|Server|USER_JOINED|${userId}|${userId} joined from ${clientIp}`, ws);
@@ -770,6 +921,7 @@ wss.on('connection', (ws, req) => {
     });
 });
 
+// [All your existing function definitions remain exactly the same]
 // WebRTC Message Handler
 function handleWebRTCMessage(ws, userId, message) {
     const { type, data } = message;
@@ -1043,7 +1195,7 @@ function broadcast(message, sender) {
 
 // Server monitoring
 setInterval(() => {
-    console.log(`\n📊 Server Status - Clients: ${clients.size}, Meetings: ${meetings.size}, WebRTC Pairs: ${Array.from(peerConnections.values()).reduce((total, meeting) => total + meeting.size, 0)}`);
+    console.log(`\n📊 Server Status - Connected Laptops: ${clients.size}, Meetings: ${meetings.size}, WebRTC Pairs: ${Array.from(peerConnections.values()).reduce((total, meeting) => total + meeting.size, 0)}`);
 
     for (const [meetingId, meeting] of meetings) {
         console.log(`   Meeting ${meetingId}:`);
@@ -1055,7 +1207,7 @@ setInterval(() => {
         for (const participant of meeting.participants) {
             for (const [client, userInfo] of clients) {
                 if (userInfo.id === participant) {
-                    console.log(`       • ${participant} (Audio: ${userInfo.audioMuted ? 'Muted' : 'Unmuted'}, Video: ${userInfo.videoOn ? 'On' : 'Off'}, Recording: ${userInfo.isRecording ? 'Yes' : 'No'})`);
+                    console.log(`       • ${participant} (IP: ${userInfo.ip}, Audio: ${userInfo.audioMuted ? 'Muted' : 'Unmuted'}, Video: ${userInfo.videoOn ? 'On' : 'Off'})`);
                     break;
                 }
             }
