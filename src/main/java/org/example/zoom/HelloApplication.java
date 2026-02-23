@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.UUID;
 
 import javafx.scene.image.Image;
 
@@ -42,7 +43,7 @@ public class HelloApplication extends Application {
 
     private static String serverIp = "localhost";
     private static String serverPort = "8887";
-    private static final int DEFAULT_PORT = 8887; // Add this constant
+    private static final int DEFAULT_PORT = 8887;
 
     private static boolean connectionInitialized = false;
     private static ConnectionStatusListener connectionStatusListener;
@@ -65,13 +66,51 @@ public class HelloApplication extends Application {
 
     private static volatile boolean stageReady = false;
 
+    // Device identification
+    private static String deviceId = UUID.randomUUID().toString().substring(0, 8);
+    private static String deviceName = "Unknown";
+
     // Video streaming tracking
     private static boolean isVideoStreaming = false;
     private static int videoFramesSent = 0;
     private static int videoFramesReceived = 0;
 
+    // Connected devices tracking
+    private static final Map<String, DeviceInfo> connectedDevices = new HashMap<>();
+
+    public static class DeviceInfo {
+        String deviceId;
+        String deviceName;
+        String username;
+        String ipAddress;
+        String deviceType;
+        long lastSeen;
+        boolean isVideoOn;
+        boolean isAudioMuted;
+
+        public DeviceInfo(String deviceId, String deviceName, String username, String ipAddress) {
+            this.deviceId = deviceId;
+            this.deviceName = deviceName;
+            this.username = username;
+            this.ipAddress = ipAddress;
+            this.deviceType = "unknown";
+            this.lastSeen = System.currentTimeMillis();
+            this.isVideoOn = false;
+            this.isAudioMuted = false;
+        }
+
+        public void updateLastSeen() {
+            this.lastSeen = System.currentTimeMillis();
+        }
+
+        public boolean isActive(long timeoutMs) {
+            return (System.currentTimeMillis() - lastSeen) < timeoutMs;
+        }
+    }
+
     public interface ConnectionStatusListener {
         void onConnectionStatusChanged(boolean connected, String status);
+        void onDeviceListChanged(Map<String, DeviceInfo> devices);
     }
 
     @Override
@@ -79,13 +118,19 @@ public class HelloApplication extends Application {
         primaryStage = stage;
         stageReady = true;
 
+        // Set device name from system properties if available
+        deviceName = System.getProperty("device.name", "Zoom-Device");
+        deviceId = System.getProperty("device.id", UUID.randomUUID().toString().substring(0, 8));
+
+        System.out.println("Starting HelloApplication for device: " + deviceName + " (ID: " + deviceId + ")");
+
         Database.initializeDatabase();
 
         // Initialize WebRTC manager as client only
         webRTCManager = WebRTCManager.getInstance();
 
         setRoot("login-view.fxml");
-        stage.setTitle("Zoom Project with WebRTC");
+        stage.setTitle("Zoom Project - " + deviceName);
         stage.show();
 
         System.out.println("Primary stage initialized and ready");
@@ -176,13 +221,12 @@ public class HelloApplication extends Application {
     @Override
     public void stop() throws Exception {
         stopWebRTCSession();
-
         stopConnectionAttempts();
-
         leaveCurrentMeeting();
 
         if (webSocketClient != null) {
             webSocketClient.disconnect();
+            webSocketClient = null;
         }
 
         if (videoOn) {
@@ -212,6 +256,7 @@ public class HelloApplication extends Application {
 
             activeMeetings.remove(meetingId);
             activeParticipants.clear();
+            connectedDevices.clear();
 
             Database.removeMeeting(meetingId);
 
@@ -228,6 +273,12 @@ public class HelloApplication extends Application {
             }
 
             notifyControllersMeetingStateChanged(false);
+
+            if (connectionStatusListener != null) {
+                Platform.runLater(() -> {
+                    connectionStatusListener.onDeviceListChanged(new HashMap<>(connectedDevices));
+                });
+            }
         }
     }
 
@@ -242,6 +293,7 @@ public class HelloApplication extends Application {
             }
 
             removeParticipant(loggedInUser);
+            connectedDevices.remove(deviceId);
 
             if (isMeetingHost) {
                 endMeeting(activeMeetingId);
@@ -264,18 +316,31 @@ public class HelloApplication extends Application {
         }
 
         notifyControllersMeetingStateChanged(false);
+
+        if (connectionStatusListener != null) {
+            Platform.runLater(() -> {
+                connectionStatusListener.onDeviceListChanged(new HashMap<>(connectedDevices));
+            });
+        }
     }
 
     public static void toggleVideo() {
         videoOn = !videoOn;
         isVideoStreaming = videoOn;
 
-        System.out.println("VIDEO TOGGLE");
+        System.out.println("VIDEO TOGGLE for device: " + deviceName);
         System.out.println("New state: " + (videoOn ? "ON" : "OFF"));
         System.out.println("User: " + loggedInUser);
         System.out.println("Is Host: " + isMeetingHost);
         System.out.println("WebSocket: " + isWebSocketConnected());
         System.out.println("Meeting ID: " + activeMeetingId);
+
+        // Update device info
+        DeviceInfo deviceInfo = connectedDevices.get(deviceId);
+        if (deviceInfo != null) {
+            deviceInfo.isVideoOn = videoOn;
+            deviceInfo.updateLastSeen();
+        }
 
         if (videoOn) {
             addSystemMessage("You started video streaming");
@@ -296,11 +361,15 @@ public class HelloApplication extends Application {
         if (isWebSocketConnected() && activeMeetingId != null && loggedInUser != null) {
             String status = videoOn ? "VIDEO_STARTED" : "VIDEO_STOPPED";
 
+            // Include device info in the message
+            String content = status + "|" + deviceId + "|" + deviceName;
+
             System.out.println("Sending VIDEO_STATUS: " + status);
             System.out.println("To meeting: " + activeMeetingId);
             System.out.println("From user: " + loggedInUser);
+            System.out.println("From device: " + deviceName + " (" + deviceId + ")");
 
-            sendWebSocketMessage("VIDEO_STATUS", activeMeetingId, loggedInUser, status);
+            sendWebSocketMessage("VIDEO_STATUS", activeMeetingId, loggedInUser, content);
         } else {
             System.err.println("Cannot send video status:");
             System.err.println("WebSocket: " + isWebSocketConnected());
@@ -324,13 +393,33 @@ public class HelloApplication extends Application {
                 System.out.println("Updated MeetingController video state");
             }
         });
+
+        // Notify listeners of device list change
+        if (connectionStatusListener != null) {
+            Platform.runLater(() -> {
+                connectionStatusListener.onDeviceListChanged(new HashMap<>(connectedDevices));
+            });
+        }
     }
 
-    public static void handleVideoStatus(String username, String status) {
-        System.out.println("Received video status: " + status + " from user: " + username);
+    public static void handleVideoStatus(String username, String content) {
+        System.out.println("Received video status: " + content + " from user: " + username);
+
+        // Parse content which may include device info
+        String[] parts = content.split("\\|");
+        String status = parts[0];
+        String deviceIdFromMsg = parts.length > 1 ? parts[1] : "unknown";
+        String deviceNameFromMsg = parts.length > 2 ? parts[2] : "unknown";
 
         if (username.equals(loggedInUser)) {
             return;
+        }
+
+        // Update device info
+        DeviceInfo deviceInfo = connectedDevices.get(deviceIdFromMsg);
+        if (deviceInfo != null) {
+            deviceInfo.isVideoOn = status.contains("STARTED");
+            deviceInfo.updateLastSeen();
         }
 
         Platform.runLater(() -> {
@@ -339,11 +428,17 @@ public class HelloApplication extends Application {
             }
 
             if ("VIDEO_STARTED".equals(status)) {
-                addSystemMessage(username + " started their video");
+                addSystemMessage(username + " (" + deviceNameFromMsg + ") started their video");
             } else if ("VIDEO_STOPPED".equals(status)) {
-                addSystemMessage(username + " stopped their video");
+                addSystemMessage(username + " (" + deviceNameFromMsg + ") stopped their video");
             }
         });
+
+        if (connectionStatusListener != null) {
+            Platform.runLater(() -> {
+                connectionStatusListener.onDeviceListChanged(new HashMap<>(connectedDevices));
+            });
+        }
     }
 
     public static boolean isVideoOn() {
@@ -511,6 +606,10 @@ public class HelloApplication extends Application {
     public static void setLoggedInUser(String username) {
         loggedInUser = username;
 
+        // Update device info with username
+        DeviceInfo deviceInfo = new DeviceInfo(deviceId, deviceName, username, getLocalIPAddress());
+        connectedDevices.put(deviceId, deviceInfo);
+
         loadUserServerConfig(username);
 
         if (username != null) {
@@ -524,11 +623,8 @@ public class HelloApplication extends Application {
 
     public static void logout() throws Exception {
         stopWebRTCSession();
-
         stopConnectionAttempts();
-
         setConnectionStatusListener(null);
-
         leaveCurrentMeeting();
 
         if (webSocketClient != null) {
@@ -541,6 +637,7 @@ public class HelloApplication extends Application {
         activeMeetingId = null;
         isMeetingHost = false;
         connectionInitialized = false;
+        connectedDevices.clear();
 
         audioMuted = false;
         isDeafened = false;
@@ -557,7 +654,7 @@ public class HelloApplication extends Application {
 
     public static void initializeWebSocket(String username) {
         String savedUrl = getCurrentServerUrl();
-        System.out.println("Attempting connection to saved server: " + savedUrl);
+        System.out.println("Attempting connection to saved server: " + savedUrl + " for device: " + deviceName);
 
         if (!testConnection(savedUrl)) {
             System.out.println("Saved server connection failed");
@@ -736,7 +833,7 @@ public class HelloApplication extends Application {
 
     private static void initializeWebSocketWithUrl(String serverUrl) {
         try {
-            System.out.println("Initializing WebSocket connection to: " + serverUrl);
+            System.out.println("Initializing WebSocket connection to: " + serverUrl + " for device: " + deviceName);
 
             if (webSocketClient != null) {
                 webSocketClient.disconnect();
@@ -748,15 +845,63 @@ public class HelloApplication extends Application {
                 webSocketClient.setCurrentUser(loggedInUser);
             }
 
+            // Add custom headers for device identification
+            webSocketClient.addHeader("Device-ID", deviceId);
+            webSocketClient.addHeader("Device-Name", deviceName);
+
             connectionInitialized = true;
             stopMonitoring = false;
 
             startConnectionMonitoring();
 
+            // Send device info once connected
+            sendDeviceInfo();
+
         } catch (Exception e) {
             System.err.println("Failed to initialize WebSocket: " + e.getMessage());
             handleConnectionFailure(serverUrl);
         }
+    }
+
+    private static void sendDeviceInfo() {
+        if (webSocketClient != null && webSocketClient.isConnected() && loggedInUser != null) {
+            String deviceType = getDeviceType();
+            String content = deviceName + "|" + deviceId + "|" + deviceType + "|" + getLocalIPAddress();
+            webSocketClient.sendMessage("DEVICE_INFO", "global", loggedInUser, content);
+            System.out.println("Sent device info to server: " + deviceName + " (" + deviceId + ")");
+        }
+    }
+
+    private static String getDeviceType() {
+        String os = System.getProperty("os.name").toLowerCase();
+        if (os.contains("win")) return "Windows";
+        if (os.contains("mac")) return "macOS";
+        if (os.contains("linux")) return "Linux";
+        return "Unknown";
+    }
+
+    private static String getLocalIPAddress() {
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface iface = interfaces.nextElement();
+                if (iface.isLoopback() || !iface.isUp()) continue;
+
+                Enumeration<InetAddress> addresses = iface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress addr = addresses.nextElement();
+                    if (addr instanceof Inet4Address) {
+                        String ip = addr.getHostAddress();
+                        if (!ip.startsWith("127.") && !ip.startsWith("169.254.")) {
+                            return ip;
+                        }
+                    }
+                }
+            }
+        } catch (SocketException e) {
+            System.err.println("Error getting local IP: " + e.getMessage());
+        }
+        return "unknown";
     }
 
     private static void startConnectionMonitoring() {
@@ -775,7 +920,7 @@ public class HelloApplication extends Application {
             int consecutiveFailures = 0;
             final int MAX_CONSECUTIVE_FAILURES = 2;
 
-            System.out.println("Starting connection monitoring...");
+            System.out.println("Starting connection monitoring for device: " + deviceName);
 
             while (!stopMonitoring && connectionInitialized && loggedInUser != null) {
                 try {
@@ -785,7 +930,7 @@ public class HelloApplication extends Application {
 
                     if (currentConnectedState != previousConnectedState) {
                         String status = currentConnectedState ? "Connected" : "Disconnected";
-                        System.out.println("Connection state changed: " + status);
+                        System.out.println("Connection state changed: " + status + " for device: " + deviceName);
 
                         if (connectionStatusListener != null) {
                             Platform.runLater(() -> {
@@ -797,13 +942,14 @@ public class HelloApplication extends Application {
 
                         if (currentConnectedState) {
                             consecutiveFailures = 0;
-                            System.out.println("Connection restored, reset failure counter");
+                            System.out.println("Connection restored, sending device info");
+                            sendDeviceInfo();
                         }
                     }
 
                     if (!currentConnectedState) {
                         consecutiveFailures++;
-                        System.out.println("Attempting to reconnect... (Failure #" + consecutiveFailures + ")");
+                        System.out.println("Attempting to reconnect device " + deviceName + "... (Failure #" + consecutiveFailures + ")");
 
                         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
                             System.out.println("Too many connection failures (" + consecutiveFailures + "), triggering fallback...");
@@ -824,6 +970,8 @@ public class HelloApplication extends Application {
                         }
                     } else if (currentConnectedState) {
                         consecutiveFailures = 0;
+                        // Send heartbeat
+                        sendHeartbeat();
                     }
 
                 } catch (InterruptedException e) {
@@ -833,17 +981,29 @@ public class HelloApplication extends Application {
                     System.err.println("Error in connection monitoring: " + e.getMessage());
                 }
             }
-            System.out.println("Connection monitoring stopped");
+            System.out.println("Connection monitoring stopped for device: " + deviceName);
         });
         monitorThread.setDaemon(true);
-        monitorThread.setName("WebSocket-Monitor");
+        monitorThread.setName("WebSocket-Monitor-" + deviceName);
         monitorThread.start();
+    }
+
+    private static void sendHeartbeat() {
+        if (webSocketClient != null && webSocketClient.isConnected() && activeMeetingId != null) {
+            webSocketClient.sendMessage("HEARTBEAT", activeMeetingId, loggedInUser, deviceId);
+
+            // Update device last seen
+            DeviceInfo deviceInfo = connectedDevices.get(deviceId);
+            if (deviceInfo != null) {
+                deviceInfo.updateLastSeen();
+            }
+        }
     }
 
     private static void showConnectionFallbackDialog() {
         Platform.runLater(() -> {
             Alert alert = new Alert(Alert.AlertType.WARNING);
-            alert.setTitle("Connection Issues");
+            alert.setTitle("Connection Issues - " + deviceName);
             alert.setHeaderText("Cannot connect to server: " + getCurrentServerUrl());
             alert.setContentText("Multiple connection attempts failed.\n\n" +
                     "Please choose an option:");
@@ -876,12 +1036,13 @@ public class HelloApplication extends Application {
             String status = connected ? "Connected" : "Disconnected";
             Platform.runLater(() -> {
                 listener.onConnectionStatusChanged(connected, status);
+                listener.onDeviceListChanged(new HashMap<>(connectedDevices));
             });
         }
     }
 
     public static void handleConnectionFailure(String attemptedUrl) {
-        System.err.println("Connection failed to: " + attemptedUrl);
+        System.err.println("Connection failed to: " + attemptedUrl + " for device: " + deviceName);
 
         Platform.runLater(() -> {
             if (connectionStatusListener != null) {
@@ -896,7 +1057,7 @@ public class HelloApplication extends Application {
 
     private static void showConnectionErrorAndDiscover(String attemptedUrl) {
         Alert alert = new Alert(Alert.AlertType.WARNING);
-        alert.setTitle("Connection Failed");
+        alert.setTitle("Connection Failed - " + deviceName);
         alert.setHeaderText("Cannot connect to server");
         alert.setContentText("Failed to connect to: " + attemptedUrl +
                 "\n\nWould you like to search for available servers on your network?");
@@ -919,7 +1080,7 @@ public class HelloApplication extends Application {
 
     public static void showManualConnectionDialog() {
         TextInputDialog ipDialog = new TextInputDialog("192.168.1.");
-        ipDialog.setTitle("Manual Server Connection");
+        ipDialog.setTitle("Manual Server Connection - " + deviceName);
         ipDialog.setHeaderText("Connect to Server on Different Device");
         ipDialog.setContentText("Enter server IP address:");
 
@@ -959,13 +1120,13 @@ public class HelloApplication extends Application {
         }
 
         String serverUrl = "ws://" + ip + ":" + port;
-        System.out.println("Attempting manual connection to: " + serverUrl);
+        System.out.println("Attempting manual connection to: " + serverUrl + " for device: " + deviceName);
 
         resetConnectionAndRetry(serverUrl);
     }
 
     public static void stopConnectionAttempts() {
-        System.out.println("Stopping all connection attempts...");
+        System.out.println("Stopping all connection attempts for device: " + deviceName);
         stopMonitoring = true;
         connectionInitialized = false;
 
@@ -982,11 +1143,11 @@ public class HelloApplication extends Application {
             }
         }
 
-        System.out.println("All connection attempts stopped");
+        System.out.println("All connection attempts stopped for device: " + deviceName);
     }
 
     public static void resetConnectionAndRetry(String newUrl) {
-        System.out.println("Resetting connection and retrying with: " + newUrl);
+        System.out.println("Resetting connection and retrying with: " + newUrl + " for device: " + deviceName);
         stopConnectionAttempts();
 
         String urlWithoutProtocol = newUrl.replace("ws://", "");
@@ -1038,7 +1199,7 @@ public class HelloApplication extends Application {
     public static void setServerConfig(String ip, String port) {
         serverIp = ip;
         serverPort = port;
-        System.out.println("Server config updated: " + ip + ":" + port);
+        System.out.println("Server config updated: " + ip + ":" + port + " for device: " + deviceName);
 
         if (loggedInUser != null) {
             Database.saveServerConfig(loggedInUser, ip, port);
@@ -1059,6 +1220,18 @@ public class HelloApplication extends Application {
 
     public static String getServerPort() {
         return serverPort;
+    }
+
+    public static String getDeviceId() {
+        return deviceId;
+    }
+
+    public static String getDeviceName() {
+        return deviceName;
+    }
+
+    public static Map<String, DeviceInfo> getConnectedDevices() {
+        return new HashMap<>(connectedDevices);
     }
 
     public static void reinitializeWebSocket(String newUrl) {
@@ -1094,7 +1267,7 @@ public class HelloApplication extends Application {
         List<String> availableServers = new ArrayList<>();
         List<String> localIPs = getLocalIPAddresses();
 
-        System.out.println("Starting enhanced network discovery...");
+        System.out.println("Starting enhanced network discovery for device: " + deviceName);
         System.out.println("Your local IP addresses: " + localIPs);
 
         if (testConnection("ws://localhost:8887")) {
@@ -1150,82 +1323,6 @@ public class HelloApplication extends Application {
         return availableServers;
     }
 
-    // Enhanced connection testing method
-    public static boolean testConnectionAdvanced(String serverUrl) {
-        System.out.println("🔍 Testing connection to: " + serverUrl);
-
-        // Extract IP and port
-        String urlWithoutProtocol = serverUrl.replace("ws://", "");
-        String[] parts = urlWithoutProtocol.split(":");
-        String ip = parts[0];
-        String port = (parts.length > 1) ? parts[1] : String.valueOf(DEFAULT_PORT);
-
-        // Try different connection methods
-        String[] urlsToTest = {
-                serverUrl,
-                "http://" + ip + ":" + port + "/health",
-                "http://" + ip + ":" + port + "/ping",
-                "ws://" + ip + ":" + port
-        };
-
-        // Test HTTP endpoints first
-        for (String testUrl : urlsToTest) {
-            if (!testUrl.startsWith("ws://")) {
-                try {
-                    System.out.println("   Trying HTTP: " + testUrl);
-                    java.net.URL url = new java.net.URL(testUrl);
-                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
-                    conn.setConnectTimeout(2000);
-                    conn.setReadTimeout(2000);
-                    conn.setRequestMethod("GET");
-
-                    int responseCode = conn.getResponseCode();
-                    if (responseCode == 200) {
-                        System.out.println("   ✅ HTTP connection successful!");
-                        return true;
-                    } else {
-                        System.out.println("   ❌ HTTP returned code: " + responseCode);
-                    }
-                } catch (java.net.ConnectException e) {
-                    System.out.println("   ❌ Connection refused: " + e.getMessage());
-                    if (e.getMessage().contains("refused")) {
-                        System.out.println("      → Server not running or firewall blocking port " + port);
-                    }
-                } catch (java.net.SocketTimeoutException e) {
-                    System.out.println("   ❌ Connection timeout");
-                } catch (Exception e) {
-                    System.out.println("   ❌ Failed: " + e.getMessage());
-                }
-            }
-        }
-
-        // Try ping as last resort
-        if (!ip.equals("localhost") && !ip.equals("127.0.0.1")) {
-            try {
-                System.out.println("   Trying ping to " + ip + "...");
-                Process p;
-                if (System.getProperty("os.name").toLowerCase().contains("win")) {
-                    p = Runtime.getRuntime().exec("ping -n 2 " + ip);
-                } else {
-                    p = Runtime.getRuntime().exec("ping -c 2 " + ip);
-                }
-                int exitCode = p.waitFor();
-                if (exitCode == 0) {
-                    System.out.println("   ✅ Ping successful to " + ip);
-                    System.out.println("   ⚠️  Server might be running but port " + port + " is blocked");
-                    System.out.println("      → Check Windows Firewall on the server machine");
-                    System.out.println("      → Run: netsh advfirewall firewall add rule name=\"Zoom WebSocket\" dir=in action=allow protocol=TCP localport=" + port);
-                } else {
-                    System.out.println("   ❌ Ping failed - check network connectivity");
-                }
-            } catch (Exception e) {
-                System.out.println("   ❌ Ping test failed: " + e.getMessage());
-            }
-        }
-
-        return false;
-    }
-
     public static boolean testConnection(String serverUrl) {
         final AtomicBoolean connectionSuccess = new AtomicBoolean(false);
         final AtomicBoolean receivedDisconnect = new AtomicBoolean(false);
@@ -1233,7 +1330,7 @@ public class HelloApplication extends Application {
         SimpleWebSocketClient testClient = null;
 
         try {
-            System.out.println("Testing connection to: " + serverUrl);
+            System.out.println("Testing connection to: " + serverUrl + " from device: " + deviceName);
 
             testClient = new SimpleWebSocketClient(serverUrl, message -> {
                 System.out.println("Test connection received: " + message);
@@ -1343,11 +1440,12 @@ public class HelloApplication extends Application {
     public static void sendVideoFrame(String meetingId, String username, String base64Image) {
         if (webSocketClient != null && webSocketClient.isConnected() && isWebSocketConnected()) {
             try {
-                String message = "VIDEO_FRAME|" + meetingId + "|" + username + "|" + base64Image;
+                // Include device info in video frame
+                String message = "VIDEO_FRAME|" + meetingId + "|" + username + "|" + base64Image + "|" + deviceId + "|" + deviceName;
                 webSocketClient.send(message);
                 videoFramesSent++;
                 if (videoFramesSent % 10 == 0) {
-                    System.out.println("Sent " + videoFramesSent + " video frames from: " + username + " (" + base64Image.length() + " chars)");
+                    System.out.println("Sent " + videoFramesSent + " video frames from: " + username + " on device: " + deviceName);
                 }
             } catch (Exception e) {
                 System.err.println("Failed to send video frame: " + e.getMessage());
@@ -1365,7 +1463,7 @@ public class HelloApplication extends Application {
         try {
             String base64Image = convertImageToBase64(image);
             if (base64Image != null && !base64Image.isEmpty()) {
-                sendWebSocketMessage("VIDEO_FRAME", getActiveMeetingId(), loggedInUser, base64Image);
+                sendVideoFrame(getActiveMeetingId(), loggedInUser, base64Image);
             }
         } catch (Exception e) {
             System.err.println("Error sending video frame: " + e.getMessage());
@@ -1409,11 +1507,23 @@ public class HelloApplication extends Application {
         }
     }
 
-    private static void handleVideoFrame(String username, String base64Image) {
+    private static void handleVideoFrame(String username, String content) {
         try {
+            String[] parts = content.split("\\|", -1);
+            String base64Image = parts[0];
+            String deviceIdFromMsg = parts.length > 1 ? parts[1] : "unknown";
+            String deviceNameFromMsg = parts.length > 2 ? parts[2] : "unknown";
+
             videoFramesReceived++;
             if (videoFramesReceived % 10 == 0) {
-                System.out.println("Received " + videoFramesReceived + " video frames from: " + username);
+                System.out.println("Received " + videoFramesReceived + " video frames from: " + username +
+                        " on device: " + deviceNameFromMsg);
+            }
+
+            // Update device info
+            DeviceInfo deviceInfo = connectedDevices.get(deviceIdFromMsg);
+            if (deviceInfo != null) {
+                deviceInfo.updateLastSeen();
             }
 
             Image videoFrame = convertBase64ToImage(base64Image);
@@ -1441,15 +1551,11 @@ public class HelloApplication extends Application {
                 return null;
             }
 
-            System.out.println("Converting Base64 to Image: " + base64Image.length() + " chars");
-
             byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Image);
             if (imageBytes == null || imageBytes.length == 0) {
                 System.err.println("Decoded bytes are empty");
                 return null;
             }
-
-            System.out.println("Decoded bytes: " + imageBytes.length + " bytes");
 
             java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(imageBytes);
             Image image = new Image(bis);
@@ -1459,32 +1565,46 @@ public class HelloApplication extends Application {
                 return null;
             }
 
-            System.out.println("Created Image: " + image.getWidth() + "x" + image.getHeight());
             return image;
 
         } catch (Exception e) {
             System.err.println("Error converting base64 to image: " + e.getMessage());
-            e.printStackTrace();
             return null;
         }
     }
 
     private static void handleWebSocketMessage(String message) {
-        System.out.println("=== HELLO APPLICATION RECEIVED WEBSOCKET MESSAGE ===");
+        System.out.println("HelloApplication received WebSocket message on device: " + deviceName);
         System.out.println("Full message: " + message);
 
-        String[] parts = message.split("\\|", 4);
+        String[] parts = message.split("\\|", -1);
         if (parts.length >= 4) {
             String type = parts[0];
             String meetingId = parts[1];
             String username = parts[2];
             String content = parts[3];
 
-            System.out.println("Parsed: Type=" + type + ", Meeting=" + meetingId + ", User=" + username + ", Content=" + content);
-
             // Skip our own messages
             if (username.equals(loggedInUser)) {
                 System.out.println("Ignoring own message echo: " + type);
+                return;
+            }
+
+            // Handle device list messages
+            if (type.equals("DEVICE_LIST") && parts.length >= 4) {
+                handleDeviceList(content);
+                return;
+            }
+
+            if (type.equals("DEVICE_CONNECTED") && parts.length >= 5) {
+                String deviceInfo = parts[4];
+                handleDeviceConnected(username, deviceInfo);
+                return;
+            }
+
+            if (type.equals("DEVICE_DISCONNECTED") && parts.length >= 5) {
+                String deviceInfo = parts[4];
+                handleDeviceDisconnected(username, deviceInfo);
                 return;
             }
 
@@ -1496,31 +1616,36 @@ public class HelloApplication extends Application {
             }
 
             // Route the message to the appropriate handler
+            final String finalMessage = message;
             Platform.runLater(() -> {
                 MeetingController meetingController = MeetingController.getInstance();
                 if (meetingController != null) {
                     System.out.println("Forwarding message to MeetingController");
-                    // Forward the complete message to MeetingController
-                    meetingController.handleWebSocketMessage(message);
+                    meetingController.handleWebSocketMessage(finalMessage);
                 } else {
                     System.out.println("MeetingController not available, handling locally");
-                    // If MeetingController is not available, handle it here
                     switch (type) {
                         case "CHAT_MESSAGE":
                         case "CHAT":
                             addSystemMessage(username + ": " + content);
                             break;
                         case "USER_JOINED":
-                            addSystemMessage(username + " joined the meeting");
+                            handleUserJoined(username, meetingId, content);
                             break;
                         case "USER_LEFT":
-                            addSystemMessage(username + " left the meeting");
+                            handleUserLeft(username, meetingId, content);
                             break;
                         case "VIDEO_STATUS":
                             handleVideoStatus(username, content);
                             break;
                         case "VIDEO_FRAME":
                             handleVideoFrame(username, content);
+                            break;
+                        case "AUDIO_STATUS":
+                            handleAudioStatus(username, content);
+                            break;
+                        case "AUDIO_CONTROL":
+                            handleAudioControl(username, content);
                             break;
                         default:
                             System.out.println("Unhandled message type: " + type);
@@ -1532,9 +1657,134 @@ public class HelloApplication extends Application {
         }
     }
 
+    private static void handleDeviceList(String content) {
+        String[] devices = content.split(";");
+        connectedDevices.clear();
+
+        for (String deviceStr : devices) {
+            String[] parts = deviceStr.split(",");
+            if (parts.length >= 5) {
+                String deviceUsername = parts[0];
+                String devId = parts[1];
+                String ip = parts[2];
+                String devType = parts[3];
+                long connectTime = Long.parseLong(parts[4]);
+
+                DeviceInfo info = new DeviceInfo(devId, deviceUsername, deviceUsername, ip);
+                info.deviceType = devType;
+                info.lastSeen = connectTime;
+                connectedDevices.put(devId, info);
+            }
+        }
+
+        System.out.println("Updated device list: " + connectedDevices.size() + " devices connected");
+
+        if (connectionStatusListener != null) {
+            Platform.runLater(() -> {
+                connectionStatusListener.onDeviceListChanged(new HashMap<>(connectedDevices));
+            });
+        }
+    }
+
+    private static void handleDeviceConnected(String username, String deviceInfo) {
+        String[] parts = deviceInfo.split("\\|");
+        if (parts.length >= 2) {
+            String deviceNameFromMsg = parts[0];
+            String deviceIdFromMsg = parts[1];
+
+            DeviceInfo info = new DeviceInfo(deviceIdFromMsg, deviceNameFromMsg, username, "unknown");
+            connectedDevices.put(deviceIdFromMsg, info);
+
+            System.out.println("Device connected: " + deviceNameFromMsg + " (" + deviceIdFromMsg + ") as user: " + username);
+            addSystemMessage("Device connected: " + deviceNameFromMsg + " (" + username + ")");
+
+            if (connectionStatusListener != null) {
+                Platform.runLater(() -> {
+                    connectionStatusListener.onDeviceListChanged(new HashMap<>(connectedDevices));
+                });
+            }
+        }
+    }
+
+    private static void handleDeviceDisconnected(String username, String deviceInfo) {
+        String[] parts = deviceInfo.split("\\|");
+        if (parts.length >= 2) {
+            String deviceNameFromMsg = parts[0];
+            String deviceIdFromMsg = parts[1];
+
+            connectedDevices.remove(deviceIdFromMsg);
+
+            System.out.println("Device disconnected: " + deviceNameFromMsg + " (" + deviceIdFromMsg + ")");
+            addSystemMessage("Device disconnected: " + deviceNameFromMsg);
+
+            if (connectionStatusListener != null) {
+                Platform.runLater(() -> {
+                    connectionStatusListener.onDeviceListChanged(new HashMap<>(connectedDevices));
+                });
+            }
+        }
+    }
+
+    private static void handleUserJoined(String username, String meetingId, String content) {
+        addParticipantToMeeting(meetingId, username);
+        addSystemMessage(username + " joined the meeting");
+
+        // Request device list update
+        if (webSocketClient != null && webSocketClient.isConnected()) {
+            webSocketClient.send("GET_DEVICE_LIST");
+        }
+    }
+
+    private static void handleUserLeft(String username, String meetingId, String content) {
+        removeParticipantFromMeeting(meetingId, username);
+        addSystemMessage(username + " left the meeting");
+
+        // Remove from connected devices if this was a device
+        String deviceIdToRemove = null;
+        for (Map.Entry<String, DeviceInfo> entry : connectedDevices.entrySet()) {
+            if (username.equals(entry.getValue().username)) {
+                deviceIdToRemove = entry.getKey();
+                break;
+            }
+        }
+        if (deviceIdToRemove != null) {
+            connectedDevices.remove(deviceIdToRemove);
+        }
+
+        if (connectionStatusListener != null) {
+            Platform.runLater(() -> {
+                connectionStatusListener.onDeviceListChanged(new HashMap<>(connectedDevices));
+            });
+        }
+    }
+
+    private static void handleAudioStatus(String username, String content) {
+        if (content.contains("muted")) {
+            addSystemMessage(username + " muted their audio");
+        } else if (content.contains("unmuted")) {
+            addSystemMessage(username + " unmuted their audio");
+        } else if (content.contains("deafened")) {
+            addSystemMessage(username + " deafened themselves");
+        } else if (content.contains("undeafened")) {
+            addSystemMessage(username + " undeafened themselves");
+        }
+    }
+
+    private static void handleAudioControl(String username, String content) {
+        if (isMeetingHost) {
+            if (content.equals("MUTE_ALL")) {
+                allMuted = true;
+                addSystemMessage("Host muted all participants");
+            } else if (content.equals("UNMUTE_ALL")) {
+                allMuted = false;
+                addSystemMessage("Host unmuted all participants");
+            }
+        }
+    }
+
     public static void setActiveMeetingId(String meetingId) {
         activeMeetingId = meetingId;
-        System.out.println("Active meeting set to: " + meetingId);
+        System.out.println("Active meeting set to: " + meetingId + " for device: " + deviceName);
 
         if (meetingId != null && webRTCEnabled && webRTCManager != null) {
             startWebRTCSession();
@@ -1547,7 +1797,7 @@ public class HelloApplication extends Application {
 
     public static void setMeetingHost(boolean host) {
         isMeetingHost = host;
-        System.out.println("Meeting host status: " + (host ? "Host" : "Participant"));
+        System.out.println("Meeting host status: " + (host ? "Host" : "Participant") + " for device: " + deviceName);
 
         if (audioControlsController != null) {
             Platform.runLater(() -> {
@@ -1572,7 +1822,7 @@ public class HelloApplication extends Application {
             hostName = "Host";
         }
 
-        System.out.println("CREATING NEW MEETING: " + meetingId + " by " + hostName);
+        System.out.println("CREATING NEW MEETING: " + meetingId + " by " + hostName + " on device: " + deviceName);
 
         MeetingInfo meetingInfo = new MeetingInfo(meetingId, hostName);
         activeMeetings.put(meetingId, meetingInfo);
@@ -1585,7 +1835,8 @@ public class HelloApplication extends Application {
         addParticipantToMeeting(meetingId, hostName);
 
         if (isWebSocketConnected()) {
-            sendWebSocketMessage("MEETING_CREATED", meetingId, hostName, "New meeting created by " + hostName);
+            sendWebSocketMessage("MEETING_CREATED", meetingId, hostName,
+                    "New meeting created by " + hostName + "|" + deviceId + "|" + deviceName);
             System.out.println("New meeting created via WebSocket: " + meetingId + " by " + hostName);
         } else {
             System.out.println("New meeting created locally: " + meetingId + " by " + hostName + " (WebSocket offline)");
@@ -1598,12 +1849,11 @@ public class HelloApplication extends Application {
         notifyControllersMeetingStateChanged(true);
 
         System.out.println("MEETING CREATION SUCCESS: " + meetingId + " - Ready for participants to join!");
-        System.out.println("Active meetings now: " + activeMeetings.keySet());
         return meetingId;
     }
 
     public static boolean joinMeeting(String meetingId, String participantName) {
-        System.out.println("Attempting to join meeting: " + meetingId + " as " + participantName);
+        System.out.println("Attempting to join meeting: " + meetingId + " as " + participantName + " on device: " + deviceName);
 
         if (!meetingId.matches("\\d{6}")) {
             System.err.println("Invalid meeting ID format. Must be 6 digits: " + meetingId);
@@ -1630,7 +1880,6 @@ public class HelloApplication extends Application {
 
         if (!meetingExists) {
             System.err.println("Meeting not found: " + meetingId);
-            System.err.println("Available meetings: " + activeMeetings.keySet());
             return false;
         }
 
@@ -1640,7 +1889,8 @@ public class HelloApplication extends Application {
         addParticipantToMeeting(meetingId, participantName);
 
         if (isWebSocketConnected()) {
-            sendWebSocketMessage("USER_JOINED", meetingId, participantName, participantName + " joined the meeting");
+            String content = participantName + " joined the meeting|" + deviceId + "|" + deviceName;
+            sendWebSocketMessage("USER_JOINED", meetingId, participantName, content);
             System.out.println("Joined meeting via WebSocket: " + meetingId + " as " + participantName);
         } else {
             System.out.println("Joined meeting locally: " + meetingId + " as " + participantName + " (WebSocket offline)");
@@ -1681,7 +1931,6 @@ public class HelloApplication extends Application {
         }
 
         System.err.println("Meeting not found: " + meetingId);
-        System.err.println("Currently active meetings: " + activeMeetings.keySet());
         return false;
     }
 
@@ -1726,7 +1975,7 @@ public class HelloApplication extends Application {
 
     public static boolean ensureWebSocketConnection() {
         if (!isWebSocketConnected() && loggedInUser != null) {
-            System.out.println("Attempting to reconnect WebSocket...");
+            System.out.println("Attempting to reconnect WebSocket for device: " + deviceName);
             initializeWebSocket(loggedInUser);
             return isWebSocketConnected();
         }
@@ -1811,9 +2060,9 @@ public class HelloApplication extends Application {
 
     public static String getConnectionStatus() {
         if (isWebSocketConnected()) {
-            return "Connected to " + getCurrentServerUrl().replace("ws://", "");
+            return "Connected to " + getCurrentServerUrl().replace("ws://", "") + " [" + deviceName + "]";
         } else {
-            return "Disconnected from " + getCurrentServerUrl().replace("ws://", "");
+            return "Disconnected from " + getCurrentServerUrl().replace("ws://", "") + " [" + deviceName + "]";
         }
     }
 
@@ -1827,7 +2076,12 @@ public class HelloApplication extends Application {
 
     public static void sendWebSocketMessage(String type, String meetingId, String content) {
         if (webSocketClient != null && webSocketClient.isConnected() && loggedInUser != null) {
-            webSocketClient.sendMessage(type, meetingId, loggedInUser, content);
+            // Include device info in content if needed
+            String enhancedContent = content;
+            if (type.equals("VIDEO_STATUS") || type.equals("USER_JOINED") || type.equals("USER_LEFT")) {
+                enhancedContent = content + "|" + deviceId + "|" + deviceName;
+            }
+            webSocketClient.sendMessage(type, meetingId, loggedInUser, enhancedContent);
         } else {
             System.err.println("Cannot send message - WebSocket not connected or user not logged in");
         }
@@ -1835,18 +2089,17 @@ public class HelloApplication extends Application {
 
     public static void sendWebSocketMessage(String type, String meetingId, String username, String content) {
         if (webSocketClient != null && webSocketClient.isConnected()) {
-            System.out.println("=== SENDING WEBSOCKET MESSAGE ===");
+            System.out.println("=== SENDING WEBSOCKET MESSAGE FROM DEVICE: " + deviceName + " ===");
             System.out.println("Type: " + type);
             System.out.println("Meeting ID: " + meetingId);
             System.out.println("Username: " + username);
             System.out.println("Content: " + content);
+            System.out.println("Device: " + deviceName + " (" + deviceId + ")");
 
             webSocketClient.sendMessage(type, meetingId, username, content);
             System.out.println("Message sent successfully");
         } else {
             System.err.println("Cannot send message - WebSocket not connected");
-            System.err.println("WebSocket client: " + webSocketClient);
-            System.err.println("WebSocket connected: " + (webSocketClient != null ? webSocketClient.isConnected() : "null client"));
         }
     }
 
@@ -1874,21 +2127,36 @@ public class HelloApplication extends Application {
         audioMuted = !audioMuted;
         updateAudioButtonStyles();
 
+        // Update device info
+        DeviceInfo deviceInfo = connectedDevices.get(deviceId);
+        if (deviceInfo != null) {
+            deviceInfo.isAudioMuted = audioMuted;
+            deviceInfo.updateLastSeen();
+        }
+
         if (audioMuted) {
             addSystemMessage("You muted your audio");
             if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), loggedInUser, "muted their audio");
+                String content = "muted their audio|" + deviceId + "|" + deviceName;
+                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), loggedInUser, content);
             }
         } else {
             addSystemMessage("You unmuted your audio");
             if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), loggedInUser, "unmuted their audio");
+                String content = "unmuted their audio|" + deviceId + "|" + deviceName;
+                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), loggedInUser, content);
             }
         }
 
         if (audioControlsController != null) {
             Platform.runLater(() -> {
                 audioControlsController.syncWithGlobalState();
+            });
+        }
+
+        if (connectionStatusListener != null) {
+            Platform.runLater(() -> {
+                connectionStatusListener.onDeviceListChanged(new HashMap<>(connectedDevices));
             });
         }
     }
@@ -1926,12 +2194,14 @@ public class HelloApplication extends Application {
         if (isDeafened) {
             addSystemMessage("You deafened yourself");
             if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), loggedInUser, "deafened themselves");
+                String content = "deafened themselves|" + deviceId + "|" + deviceName;
+                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), loggedInUser, content);
             }
         } else {
             addSystemMessage("You undeafened yourself");
             if (isWebSocketConnected() && getActiveMeetingId() != null) {
-                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), loggedInUser, "undeafened themselves");
+                String content = "undeafened themselves|" + deviceId + "|" + deviceName;
+                sendWebSocketMessage("AUDIO_STATUS", getActiveMeetingId(), loggedInUser, content);
             }
         }
 
@@ -2033,7 +2303,7 @@ public class HelloApplication extends Application {
     }
 
     public static void addSystemMessage(String message) {
-        System.out.println("System: " + message);
+        System.out.println("System [" + deviceName + "]: " + message);
 
         Platform.runLater(() -> {
             MeetingController meetingController = MeetingController.getInstance();
@@ -2210,7 +2480,7 @@ public class HelloApplication extends Application {
 
         public static void initializeWebSocketConnection(String serverUrl) {
             try {
-                System.out.println("Initializing WebSocket connection to: " + serverUrl);
+                System.out.println("Initializing WebSocket connection to: " + serverUrl + " for device: " + deviceName);
 
                 if (webSocketClient != null) {
                     webSocketClient.disconnect();
@@ -2226,7 +2496,7 @@ public class HelloApplication extends Application {
                 webSocketClient.setConnectionListener(new SimpleWebSocketClient.ConnectionListener() {
                     @Override
                     public void onConnected() {
-                        System.out.println("WebSocket connected to: " + serverUrl);
+                        System.out.println("WebSocket connected to: " + serverUrl + " for device: " + deviceName);
                         connectionInitialized = true;
 
                         String urlWithoutProtocol = serverUrl.replace("ws://", "");
@@ -2240,16 +2510,20 @@ public class HelloApplication extends Application {
                             }
                         }
 
+                        // Send device info immediately after connecting
+                        sendDeviceInfo();
+
                         if (connectionStatusListener != null) {
                             Platform.runLater(() -> {
                                 connectionStatusListener.onConnectionStatusChanged(true, "Connected to " + serverUrl);
+                                connectionStatusListener.onDeviceListChanged(new HashMap<>(connectedDevices));
                             });
                         }
                     }
 
                     @Override
                     public void onDisconnected() {
-                        System.out.println("WebSocket disconnected from: " + serverUrl);
+                        System.out.println("WebSocket disconnected from: " + serverUrl + " for device: " + deviceName);
                         connectionInitialized = false;
 
                         if (connectionStatusListener != null) {
@@ -2261,7 +2535,7 @@ public class HelloApplication extends Application {
 
                     @Override
                     public void onError(String error) {
-                        System.err.println("WebSocket error: " + error);
+                        System.err.println("WebSocket error for device " + deviceName + ": " + error);
                         connectionInitialized = false;
 
                         if (connectionStatusListener != null) {

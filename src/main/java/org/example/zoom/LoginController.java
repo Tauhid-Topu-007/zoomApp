@@ -7,7 +7,7 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import javafx.application.Platform;
 import org.example.zoom.websocket.SimpleWebSocketClient;
-
+import java.util.UUID;
 import java.util.Optional;
 
 public class LoginController {
@@ -21,6 +21,8 @@ public class LoginController {
     private Label connectionStatusLabel;
     @FXML
     private Label serverInfoLabel;
+    @FXML
+    private Label deviceInfoLabel;
     @FXML
     private CheckBox rememberMe;
     @FXML
@@ -36,14 +38,20 @@ public class LoginController {
     @FXML
     private Button testConnectionButton;
     @FXML
+    private Button showDevicesButton;
+    @FXML
+    private ListView<String> connectedDevicesList;
+    @FXML
     private VBox loginForm;
 
     private SimpleWebSocketClient testClient;
     private boolean autoLoginInProgress = false;
+    private Thread connectionMonitorThread;
+    private volatile boolean stopMonitor = false;
 
     @FXML
     public void initialize() {
-        System.out.println("🎯 LoginController initialized");
+        System.out.println("🎯 LoginController initialized for device: " + System.getProperty("device.name", "Unknown"));
 
         // Configure scroll pane
         if (mainScrollPane != null) {
@@ -54,8 +62,26 @@ public class LoginController {
             mainScrollPane.setStyle("-fx-background: #2c3e50; -fx-border-color: #2c3e50;");
         }
 
+        // Configure devices list
+        if (connectedDevicesList != null) {
+            connectedDevicesList.setVisible(false);
+            connectedDevicesList.setManaged(false);
+            connectedDevicesList.setStyle("-fx-background-color: #34495e; -fx-text-fill: white;");
+
+            // Add double-click handler to show device details
+            connectedDevicesList.setOnMouseClicked(event -> {
+                if (event.getClickCount() == 2) {
+                    String selected = connectedDevicesList.getSelectionModel().getSelectedItem();
+                    if (selected != null && !selected.startsWith("📡") && !selected.startsWith("\n")) {
+                        showDeviceDetails(selected);
+                    }
+                }
+            });
+        }
+
         // Update connection status when the login screen loads
         updateConnectionStatus();
+        updateDeviceInfo();
 
         // Load saved username if remember me was checked
         loadSavedCredentials();
@@ -71,22 +97,40 @@ public class LoginController {
 
         // Apply initial styles
         applyInitialStyles();
+
+        // Start periodic connection check
+        startConnectionMonitor();
+
+        // Register with HelloApplication for connection status updates
+        HelloApplication.setConnectionStatusListener(new HelloApplication.ConnectionStatusListener() {
+            @Override
+            public void onConnectionStatusChanged(boolean connected, String status) {
+                Platform.runLater(() -> {
+                    updateConnectionStatus();
+                });
+            }
+
+            @Override
+            public void onDeviceListChanged(java.util.Map<String, HelloApplication.DeviceInfo> devices) {
+                Platform.runLater(() -> {
+                    if (connectedDevicesList != null && connectedDevicesList.isVisible()) {
+                        updateDeviceList(devices);
+                    }
+                });
+            }
+        });
     }
 
     private void setupEnterKeyHandlers() {
-        // Username field: Enter moves to password field
         if (usernameField != null) {
             usernameField.setOnAction(this::onUsernameEnter);
         }
-
-        // Password field: Enter triggers login
         if (passwordField != null) {
             passwordField.setOnAction(this::onPasswordEnter);
         }
     }
 
     private void applyInitialStyles() {
-        // Apply consistent styling to form elements
         String fieldStyle = "-fx-background-color: #34495e; -fx-text-fill: white; -fx-border-color: #7f8c8d; -fx-border-radius: 5; -fx-padding: 10;";
         String buttonStyle = "-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold; -fx-border-radius: 5; -fx-padding: 10 20;";
 
@@ -94,78 +138,241 @@ public class LoginController {
         if (passwordField != null) passwordField.setStyle(fieldStyle);
         if (loginButton != null) loginButton.setStyle(buttonStyle);
         if (registerButton != null) registerButton.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold; -fx-border-radius: 5; -fx-padding: 10 20;");
+        if (showDevicesButton != null) showDevicesButton.setStyle("-fx-background-color: #f39c12; -fx-text-fill: white; -fx-font-weight: bold; -fx-border-radius: 5; -fx-padding: 8 15;");
     }
 
-    // NEW: Auto-login method for multi-device testing
-    public void simulateAutoLogin(String username) {
-        System.out.println("🎯 Auto-login triggered for: " + username);
-        autoLoginInProgress = true;
-
-        try {
-            Platform.runLater(() -> {
-                // Set the username field
-                if (usernameField != null) {
-                    usernameField.setText(username);
-                }
-
-                // Set a default password for testing
-                if (passwordField != null) {
-                    passwordField.setText("password123"); // Default password for testing
-                }
-
-                // Auto-check remember me for testing
-                if (rememberMe != null) {
-                    rememberMe.setSelected(true);
-                }
-
-                // Show auto-login status
-                showSuccessMessage("🔄 Auto-login in progress...");
-
-                // Small delay to show the message, then trigger login
-                new Thread(() -> {
-                    try {
-                        Thread.sleep(1500); // 1.5 second delay for visibility
-                        Platform.runLater(() -> {
-                            // Trigger login programmatically
-                            if (loginButton != null && !loginButton.isDisabled()) {
-                                System.out.println("🎯 Firing login button for auto-login");
-                                loginButton.fire();
-                            } else {
-                                // Fallback: call onLoginClick directly
-                                System.out.println("🎯 Calling login directly for auto-login");
-                                onLoginClick(new ActionEvent());
-                            }
-                        });
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        autoLoginInProgress = false;
-                    }
-                }).start();
-            });
-
-        } catch (Exception e) {
-            System.err.println("❌ Auto-login failed: " + e.getMessage());
-            e.printStackTrace();
-            autoLoginInProgress = false;
-            showErrorMessage("❌ Auto-login failed!");
+    private void updateDeviceInfo() {
+        if (deviceInfoLabel != null) {
+            String deviceName = System.getProperty("device.name", "Unknown");
+            String deviceId = System.getProperty("device.id", "N/A");
+            String shortId = deviceId.length() > 8 ? deviceId.substring(0, 8) : deviceId;
+            deviceInfoLabel.setText("📱 " + deviceName + " [ID: " + shortId + "]");
+            deviceInfoLabel.setStyle("-fx-text-fill: #3498db; -fx-font-size: 12px; -fx-font-weight: bold;");
         }
     }
 
-    // NEW: Check for auto-login on startup
+    private void startConnectionMonitor() {
+        stopMonitor = false;
+        connectionMonitorThread = new Thread(() -> {
+            while (!stopMonitor) {
+                try {
+                    Thread.sleep(10000);
+                    Platform.runLater(() -> {
+                        updateConnectionStatus();
+                        if (HelloApplication.isWebSocketConnected() && showDevicesButton != null) {
+                            // Request device list from server
+                            SimpleWebSocketClient client = HelloApplication.getWebSocketClient();
+                            if (client != null && client.isConnected()) {
+                                client.send("GET_DEVICE_LIST");
+                            }
+
+                            // Refresh devices list if visible
+                            if (connectedDevicesList != null && connectedDevicesList.isVisible()) {
+                                refreshConnectedDevices();
+                            }
+                        }
+                    });
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        });
+        connectionMonitorThread.setDaemon(true);
+        connectionMonitorThread.start();
+    }
+
+    private void updateDeviceList(java.util.Map<String, HelloApplication.DeviceInfo> devices) {
+        if (connectedDevicesList == null) return;
+
+        connectedDevicesList.getItems().clear();
+
+        if (devices.isEmpty()) {
+            connectedDevicesList.getItems().add("📡 No other devices connected");
+            return;
+        }
+
+        // Add header
+        connectedDevicesList.getItems().add("=== Connected Devices (" + devices.size() + ") ===");
+
+        // Add each device
+        for (HelloApplication.DeviceInfo device : devices.values()) {
+            String status = device.isVideoOn ? "🎥" : "🎤";
+            String audioStatus = device.isAudioMuted ? "🔇" : "🔊";
+            String deviceEntry = String.format("  %s %s %s - %s (%s)",
+                    status, audioStatus, device.deviceName, device.username, device.ipAddress);
+            connectedDevicesList.getItems().add(deviceEntry);
+        }
+
+        connectedDevicesList.getItems().add("\nTotal: " + devices.size() + " device(s) connected");
+    }
+
+    private void showDeviceDetails(String deviceInfo) {
+        // Parse device info and show details dialog
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("Device Details");
+        alert.setHeaderText("Device Information");
+        alert.setContentText("Selected device: " + deviceInfo);
+        alert.showAndWait();
+    }
+
+    @FXML
+    protected void onQuickNetworkClick(ActionEvent event) {
+        System.out.println("🌐 Quick network connection");
+
+        // Show a prompt to enter network IP
+        TextInputDialog dialog = new TextInputDialog("192.168.1.");
+        dialog.setTitle("Network Server");
+        dialog.setHeaderText("Enter Network Server IP");
+        dialog.setContentText("IP Address:");
+        dialog.getDialogPane().setStyle("-fx-background-color: #2c3e50;");
+
+        dialog.showAndWait().ifPresent(ip -> {
+            if (!ip.isEmpty() && !ip.equals("192.168.1.")) {
+                HelloApplication.setServerConfig(ip, "8887");
+                updateConnectionStatus();
+                showSuccessMessage("✅ Network configuration set: " + ip);
+
+                // Test the connection
+                onTestConnectionClick(event);
+            } else {
+                showErrorMessage("❌ Please enter a valid IP address!");
+            }
+        });
+    }
+
+    @FXML
+    protected void onQuickLocalhostClick(ActionEvent event) {
+        System.out.println("🔗 Quick localhost connection");
+
+        // Quick connect to localhost
+        HelloApplication.setServerConfig("localhost", "8887");
+        updateConnectionStatus();
+        showSuccessMessage("✅ Localhost configuration set!");
+
+        // Test the connection
+        onTestConnectionClick(event);
+    }
+
+    @FXML
+    protected void onShowDevicesClick(ActionEvent event) {
+        if (connectedDevicesList == null) return;
+
+        boolean isVisible = connectedDevicesList.isVisible();
+        connectedDevicesList.setVisible(!isVisible);
+        connectedDevicesList.setManaged(!isVisible);
+
+        if (!isVisible) {
+            refreshConnectedDevices();
+            showDevicesButton.setText("Hide Devices");
+            showDevicesButton.setStyle("-fx-background-color: #e67e22; -fx-text-fill: white; -fx-font-weight: bold; -fx-border-radius: 5; -fx-padding: 8 15;");
+        } else {
+            showDevicesButton.setText("Show Connected Devices");
+            showDevicesButton.setStyle("-fx-background-color: #f39c12; -fx-text-fill: white; -fx-font-weight: bold; -fx-border-radius: 5; -fx-padding: 8 15;");
+        }
+    }
+
+    private void refreshConnectedDevices() {
+        if (connectedDevicesList == null) return;
+
+        connectedDevicesList.getItems().clear();
+        connectedDevicesList.getItems().add("📡 Fetching connected devices...");
+
+        // Request device list from server
+        SimpleWebSocketClient client = HelloApplication.getWebSocketClient();
+        if (client != null && client.isConnected()) {
+            client.send("GET_DEVICE_LIST");
+
+            // Also get from HelloApplication's cache
+            java.util.Map<String, HelloApplication.DeviceInfo> devices = HelloApplication.getConnectedDevices();
+            if (!devices.isEmpty()) {
+                updateDeviceList(devices);
+            }
+        } else {
+            // Fallback to simulation if not connected
+            simulateDeviceList();
+        }
+    }
+
+    private void simulateDeviceList() {
+        new Thread(() -> {
+            try {
+                Thread.sleep(1000);
+                Platform.runLater(() -> {
+                    connectedDevicesList.getItems().clear();
+
+                    // Add header
+                    connectedDevicesList.getItems().add("=== Connected Devices (Simulated) ===");
+
+                    // Add current device
+                    String currentDevice = System.getProperty("device.name", "This Device");
+                    String currentId = System.getProperty("device.id", "N/A").substring(0, 8);
+                    connectedDevicesList.getItems().add("  ▶ " + currentDevice + " (You) - ID: " + currentId);
+
+                    // Check if host is running
+                    if (HelloApplication.testConnection(HelloApplication.getCurrentServerUrl())) {
+                        connectedDevicesList.getItems().add("  ○ Host-Device-1 (Host)");
+                        connectedDevicesList.getItems().add("  ○ Client-Device-2");
+                        connectedDevicesList.getItems().add("  ○ Client-Device-3");
+                        connectedDevicesList.getItems().add("\nTotal: 4 devices connected (including you)");
+                    } else {
+                        connectedDevicesList.getItems().add("\n⚠️ Server not reachable");
+                        connectedDevicesList.getItems().add("Connect to server to see real devices");
+                    }
+                });
+            } catch (InterruptedException e) {
+                // Ignore
+            }
+        }).start();
+    }
+
+    public void simulateAutoLogin(String username) {
+        System.out.println("🎯 Auto-login triggered for: " + username + " on device: " +
+                System.getProperty("device.name", "Unknown"));
+        autoLoginInProgress = true;
+
+        Platform.runLater(() -> {
+            if (usernameField != null) {
+                usernameField.setText(username);
+            }
+            if (passwordField != null) {
+                passwordField.setText("password123");
+            }
+            if (rememberMe != null) {
+                rememberMe.setSelected(true);
+            }
+
+            showSuccessMessage("🔄 Auto-login in progress...");
+
+            new Thread(() -> {
+                try {
+                    Thread.sleep(1500);
+                    Platform.runLater(() -> {
+                        if (loginButton != null && !loginButton.isDisabled()) {
+                            System.out.println("🎯 Firing login button for auto-login");
+                            loginButton.fire();
+                        } else {
+                            System.out.println("🎯 Calling login directly for auto-login");
+                            onLoginClick(new ActionEvent());
+                        }
+                    });
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    autoLoginInProgress = false;
+                }
+            }).start();
+        });
+    }
+
     private void checkForAutoLogin() {
-        // Check if this is an auto-login instance
         String deviceName = System.getProperty("device.name");
         if (deviceName != null && !deviceName.isEmpty()) {
             System.out.println("🔍 Auto-login detected for device: " + deviceName);
-
-            // Determine username based on device name
             String username = getAutoLoginUsername(deviceName);
 
-            // Auto-login after a short delay to ensure UI is fully loaded
             Platform.runLater(() -> {
                 new Thread(() -> {
                     try {
-                        Thread.sleep(2000); // Wait 2 seconds for UI to fully load
+                        Thread.sleep(2000);
                         Platform.runLater(() -> {
                             System.out.println("🚀 Starting auto-login for: " + username);
                             simulateAutoLogin(username);
@@ -180,31 +387,27 @@ public class LoginController {
         }
     }
 
-    // NEW: Get username based on device name
     private String getAutoLoginUsername(String deviceName) {
         if (deviceName == null) return "test_user";
 
         switch (deviceName.toLowerCase()) {
             case "host-device-1":
-            case "device1_host":
-                return "host_user";
+                return "HostUser";
             case "client-device-2":
-            case "device2_client":
-                return "client_user";
-            case "device-3":
-                return "user3";
-            case "device-4":
-                return "user4";
+                return "ClientUser2";
+            case "client-device-3":
+                return "ClientUser3";
+            case "client-device-4":
+                return "ClientUser4";
             default:
-                return "test_user";
+                return "User" + deviceName.replaceAll("[^0-9]", "");
         }
     }
 
     @FXML
     protected void onLoginClick(ActionEvent event) {
-        System.out.println("🔐 Login button clicked");
+        System.out.println("🔐 Login button clicked on device: " + System.getProperty("device.name", "Unknown"));
 
-        // If auto-login is in progress, show different message
         if (autoLoginInProgress) {
             showSuccessMessage("🔄 Auto-login in progress...");
         }
@@ -212,10 +415,8 @@ public class LoginController {
         String username = usernameField.getText().trim();
         String password = passwordField.getText();
 
-        // Clear previous messages
         clearErrorMessage();
 
-        // Validation
         if (username.isEmpty() || password.isEmpty()) {
             showErrorMessage("❌ Please enter both username and password!");
             shakeLoginForm();
@@ -234,7 +435,6 @@ public class LoginController {
             return;
         }
 
-        // Show loading state
         setLoadingState(true);
 
         if (autoLoginInProgress) {
@@ -243,7 +443,6 @@ public class LoginController {
             messageLabel.setText("🔄 Authenticating...");
         }
 
-        // Run authentication in background thread to prevent UI freezing
         new Thread(() -> {
             try {
                 boolean isAuthenticated = Database.authenticateUser(username, password);
@@ -272,7 +471,6 @@ public class LoginController {
     private void handleSuccessfulLogin(String username, String password) {
         System.out.println("✅ Login successful for: " + username);
 
-        // Save credentials if remember me is checked
         if (rememberMe.isSelected()) {
             saveCredentials(username, password);
         } else {
@@ -286,9 +484,7 @@ public class LoginController {
         }
 
         try {
-            // Initialize WebSocket connection
             initializeWebSocketConnection(username);
-
         } catch (Exception e) {
             System.err.println("❌ Login process error: " + e.getMessage());
             e.printStackTrace();
@@ -297,16 +493,17 @@ public class LoginController {
         }
     }
 
-    // FIXED: Properly handle the WebSocket client initialization using an array
     private void initializeWebSocketConnection(String username) {
         System.out.println("Initializing WebSocket connection for: " + username);
 
         new Thread(() -> {
             try {
                 String serverUrl = HelloApplication.getCurrentServerUrl();
-                System.out.println("Connecting to: " + serverUrl);
+                String deviceId = System.getProperty("device.id", UUID.randomUUID().toString());
+                String deviceName = System.getProperty("device.name", "Unknown");
 
-                // Use a final array to hold the client reference
+                System.out.println("Connecting to: " + serverUrl + " as device: " + deviceName);
+
                 final SimpleWebSocketClient[] clientHolder = new SimpleWebSocketClient[1];
 
                 clientHolder[0] = new SimpleWebSocketClient(serverUrl, message -> {
@@ -314,18 +511,21 @@ public class LoginController {
 
                     Platform.runLater(() -> {
                         if (message.contains("Connected") || message.contains("Welcome") || message.contains("WELCOME")) {
-                            System.out.println("WebSocket connection confirmed");
+                            System.out.println("WebSocket connection confirmed for device: " + deviceName);
                             if (autoLoginInProgress) {
                                 showSuccessMessage("Connected! Redirecting...");
                             } else {
                                 showSuccessMessage("Connected to server! Redirecting...");
                             }
 
-                            // Store the client globally
                             HelloApplication.setWebSocketClient(clientHolder[0]);
                             clientHolder[0].setCurrentUser(username);
+
+                            // Send device info to server
+                            clientHolder[0].send("DEVICE_INFO|global|" + username + "|" + deviceName + "|" + deviceId);
+
                         } else if (message.contains("ERROR") || message.contains("Failed") || message.contains("DISCONNECTED")) {
-                            System.out.println("WebSocket connection issues");
+                            System.out.println("WebSocket connection issues for device: " + deviceName);
                             if (autoLoginInProgress) {
                                 showErrorMessage("Server connection failed, continuing in offline mode");
                             } else {
@@ -335,32 +535,41 @@ public class LoginController {
                     });
                 });
 
-                // Set the connection listener
                 clientHolder[0].setConnectionListener(new SimpleWebSocketClient.ConnectionListener() {
                     @Override
                     public void onConnected() {
-                        System.out.println("WebSocket connected successfully");
+                        System.out.println("WebSocket connected successfully for device: " + deviceName);
                     }
 
                     @Override
                     public void onDisconnected() {
-                        System.out.println("WebSocket disconnected");
+                        System.out.println("WebSocket disconnected for device: " + deviceName);
+                        Platform.runLater(() -> {
+                            updateConnectionStatus();
+                            if (Boolean.parseBoolean(System.getProperty("auto.reconnect", "true"))) {
+                                attemptReconnect(clientHolder[0], username, deviceName, deviceId);
+                            }
+                        });
                     }
 
                     @Override
                     public void onError(String error) {
-                        System.err.println("WebSocket error: " + error);
+                        System.err.println("WebSocket error for device " + deviceName + ": " + error);
                     }
                 });
 
-                // Connect to server
+                // Add custom headers for device identification
+                clientHolder[0].addHeader("Device-ID", deviceId);
+                clientHolder[0].addHeader("Device-Name", deviceName);
+
                 clientHolder[0].connect();
 
                 Thread.sleep(2500);
 
                 Platform.runLater(() -> {
                     boolean isConnected = clientHolder[0].isConnected();
-                    System.out.println("WebSocket connection status: " + (isConnected ? "CONNECTED" : "DISCONNECTED"));
+                    System.out.println("WebSocket connection status for " + deviceName + ": " +
+                            (isConnected ? "CONNECTED" : "DISCONNECTED"));
 
                     if (!isConnected) {
                         if (autoLoginInProgress) {
@@ -369,7 +578,6 @@ public class LoginController {
                             showErrorMessage("Cannot connect to server, but you can continue in offline mode");
                         }
                     } else {
-                        // Store the client globally for other controllers to use
                         HelloApplication.setWebSocketClient(clientHolder[0]);
                         clientHolder[0].setCurrentUser(username);
                     }
@@ -391,27 +599,60 @@ public class LoginController {
         }).start();
     }
 
+    private void attemptReconnect(SimpleWebSocketClient client, String username, String deviceName, String deviceId) {
+        new Thread(() -> {
+            int attempts = 0;
+            int maxAttempts = 5;
+
+            while (attempts < maxAttempts && !client.isConnected()) {
+                try {
+                    attempts++;
+                    System.out.println("Reconnection attempt " + attempts + " for device: " + deviceName);
+                    Thread.sleep(5000); // Wait 5 seconds between attempts
+
+                    client.reconnect();
+                    Thread.sleep(2000);
+
+                    if (client.isConnected()) {
+                        System.out.println("Reconnection successful for device: " + deviceName);
+                        client.send("DEVICE_INFO|global|" + username + "|" + deviceName + "|" + deviceId);
+                        Platform.runLater(() -> {
+                            showSuccessMessage("✅ Reconnected to server!");
+                            updateConnectionStatus();
+                        });
+                        break;
+                    }
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+
+            if (!client.isConnected()) {
+                Platform.runLater(() -> {
+                    showErrorMessage("❌ Could not reconnect to server after " + maxAttempts + " attempts");
+                });
+            }
+        }).start();
+    }
+
     private void completeLoginProcess(String username) {
         System.out.println("🎯 Completing login process for: " + username);
 
-        // Store logged in user globally
         HelloApplication.setLoggedInUser(username);
 
-        // Small delay to show success message before redirecting
         new Thread(() -> {
             try {
-                Thread.sleep(1500); // 1.5 second delay to show success message
+                Thread.sleep(1500);
 
                 Platform.runLater(() -> {
                     try {
-                        // Reset auto-login flag
                         autoLoginInProgress = false;
-
-                        System.out.println("🚀 Redirecting to dashboard...");
-
-                        // Use the new navigation method that handles stage readiness
+                        stopMonitor = true; // Stop connection monitor before navigation
+                        if (connectionMonitorThread != null) {
+                            connectionMonitorThread.interrupt();
+                        }
+                        System.out.println("🚀 Redirecting to dashboard for user: " + username);
                         HelloApplication.navigateToDashboard();
-
                     } catch (Exception e) {
                         System.err.println("❌ Failed to load dashboard: " + e.getMessage());
                         showErrorMessage("❌ Failed to load dashboard. Please try restarting the application.");
@@ -427,27 +668,20 @@ public class LoginController {
 
     private void handleFailedLogin() {
         System.out.println("❌ Login failed");
-
-        // Reset auto-login flag on failure
         autoLoginInProgress = false;
-
         showErrorMessage("❌ Invalid username or password!");
         shakeLoginForm();
         clearPasswordField();
-
-        // Additional feedback
         highlightInvalidFields();
     }
 
     private void highlightInvalidFields() {
-        // Add temporary red border to indicate error
         String errorStyle = "-fx-border-color: #e74c3c; -fx-border-width: 2px; -fx-border-radius: 5px;";
 
         Platform.runLater(() -> {
             usernameField.setStyle(errorStyle);
             passwordField.setStyle(errorStyle);
 
-            // Remove error styling after 3 seconds
             new Thread(() -> {
                 try {
                     Thread.sleep(3000);
@@ -464,16 +698,12 @@ public class LoginController {
     }
 
     private void shakeLoginForm() {
-        System.out.println("🎯 Shaking login form");
-
-        // Create a simple shake animation for the form
         Platform.runLater(() -> {
             String shakeStyle = "-fx-border-color: #e74c3c; -fx-border-width: 2px; -fx-effect: dropshadow(three-pass-box, rgba(231,76,60,0.6), 10, 0, 0, 0);";
 
             usernameField.setStyle(shakeStyle);
             passwordField.setStyle(shakeStyle);
 
-            // Remove effect after animation
             new Thread(() -> {
                 try {
                     Thread.sleep(600);
@@ -501,6 +731,9 @@ public class LoginController {
                 }
                 if (registerButton != null) registerButton.setDisable(true);
                 if (forgotPasswordButton != null) forgotPasswordButton.setDisable(true);
+                if (serverConfigButton != null) serverConfigButton.setDisable(true);
+                if (testConnectionButton != null) testConnectionButton.setDisable(true);
+                if (showDevicesButton != null) showDevicesButton.setDisable(true);
             } else {
                 usernameField.setDisable(false);
                 passwordField.setDisable(false);
@@ -511,6 +744,9 @@ public class LoginController {
                 }
                 if (registerButton != null) registerButton.setDisable(false);
                 if (forgotPasswordButton != null) forgotPasswordButton.setDisable(false);
+                if (serverConfigButton != null) serverConfigButton.setDisable(false);
+                if (testConnectionButton != null) testConnectionButton.setDisable(false);
+                if (showDevicesButton != null) showDevicesButton.setDisable(false);
             }
         });
     }
@@ -558,17 +794,14 @@ public class LoginController {
         }
     }
 
-    // NEW: Fully functional Forgot Password implementation
     @FXML
     protected void onForgotPasswordClick(ActionEvent event) {
         System.out.println("🔑 Forgot password clicked");
 
-        // Show dialog to enter username for password reset
         TextInputDialog usernameDialog = new TextInputDialog();
         usernameDialog.setTitle("Password Reset");
         usernameDialog.setHeaderText("Reset Your Password");
         usernameDialog.setContentText("Enter your username:");
-        usernameDialog.getDialogPane().setStyle("-fx-background-color: #2c3e50;");
 
         Optional<String> result = usernameDialog.showAndWait();
         if (result.isPresent()) {
@@ -579,71 +812,55 @@ public class LoginController {
                 return;
             }
 
-            // Check if username exists
             if (!Database.usernameExists(username)) {
                 showErrorMessage("❌ Username not found!");
                 return;
             }
 
-            // Show password reset dialog
             showPasswordResetDialog(username);
         }
     }
 
     private void showPasswordResetDialog(String username) {
-        // Create a custom password reset dialog
         Dialog<ButtonType> resetDialog = new Dialog<>();
         resetDialog.setTitle("Reset Password");
         resetDialog.setHeaderText("Reset Password for: " + username);
-        resetDialog.getDialogPane().setStyle("-fx-background-color: #2c3e50;");
 
-        // Create the password fields
         PasswordField newPasswordField = new PasswordField();
         newPasswordField.setPromptText("New Password");
-        newPasswordField.setStyle("-fx-background-color: #34495e; -fx-text-fill: white;");
 
         PasswordField confirmPasswordField = new PasswordField();
         confirmPasswordField.setPromptText("Confirm New Password");
-        confirmPasswordField.setStyle("-fx-background-color: #34495e; -fx-text-fill: white;");
 
         VBox content = new VBox(10);
-        content.setStyle("-fx-background-color: #2c3e50; -fx-padding: 20;");
+        content.setPadding(new javafx.geometry.Insets(20));
         content.getChildren().addAll(
-                new Label("New Password:"),
-                newPasswordField,
-                new Label("Confirm Password:"),
-                confirmPasswordField
+                new Label("New Password:"), newPasswordField,
+                new Label("Confirm Password:"), confirmPasswordField
         );
 
         resetDialog.getDialogPane().setContent(content);
 
-        // Add buttons
         ButtonType resetButtonType = new ButtonType("Reset Password", ButtonBar.ButtonData.OK_DONE);
         resetDialog.getDialogPane().getButtonTypes().addAll(resetButtonType, ButtonType.CANCEL);
 
-        // Enable/disable reset button based on validation
         Button resetButton = (Button) resetDialog.getDialogPane().lookupButton(resetButtonType);
         resetButton.setDisable(true);
 
-        // Add validation
-        newPasswordField.textProperty().addListener((observable, oldValue, newValue) ->
+        newPasswordField.textProperty().addListener((obs, old, newVal) ->
                 validatePasswords(newPasswordField, confirmPasswordField, resetButton));
-        confirmPasswordField.textProperty().addListener((observable, oldValue, newValue) ->
+        confirmPasswordField.textProperty().addListener((obs, old, newVal) ->
                 validatePasswords(newPasswordField, confirmPasswordField, resetButton));
 
-        // Show dialog and handle result
         resetDialog.showAndWait().ifPresent(result -> {
             if (result == resetButtonType) {
                 String newPassword = newPasswordField.getText();
                 String confirmPassword = confirmPasswordField.getText();
 
                 if (newPassword.equals(confirmPassword)) {
-                    // Update password in database
                     boolean success = Database.updatePassword(username, newPassword);
                     if (success) {
-                        showSuccessMessage("✅ Password reset successfully! You can now login with your new password.");
-
-                        // Clear fields
+                        showSuccessMessage("✅ Password reset successfully!");
                         passwordField.clear();
                     } else {
                         showErrorMessage("❌ Failed to reset password. Please try again.");
@@ -661,34 +878,34 @@ public class LoginController {
 
         boolean isValid = !pass1.isEmpty() && !pass2.isEmpty() && pass1.equals(pass2) && pass1.length() >= 3;
         resetButton.setDisable(!isValid);
-
-        // Visual feedback
-        if (!pass2.isEmpty()) {
-            if (pass1.equals(pass2)) {
-                confirmPassword.setStyle("-fx-background-color: #34495e; -fx-text-fill: white; -fx-border-color: #27ae60; -fx-border-width: 2px;");
-            } else {
-                confirmPassword.setStyle("-fx-background-color: #34495e; -fx-text-fill: white; -fx-border-color: #e74c3c; -fx-border-width: 2px;");
-            }
-        } else {
-            confirmPassword.setStyle("-fx-background-color: #34495e; -fx-text-fill: white; -fx-border-color: #7f8c8d;");
-        }
     }
 
     @FXML
     protected void onServerConfigClick(ActionEvent event) {
         System.out.println("⚙️ Server config clicked");
-
-        // Show server configuration dialog
-        Stage currentStage = (Stage) messageLabel.getScene().getWindow();
         try {
-            ServerConfigDialog dialog = ServerConfigDialog.showDialog(currentStage);
+            // Show server configuration dialog
+            TextInputDialog ipDialog = new TextInputDialog(HelloApplication.getServerIp());
+            ipDialog.setTitle("Server Configuration");
+            ipDialog.setHeaderText("Configure Server Connection");
+            ipDialog.setContentText("Enter Server IP:");
 
-            if (dialog != null && dialog.isConnected()) {
-                updateConnectionStatus();
-                showSuccessMessage("✅ Server configuration updated!");
-            } else {
-                updateConnectionStatus();
-                showErrorMessage("⚠️ Server configuration cancelled.");
+            Optional<String> ipResult = ipDialog.showAndWait();
+            if (ipResult.isPresent()) {
+                String ip = ipResult.get().trim();
+
+                TextInputDialog portDialog = new TextInputDialog(HelloApplication.getServerPort());
+                portDialog.setTitle("Server Port");
+                portDialog.setHeaderText("Configure Server Port");
+                portDialog.setContentText("Enter Server Port:");
+
+                Optional<String> portResult = portDialog.showAndWait();
+                if (portResult.isPresent()) {
+                    String port = portResult.get().trim();
+                    HelloApplication.setServerConfig(ip, port);
+                    showSuccessMessage("✅ Server configuration updated!");
+                    updateConnectionStatus();
+                }
             }
         } catch (Exception e) {
             System.err.println("❌ Server config error: " + e.getMessage());
@@ -701,7 +918,6 @@ public class LoginController {
         System.out.println("🔍 Testing connection...");
         showSuccessMessage("🔄 Testing connection...");
 
-        // Test connection without affecting the main WebSocket client
         new Thread(() -> {
             boolean success = testConnectionWithoutLogin();
 
@@ -716,55 +932,17 @@ public class LoginController {
         }).start();
     }
 
-    @FXML
-    protected void onQuickLocalhostClick(ActionEvent event) {
-        System.out.println("🔗 Quick localhost connection");
-
-        // Quick connect to localhost
-        HelloApplication.setServerConfig("localhost", "8887");
-        updateConnectionStatus();
-        showSuccessMessage("✅ Localhost configuration set!");
-
-        // Test the connection
-        onTestConnectionClick(event);
-    }
-
-    @FXML
-    protected void onQuickNetworkClick(ActionEvent event) {
-        System.out.println("🌐 Quick network connection");
-
-        // Show a prompt to enter network IP
-        TextInputDialog dialog = new TextInputDialog("192.168.1.");
-        dialog.setTitle("Network Server");
-        dialog.setHeaderText("Enter Network Server IP");
-        dialog.setContentText("IP Address:");
-        dialog.getDialogPane().setStyle("-fx-background-color: #2c3e50;");
-
-        dialog.showAndWait().ifPresent(ip -> {
-            if (!ip.isEmpty() && !ip.equals("192.168.1.")) {
-                HelloApplication.setServerConfig(ip, "8887");
-                updateConnectionStatus();
-                showSuccessMessage("✅ Network configuration set: " + ip);
-
-                // Test the connection
-                onTestConnectionClick(event);
-            } else {
-                showErrorMessage("❌ Please enter a valid IP address!");
-            }
-        });
-    }
-
     private void updateConnectionStatus() {
         if (connectionStatusLabel != null && serverInfoLabel != null) {
             String serverUrl = HelloApplication.getCurrentServerUrl();
-            boolean isConnected = testConnectionQuick();
+            boolean isConnected = HelloApplication.isWebSocketConnected();
 
             Platform.runLater(() -> {
                 if (isConnected) {
                     connectionStatusLabel.setText("🟢 Connected");
                     connectionStatusLabel.setStyle("-fx-text-fill: #27ae60; -fx-font-weight: bold; -fx-font-size: 14px;");
                 } else {
-                    connectionStatusLabel.setText("Disconnected");
+                    connectionStatusLabel.setText("🔴 Disconnected");
                     connectionStatusLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-weight: bold; -fx-font-size: 14px;");
                 }
 
@@ -774,44 +952,8 @@ public class LoginController {
         }
     }
 
-    private boolean testConnectionQuick() {
-        try {
-            String testUrl = HelloApplication.getCurrentServerUrl();
-            final boolean[] connectionSuccess = {false};
-            final Object lock = new Object();
-
-            System.out.println("🔍 Quick connection test to: " + testUrl);
-
-            // Create a temporary test client
-            SimpleWebSocketClient testClient = new SimpleWebSocketClient(testUrl, message -> {
-                System.out.println("🔍 Quick test received: " + message);
-                if (message.contains("Connected") || message.contains("Welcome") || message.contains("WELCOME")) {
-                    synchronized (lock) {
-                        connectionSuccess[0] = true;
-                        lock.notifyAll();
-                    }
-                }
-            });
-
-            // Wait for connection result
-            synchronized (lock) {
-                try {
-                    lock.wait(2000); // Wait up to 2 seconds
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-
-            // Disconnect the test client
-            testClient.disconnect();
-
-            System.out.println("🔍 Quick test result: " + (connectionSuccess[0] ? "SUCCESS" : "FAILED"));
-            return connectionSuccess[0];
-
-        } catch (Exception e) {
-            System.err.println("🔍 Quick connection test failed: " + e.getMessage());
-            return false;
-        }
+    private boolean isConnectedToServer() {
+        return HelloApplication.isWebSocketConnected();
     }
 
     private boolean testConnectionWithoutLogin() {
@@ -822,7 +964,6 @@ public class LoginController {
             final boolean[] connectionSuccess = {false};
             final Object lock = new Object();
 
-            // Create a temporary test client
             SimpleWebSocketClient testClient = new SimpleWebSocketClient(testUrl, message -> {
                 System.out.println("🔍 Test connection received: " + message);
                 if (message.contains("Connected") || message.contains("Welcome") || message.contains("WELCOME")) {
@@ -833,21 +974,18 @@ public class LoginController {
                 }
             });
 
-            // Wait for connection result
+            testClient.connect();
+
             synchronized (lock) {
                 try {
-                    lock.wait(3000); // Wait up to 3 seconds
+                    lock.wait(3000);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
             }
 
-            // Disconnect the test client
             testClient.disconnect();
-
-            boolean result = connectionSuccess[0];
-            System.out.println("🔍 Connection test result: " + (result ? "SUCCESS" : "FAILED"));
-            return result;
+            return connectionSuccess[0];
 
         } catch (Exception e) {
             System.err.println("🔍 Connection test failed: " + e.getMessage());
@@ -856,43 +994,29 @@ public class LoginController {
     }
 
     private void loadSavedCredentials() {
-        // Load remembered username from preferences
         String rememberedUser = HelloApplication.getUserPreference("remembered_username");
         if (rememberedUser != null && !rememberedUser.isEmpty()) {
             Platform.runLater(() -> {
                 usernameField.setText(rememberedUser);
                 rememberMe.setSelected(true);
-
-                // Auto-focus on password field if username is remembered
                 passwordField.requestFocus();
-
                 System.out.println("💾 Loaded saved credentials for: " + rememberedUser);
             });
         }
     }
 
     private void saveCredentials(String username, String password) {
-        // Save username to preferences
         HelloApplication.saveUserPreference("remembered_username", username);
-
-        // In a secure application, you might want to encrypt and save the password
-        // For demo purposes, we're only saving the username
         System.out.println("💾 Saved credentials for: " + username);
-
-        // Show confirmation
-        showSuccessMessage("✅ Login credentials saved!");
     }
 
     private void clearSavedCredentials() {
-        // Clear saved credentials from preferences
         HelloApplication.saveUserPreference("remembered_username", "");
         System.out.println("🗑️ Cleared saved credentials");
     }
 
-    // Additional helper methods for better UX
     @FXML
     protected void onUsernameEnter(ActionEvent event) {
-        // When user presses Enter in username field, move to password field
         System.out.println("↵ Username field enter pressed");
         if (passwordField != null) {
             passwordField.requestFocus();
@@ -901,18 +1025,15 @@ public class LoginController {
 
     @FXML
     protected void onPasswordEnter(ActionEvent event) {
-        // When user presses Enter in password field, trigger login
         System.out.println("↵ Password field enter pressed");
         onLoginClick(event);
     }
 
-    // NEW: Handle Remember Me checkbox changes
     @FXML
     protected void onRememberMeChanged(ActionEvent event) {
         System.out.println("💾 Remember me changed: " + rememberMe.isSelected());
 
         if (!rememberMe.isSelected()) {
-            // If user unchecks remember me, clear any immediately saved credentials
             clearSavedCredentials();
             showSuccessMessage("🔒 Login credentials will not be saved");
         } else {
@@ -920,15 +1041,17 @@ public class LoginController {
         }
     }
 
-    // NEW: Manual trigger for auto-login (for testing)
     public void triggerAutoLogin(String username) {
         System.out.println("🎯 Manual auto-login triggered for: " + username);
         simulateAutoLogin(username);
     }
 
-    // NEW: Cleanup method
     public void cleanup() {
         System.out.println("🧹 Cleaning up LoginController");
+        stopMonitor = true;
+        if (connectionMonitorThread != null) {
+            connectionMonitorThread.interrupt();
+        }
         if (testClient != null) {
             testClient.disconnect();
             testClient = null;
@@ -936,12 +1059,10 @@ public class LoginController {
         autoLoginInProgress = false;
     }
 
-    // NEW: Get current auto-login status
     public boolean isAutoLoginInProgress() {
         return autoLoginInProgress;
     }
 
-    // NEW: Cancel auto-login
     public void cancelAutoLogin() {
         System.out.println("🚫 Cancelling auto-login");
         autoLoginInProgress = false;

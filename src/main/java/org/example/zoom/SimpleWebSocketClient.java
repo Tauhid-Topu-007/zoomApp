@@ -1,6 +1,8 @@
 package org.example.zoom.websocket;
 
 import java.net.URI;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Consumer;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -14,6 +16,9 @@ public class SimpleWebSocketClient {
     private ConnectionListener connectionListener;
     private boolean isConnecting = false;
 
+    // Store custom headers
+    private Map<String, String> customHeaders = new HashMap<>();
+
     public interface ConnectionListener {
         void onConnected();
         void onDisconnected();
@@ -26,6 +31,16 @@ public class SimpleWebSocketClient {
         System.out.println("SimpleWebSocketClient created for: " + serverUrl);
     }
 
+    /**
+     * Add a custom header to be sent during WebSocket handshake
+     * @param key Header name
+     * @param value Header value
+     */
+    public void addHeader(String key, String value) {
+        this.customHeaders.put(key, value);
+        System.out.println("Added custom header: " + key + " = " + value);
+    }
+
     public void connect() {
         if (isConnecting || isConnected()) {
             System.out.println("Already connected or connecting, skipping...");
@@ -36,13 +51,18 @@ public class SimpleWebSocketClient {
             isConnecting = true;
             URI serverUri = new URI(serverUrl);
 
-            webSocketClient = new WebSocketClient(serverUri) {
+            webSocketClient = new WebSocketClient(serverUri, customHeaders) {
                 @Override
                 public void onOpen(ServerHandshake handshakedata) {
                     System.out.println("=== WEBSOCKET CONNECTION ESTABLISHED ===");
                     System.out.println("Connected to: " + serverUrl);
                     System.out.println("Handshake status: " + handshakedata.getHttpStatus());
                     System.out.println("Handshake message: " + handshakedata.getHttpStatusMessage());
+
+                    // Log which headers were sent
+                    if (!customHeaders.isEmpty()) {
+                        System.out.println("Custom headers sent: " + customHeaders.keySet());
+                    }
 
                     isConnecting = false;
 
@@ -129,6 +149,7 @@ public class SimpleWebSocketClient {
             webSocketClient = null;
         }
         isConnecting = false;
+        customHeaders.clear(); // Clear headers on disconnect
     }
 
     public void send(String message) {
@@ -228,5 +249,30 @@ public class SimpleWebSocketClient {
 
     public boolean isConnecting() {
         return isConnecting;
+    }
+
+    /**
+     * Get all custom headers
+     * @return Map of custom headers
+     */
+    public Map<String, String> getCustomHeaders() {
+        return new HashMap<>(customHeaders);
+    }
+
+    /**
+     * Clear all custom headers
+     */
+    public void clearHeaders() {
+        customHeaders.clear();
+        System.out.println("Cleared all custom headers");
+    }
+
+    /**
+     * Remove a specific header
+     * @param key Header name to remove
+     */
+    public void removeHeader(String key) {
+        customHeaders.remove(key);
+        System.out.println("Removed custom header: " + key);
     }
 }

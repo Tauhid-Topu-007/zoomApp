@@ -7,10 +7,13 @@ import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.ListView;
+import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import org.example.zoom.websocket.SimpleWebSocketClient;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DashboardController implements HelloApplication.ConnectionStatusListener {
@@ -22,7 +25,16 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
     private Label connectionInfoLabel;
 
     @FXML
+    private Label deviceCountLabel;
+
+    @FXML
     private ScrollPane mainScrollPane;
+
+    @FXML
+    private ListView<String> devicesListView;
+
+    @FXML
+    private VBox devicesPanel;
 
     private boolean wasConnected = false;
     private AtomicBoolean alertInProgress = new AtomicBoolean(false);
@@ -40,6 +52,27 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
             mainScrollPane.setStyle("-fx-background: #2c3e50; -fx-border-color: #2c3e50;");
         }
 
+        // Configure devices panel
+        if (devicesPanel != null) {
+            devicesPanel.setVisible(false);
+            devicesPanel.setManaged(false);
+        }
+
+        // Configure devices list view
+        if (devicesListView != null) {
+            devicesListView.setStyle("-fx-background-color: #34495e; -fx-text-fill: white; -fx-control-inner-background: #34495e;");
+
+            // Add double-click handler to show device details
+            devicesListView.setOnMouseClicked(event -> {
+                if (event.getClickCount() == 2) {
+                    String selected = devicesListView.getSelectionModel().getSelectedItem();
+                    if (selected != null && !selected.startsWith("📡") && !selected.startsWith("\n") && !selected.startsWith("===")) {
+                        showDeviceDetails(selected);
+                    }
+                }
+            });
+        }
+
         // Always pull the logged-in user from HelloApplication
         String user = HelloApplication.getLoggedInUser();
         if (user != null) {
@@ -50,6 +83,7 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
 
             // Update connection info immediately
             updateConnectionInfo();
+            updateDeviceCount();
 
             // Set initial connection state
             wasConnected = HelloApplication.isWebSocketConnected();
@@ -106,11 +140,96 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         }
     }
 
+    private void updateDeviceCount() {
+        if (deviceCountLabel != null) {
+            Map<String, HelloApplication.DeviceInfo> devices = HelloApplication.getConnectedDevices();
+            int count = devices.size();
+
+            if (count > 0) {
+                deviceCountLabel.setText("📱 " + count + " device(s) connected");
+                deviceCountLabel.setStyle("-fx-text-fill: #3498db; -fx-font-size: 12px; -fx-font-weight: bold;");
+            } else {
+                deviceCountLabel.setText("📱 No other devices connected");
+                deviceCountLabel.setStyle("-fx-text-fill: #95a5a6; -fx-font-size: 12px;");
+            }
+        }
+    }
+
+    private void updateDevicesList(Map<String, HelloApplication.DeviceInfo> devices) {
+        if (devicesListView == null) return;
+
+        Platform.runLater(() -> {
+            devicesListView.getItems().clear();
+
+            if (devices.isEmpty()) {
+                devicesListView.getItems().add("📡 No other devices connected");
+                return;
+            }
+
+            // Add header
+            devicesListView.getItems().add("=== Connected Devices (" + devices.size() + ") ===");
+
+            // Add current device first
+            String currentDeviceId = HelloApplication.getDeviceId();
+            String currentDeviceName = HelloApplication.getDeviceName();
+
+            for (HelloApplication.DeviceInfo device : devices.values()) {
+                if (device.deviceId.equals(currentDeviceId)) {
+                    String status = device.isVideoOn ? "🎥" : "🎤";
+                    String audioStatus = device.isAudioMuted ? "🔇" : "🔊";
+                    String deviceEntry = String.format("  ▶ %s %s %s - %s (%s) [YOU]",
+                            status, audioStatus, device.deviceName, device.username, device.ipAddress);
+                    devicesListView.getItems().add(deviceEntry);
+                    break;
+                }
+            }
+
+            // Add other devices
+            for (HelloApplication.DeviceInfo device : devices.values()) {
+                if (!device.deviceId.equals(currentDeviceId)) {
+                    String status = device.isVideoOn ? "🎥" : "🎤";
+                    String audioStatus = device.isAudioMuted ? "🔇" : "🔊";
+                    String deviceEntry = String.format("  ○ %s %s %s - %s (%s)",
+                            status, audioStatus, device.deviceName, device.username, device.ipAddress);
+                    devicesListView.getItems().add(deviceEntry);
+                }
+            }
+
+            devicesListView.getItems().add("\nTotal: " + devices.size() + " device(s) connected");
+        });
+    }
+
+    private void showDeviceDetails(String deviceInfo) {
+        // Parse device info and show details dialog
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("Device Details");
+        alert.setHeaderText("Device Information");
+        alert.setContentText("Selected device: " + deviceInfo);
+        alert.showAndWait();
+    }
+
     @Override
     public void onConnectionStatusChanged(boolean connected, String status) {
         System.out.println("🔗 Connection status changed: " + connected + " - " + status);
-        updateConnectionInfo();
-        handleConnectionStateChange(connected, status);
+        Platform.runLater(() -> {
+            updateConnectionInfo();
+            handleConnectionStateChange(connected, status);
+        });
+    }
+
+    @Override
+    public void onDeviceListChanged(Map<String, HelloApplication.DeviceInfo> devices) {
+        System.out.println("📱 Device list changed: " + devices.size() + " devices connected");
+        Platform.runLater(() -> {
+            updateDevicesList(devices);
+            updateDeviceCount();
+
+            // Show devices panel if there are devices and it's not already visible
+            if (devicesPanel != null && !devices.isEmpty() && !devicesPanel.isVisible()) {
+                devicesPanel.setVisible(true);
+                devicesPanel.setManaged(true);
+            }
+        });
     }
 
     private void handleConnectionStateChange(boolean connected, String status) {
@@ -126,6 +245,12 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         } else if (!connected && wasConnected) {
             showConnectionLostPopup();
             lastConnectionChangeTime = currentTime;
+
+            // Hide devices panel when disconnected
+            if (devicesPanel != null) {
+                devicesPanel.setVisible(false);
+                devicesPanel.setManaged(false);
+            }
         }
 
         wasConnected = connected;
@@ -398,7 +523,8 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
                     "✅ Connected to Node.js Server!\n\n" +
                             "Server: " + HelloApplication.getCurrentServerUrl() + "\n" +
                             "Status: Active and Ready\n" +
-                            "You can now create/join meetings!");
+                            "You can now create/join meetings!\n\n" +
+                            "Connected Devices: " + HelloApplication.getConnectedDevices().size());
         } else {
             showPopup("Connection Status",
                     "❌ Not connected to Node.js server.\n\n" +
@@ -422,6 +548,21 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
                         "✅ Look for this message:\n" +
                         "   'ZOOM WEB SOCKET SERVER STARTED'\n\n" +
                         "Then use 'Quick Connect' in the Java client!");
+    }
+
+    @FXML
+    protected void onShowDevicesClick() {
+        if (devicesPanel != null) {
+            boolean isVisible = devicesPanel.isVisible();
+            devicesPanel.setVisible(!isVisible);
+            devicesPanel.setManaged(!isVisible);
+
+            if (!isVisible) {
+                // Refresh device list when showing
+                Map<String, HelloApplication.DeviceInfo> devices = HelloApplication.getConnectedDevices();
+                updateDevicesList(devices);
+            }
+        }
     }
 
     @FXML

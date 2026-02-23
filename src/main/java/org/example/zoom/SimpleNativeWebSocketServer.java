@@ -33,20 +33,57 @@ public class SimpleNativeWebSocketServer {
     private static final int MAX_PORT = 8895;
     private static final int MAX_RETRY_ATTEMPTS = 3;
 
+    // Enhanced client tracking
     private final ConcurrentHashMap<WebSocket, ClientInfo> clients = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Set<WebSocket>> meetingRooms = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Set<ClientInfo>> deviceGroups = new ConcurrentHashMap<>();
+    private final Set<String> registeredDevices = Collections.synchronizedSet(new HashSet<>());
 
-    private class ClientInfo {
+    public static class ClientInfo {
         String username;
         String meetingId;
         long connectTime;
         String ipAddress;
+        String deviceId;
+        String deviceType;
+        long lastHeartbeat;
 
-        ClientInfo(String username, String meetingId, String ipAddress) {
+        public ClientInfo(String username, String meetingId, String ipAddress) {
             this.username = username;
             this.meetingId = meetingId;
             this.connectTime = System.currentTimeMillis();
             this.ipAddress = ipAddress;
+            this.deviceId = generateDeviceId(ipAddress, username);
+            this.deviceType = "unknown";
+            this.lastHeartbeat = System.currentTimeMillis();
+        }
+
+        private String generateDeviceId(String ip, String user) {
+            return ip + "_" + user + "_" + System.currentTimeMillis();
+        }
+
+        public String getDeviceId() {
+            return deviceId;
+        }
+
+        public void updateHeartbeat() {
+            this.lastHeartbeat = System.currentTimeMillis();
+        }
+
+        public boolean isAlive(long timeoutMs) {
+            return (System.currentTimeMillis() - lastHeartbeat) < timeoutMs;
+        }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public String getIpAddress() {
+            return ipAddress;
+        }
+
+        public long getConnectTime() {
+            return connectTime;
         }
     }
 
@@ -56,6 +93,9 @@ public class SimpleNativeWebSocketServer {
             t.setDaemon(true);
             return t;
         });
+
+        // Start heartbeat checker
+        startHeartbeatChecker();
     }
 
     public static synchronized SimpleNativeWebSocketServer getInstance() {
@@ -63,6 +103,20 @@ public class SimpleNativeWebSocketServer {
             instance = new SimpleNativeWebSocketServer();
         }
         return instance;
+    }
+
+    private void startHeartbeatChecker() {
+        Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
+            long now = System.currentTimeMillis();
+            long timeout = 30000; // 30 seconds timeout
+
+            clients.forEach((conn, info) -> {
+                if (!info.isAlive(timeout) && conn.isOpen()) {
+                    System.out.println("Client " + info.username + " heartbeat timeout, closing connection");
+                    conn.close(1000, "Heartbeat timeout");
+                }
+            });
+        }, 30, 30, TimeUnit.SECONDS);
     }
 
     public boolean start() {
@@ -141,15 +195,47 @@ public class SimpleNativeWebSocketServer {
                 public void onOpen(WebSocket conn, ClientHandshake handshake) {
                     String clientAddress = conn.getRemoteSocketAddress().toString();
                     String clientIp = conn.getRemoteSocketAddress().getAddress().getHostAddress();
-                    System.out.println("New client connected: " + clientAddress);
 
-                    clients.put(conn, new ClientInfo("Unknown", "global", clientIp));
+                    // Extract device info from handshake if available
+                    String deviceId = handshake.getFieldValue("Device-ID");
+                    String deviceName = handshake.getFieldValue("Device-Name");
 
-                    String welcomeMsg = "CONNECTED|global|Server|Welcome to Zoom WebSocket Server|" + getPort();
+                    System.out.println("New client connected: " + clientAddress +
+                            " (Device: " + (deviceName != null ? deviceName : "Unknown") + ")");
+
+                    ClientInfo clientInfo = new ClientInfo(
+                            deviceName != null ? deviceName : "Unknown",
+                            "global",
+                            clientIp
+                    );
+
+                    if (deviceId != null && !deviceId.isEmpty()) {
+                        clientInfo.deviceId = deviceId;
+                        registeredDevices.add(deviceId);
+                    }
+
+                    clients.put(conn, clientInfo);
+
+                    // Send welcome message with server info
+                    String welcomeMsg = String.format(
+                            "CONNECTED|global|Server|Welcome to Zoom WebSocket Server|%d|%s|%s",
+                            getPort(),
+                            clientInfo.deviceId,
+                            getActiveClientsCount()
+                    );
                     conn.send(welcomeMsg);
+
                     System.out.println("Sent welcome to: " + clientAddress);
 
-                    broadcast("SYSTEM|global|Server|New user connected from " + clientAddress);
+                    // Broadcast new device connection to all clients
+                    broadcast(String.format(
+                            "DEVICE_CONNECTED|global|Server|New device connected: %s|%s",
+                            clientInfo.username,
+                            clientInfo.deviceId
+                    ));
+
+                    // Send list of connected devices to the new client
+                    sendConnectedDevicesList(conn);
                 }
 
                 @Override
@@ -161,16 +247,24 @@ public class SimpleNativeWebSocketServer {
                     if (info != null) {
                         String username = info.username;
                         String meetingId = info.meetingId;
+                        String deviceId = info.deviceId;
 
                         System.out.println("Client disconnected: " + username + " from " + clientAddress +
                                 " (Code: " + code + ", Reason: " + reason + ")");
 
+                        registeredDevices.remove(deviceId);
+
                         if (meetingId != null && !meetingId.equals("global")) {
                             removeFromMeeting(conn, meetingId);
-                            broadcastToMeeting(meetingId, "USER_LEFT|" + meetingId + "|" + username + "|left the meeting", null);
+                            broadcastToMeeting(meetingId,
+                                    String.format("USER_LEFT|%s|%s|left the meeting|%s",
+                                            meetingId, username, deviceId), null);
                         }
 
-                        broadcast("DISCONNECTED|global|Server|" + username + " disconnected");
+                        broadcast(String.format(
+                                "DEVICE_DISCONNECTED|global|Server|Device disconnected: %s|%s",
+                                username, deviceId
+                        ));
                     } else {
                         System.out.println("Unknown client disconnected: " + clientAddress);
                     }
@@ -197,10 +291,6 @@ public class SimpleNativeWebSocketServer {
                         String clientAddress = conn.getRemoteSocketAddress() != null ?
                                 conn.getRemoteSocketAddress().toString() : "unknown";
                         System.err.println("WebSocket error from " + clientAddress + ": " + ex.getMessage());
-
-                        if (ex instanceof BindException) {
-                            System.err.println("Port binding error - this should not happen after start");
-                        }
                     } else {
                         System.err.println("WebSocket server error: " + ex.getMessage());
                         if (ex instanceof BindException) {
@@ -214,12 +304,13 @@ public class SimpleNativeWebSocketServer {
                 public void onStart() {
                     actualPort = getPort();
                     isRunning = true;
-                    System.out.println("\n" + "=".repeat(50));
+                    System.out.println("\n" + "=".repeat(60));
                     System.out.println("✅ WebSocket server started successfully!");
                     System.out.println("   Port: " + actualPort);
                     System.out.println("   Address: " + getAddress().getHostString());
                     System.out.println("   URL: ws://" + getAddress().getHostString() + ":" + actualPort);
-                    System.out.println("=".repeat(50) + "\n");
+                    System.out.println("   Max clients: Unlimited");
+                    System.out.println("=".repeat(60) + "\n");
                 }
             };
 
@@ -227,7 +318,7 @@ public class SimpleNativeWebSocketServer {
             webSocketServer.setReuseAddr(true);
             webSocketServer.setTcpNoDelay(true);
             webSocketServer.setConnectionLostTimeout(30);
-            webSocketServer.setMaxPendingConnections(100);
+            webSocketServer.setMaxPendingConnections(200); // Increased for multiple devices
 
             // Start server in background thread
             executorService.submit(() -> {
@@ -270,16 +361,22 @@ public class SimpleNativeWebSocketServer {
         try {
             String clientAddress = conn.getRemoteSocketAddress() != null ?
                     conn.getRemoteSocketAddress().toString() : "unknown";
+
+            // Update heartbeat for this client
+            ClientInfo info = clients.get(conn);
+            if (info != null) {
+                info.updateHeartbeat();
+            }
+
             System.out.println("Received from " + clientAddress + ": " + message);
 
-            String[] parts = message.split("\\|", 4);
+            String[] parts = message.split("\\|", -1); // -1 to keep empty strings
             if (parts.length >= 4) {
                 String type = parts[0];
                 String meetingId = parts[1];
                 String username = parts[2];
                 String content = parts[3];
 
-                ClientInfo info = clients.get(conn);
                 if (info != null) {
                     info.username = username;
                     info.meetingId = meetingId;
@@ -304,7 +401,8 @@ public class SimpleNativeWebSocketServer {
                     case "VIDEO_FRAME":
                         broadcastToMeeting(meetingId, message, conn);
                         if (content.length() > 100) {
-                            System.out.println("Broadcasted VIDEO_FRAME to meeting " + meetingId + " (size: " + content.length() + " chars)");
+                            System.out.println("Broadcasted VIDEO_FRAME to meeting " + meetingId +
+                                    " (size: " + content.length() + " chars)");
                         }
                         break;
 
@@ -341,7 +439,8 @@ public class SimpleNativeWebSocketServer {
 
                     case "FILE_SHARE":
                         broadcastToMeeting(meetingId, message, conn);
-                        System.out.println("Broadcasted FILE_SHARE to meeting " + meetingId + ": " + content.substring(0, Math.min(50, content.length())) + "...");
+                        System.out.println("Broadcasted FILE_SHARE to meeting " + meetingId + ": " +
+                                content.substring(0, Math.min(50, content.length())) + "...");
                         break;
 
                     case "WEBRTC_SIGNAL":
@@ -350,7 +449,30 @@ public class SimpleNativeWebSocketServer {
                         break;
 
                     case "PING":
-                        conn.send("PONG|" + meetingId + "|Server|" + System.currentTimeMillis());
+                        conn.send("PONG|" + meetingId + "|Server|" + System.currentTimeMillis() + "|" + getActiveClientsCount());
+                        break;
+
+                    case "HEARTBEAT":
+                        // Just update heartbeat, already done above
+                        conn.send("HEARTBEAT_ACK|" + meetingId + "|Server|" + System.currentTimeMillis());
+                        break;
+
+                    case "GET_DEVICES":
+                    case "GET_DEVICE_LIST":
+                        sendConnectedDevicesList(conn);
+                        break;
+
+                    case "DEVICE_INFO":
+                        if (parts.length >= 5) {
+                            String deviceType = parts[4];
+                            if (info != null) {
+                                info.deviceType = deviceType;
+                            }
+                            broadcast(String.format(
+                                    "DEVICE_INFO_UPDATE|global|%s|%s|%s",
+                                    username, deviceType, info != null ? info.deviceId : ""
+                            ));
+                        }
                         break;
 
                     default:
@@ -358,6 +480,8 @@ public class SimpleNativeWebSocketServer {
                         System.out.println("Broadcasted unknown type " + type + " to meeting " + meetingId);
                         break;
                 }
+            } else if (message.equalsIgnoreCase("GET_DEVICE_LIST")) {
+                sendConnectedDevicesList(conn);
             } else {
                 System.out.println("Simple message format, broadcasting to all: " + message);
                 broadcast("CHAT|global|System|" + message);
@@ -367,6 +491,30 @@ public class SimpleNativeWebSocketServer {
             System.err.println("Error handling message: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    private void sendConnectedDevicesList(WebSocket conn) {
+        StringBuilder deviceList = new StringBuilder("DEVICE_LIST|global|Server|");
+        int count = 0;
+
+        for (ClientInfo info : clients.values()) {
+            if (count > 0) {
+                deviceList.append(";");
+            }
+            deviceList.append(info.username)
+                    .append(",")
+                    .append(info.deviceId)
+                    .append(",")
+                    .append(info.ipAddress)
+                    .append(",")
+                    .append(info.deviceType)
+                    .append(",")
+                    .append(info.connectTime);
+            count++;
+        }
+
+        conn.send(deviceList.toString());
+        System.out.println("Sent device list to client: " + count + " devices");
     }
 
     private void addToMeeting(WebSocket conn, String meetingId) {
@@ -407,7 +555,7 @@ public class SimpleNativeWebSocketServer {
                     }
                 }
             }
-            if (sentCount > 0) {
+            if (sentCount > 0 && !message.startsWith("VIDEO_FRAME")) {
                 System.out.println("Broadcast to meeting " + meetingId + ": sent to " + sentCount + " clients");
             }
         }
@@ -430,7 +578,9 @@ public class SimpleNativeWebSocketServer {
                     }
                 }
             }
-            System.out.println("Global broadcast: sent to " + sentCount + " clients");
+            if (!message.startsWith("VIDEO_FRAME")) {
+                System.out.println("Global broadcast: sent to " + sentCount + " clients");
+            }
         }
     }
 
@@ -452,6 +602,7 @@ public class SimpleNativeWebSocketServer {
                 // Clear collections
                 clients.clear();
                 meetingRooms.clear();
+                registeredDevices.clear();
 
                 // Stop server
                 webSocketServer.stop(5000);
@@ -490,8 +641,24 @@ public class SimpleNativeWebSocketServer {
         return actualPort != -1 ? actualPort : port;
     }
 
+    public int getActiveClientsCount() {
+        return clients.size();
+    }
+
+    /**
+     * Get the number of connected clients
+     * @return number of connected clients
+     */
     public int getClientCount() {
         return clients.size();
+    }
+
+    public Set<String> getConnectedDeviceNames() {
+        Set<String> deviceNames = new HashSet<>();
+        for (ClientInfo info : clients.values()) {
+            deviceNames.add(info.username);
+        }
+        return deviceNames;
     }
 
     public int getMeetingCount() {
