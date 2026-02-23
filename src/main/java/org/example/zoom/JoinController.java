@@ -24,6 +24,9 @@ public class JoinController {
         System.out.println("🔍 Join Controller initialized - checking for available meetings...");
         System.out.println("Current user: " + HelloApplication.getLoggedInUser());
         System.out.println("WebSocket connected: " + HelloApplication.isWebSocketConnected());
+
+        // List all active meetings for debugging
+        System.out.println("Active meetings in system: " + HelloApplication.getActiveMeetings().keySet());
     }
 
     private void checkForMeetingId() {
@@ -74,12 +77,6 @@ public class JoinController {
 
         statusLabel.setText("🔄 Validating meeting...");
 
-        // Check if meeting exists
-        if (!HelloApplication.isValidMeeting(meetingId)) {
-            statusLabel.setText("❌ Meeting not found! Check the ID or create a new meeting.");
-            return;
-        }
-
         // Get the current logged in user (the one who logged in)
         String loggedInUser = HelloApplication.getLoggedInUser();
 
@@ -88,6 +85,24 @@ public class JoinController {
 
         System.out.println("Attempting to join meeting: " + meetingId + " as: " + participantName);
         System.out.println("WebSocket connected: " + HelloApplication.isWebSocketConnected());
+        System.out.println("Active meetings before validation: " + HelloApplication.getActiveMeetings().keySet());
+
+        // Check if meeting exists
+        if (!HelloApplication.isValidMeeting(meetingId)) {
+            statusLabel.setText("❌ Meeting not found! Check the ID or create a new meeting.");
+
+            // Show available meetings for debugging
+            if (!HelloApplication.getActiveMeetings().isEmpty()) {
+                StringBuilder msg = new StringBuilder("Available meetings: ");
+                for (String id : HelloApplication.getActiveMeetings().keySet()) {
+                    msg.append(id).append(" ");
+                }
+                System.out.println(msg.toString());
+            }
+            return;
+        }
+
+        System.out.println("✅ Meeting validated successfully: " + meetingId);
 
         // Join the meeting using HelloApplication's system
         boolean joined = HelloApplication.joinMeeting(meetingId, participantName);

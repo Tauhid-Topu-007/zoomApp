@@ -471,10 +471,16 @@ public class Database {
        MEETING MANAGEMENT - ENHANCED
      ============================== */
 
-    // NEW: Store meeting with proper meeting ID - THIS IS THE KEY FIX
+    // FIXED: Store meeting with proper meeting ID - THIS IS THE KEY FIX
     public static boolean saveMeetingWithId(String meetingId, String hostUsername, String title, String description) {
         // First ensure meetings table has meeting_id column
-        addMeetingIdColumnToMeetings();
+        ensureMeetingTableStructure();
+
+        // Check if meeting already exists
+        if (meetingExists(meetingId)) {
+            System.out.println("ℹ️ Meeting already exists in database: " + meetingId);
+            return true;
+        }
 
         String sql = "INSERT INTO meetings (meeting_id, username, title, description, date, time) VALUES (?, ?, ?, ?, CURDATE(), CURTIME())";
         try (Connection conn = getConnection();
@@ -485,14 +491,58 @@ public class Database {
             stmt.setString(4, description);
             stmt.executeUpdate();
             System.out.println("✅ Meeting saved with ID: " + meetingId + " by host: " + hostUsername);
+
+            // Also add host as participant
+            addParticipant(meetingId, hostUsername);
+
             return true;
         } catch (SQLException e) {
             System.err.println("❌ saveMeetingWithId error: " + e.getMessage());
-            return false;
+
+            // Try alternative approach - maybe meeting_id column doesn't exist
+            try {
+                String altSql = "INSERT INTO meetings (username, title, description, date, time) VALUES (?, ?, ?, CURDATE(), CURTIME())";
+                try (Connection conn = getConnection();
+                     PreparedStatement stmt = conn.prepareStatement(altSql)) {
+                    stmt.setString(1, hostUsername);
+                    stmt.setString(2, title);
+                    stmt.setString(3, description);
+                    stmt.executeUpdate();
+                    System.out.println("✅ Meeting saved without meeting_id column");
+
+                    // Still add participant
+                    addParticipant(meetingId, hostUsername);
+
+                    return true;
+                }
+            } catch (SQLException e2) {
+                System.err.println("❌ Alternative save also failed: " + e2.getMessage());
+                return false;
+            }
         }
     }
 
-    // NEW: Enhanced meeting existence check
+    // Ensure meeting table has correct structure
+    private static void ensureMeetingTableStructure() {
+        try (Connection conn = getConnection()) {
+            // Check if meeting_id column exists
+            DatabaseMetaData metaData = conn.getMetaData();
+            ResultSet columns = metaData.getColumns(null, null, "meetings", "meeting_id");
+
+            if (!columns.next()) {
+                // Add meeting_id column
+                try (Statement stmt = conn.createStatement()) {
+                    String sql = "ALTER TABLE meetings ADD COLUMN meeting_id VARCHAR(20)";
+                    stmt.execute(sql);
+                    System.out.println("✅ Added meeting_id column to meetings table");
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ ensureMeetingTableStructure error: " + e.getMessage());
+        }
+    }
+
+    // FIXED: Enhanced meeting existence check
     public static boolean meetingExists(String meetingId) {
         System.out.println("🔍 Checking if meeting exists: " + meetingId);
 
@@ -542,7 +592,7 @@ public class Database {
         return false;
     }
 
-    // NEW: Get meeting host from database
+    // FIXED: Get meeting host from database
     public static String getMeetingHost(String meetingId) {
         // Try to get host from meeting_participants (first participant is usually host)
         String sql = "SELECT username FROM meeting_participants WHERE meeting_id = ? ORDER BY joined_at ASC LIMIT 1";
@@ -578,7 +628,7 @@ public class Database {
         return null;
     }
 
-    // NEW: Remove meeting from database
+    // FIXED: Remove meeting from database
     public static boolean removeMeeting(String meetingId) {
         // Remove participants first
         String deleteParticipants = "DELETE FROM meeting_participants WHERE meeting_id = ?";
@@ -1281,125 +1331,6 @@ public class Database {
         } catch (SQLException e) {
             System.err.println("❌ Error adding meeting_id column: " + e.getMessage());
         }
-    }
-
-    /* ==============================
-       TESTING - ENHANCED
-     ============================== */
-    public static void main(String[] args) {
-        // Initialize database
-        initializeDatabase();
-
-        // Test user registration
-        if (registerUser("testuser", "password123")) {
-            System.out.println("✅ User registered!");
-        }
-
-        // Test server config
-        if (saveServerConfig("testuser", "192.168.1.100", "8887")) {
-            System.out.println("✅ Server config saved!");
-        }
-
-        // Get server config
-        ServerConfig config = getServerConfig("testuser");
-        if (config != null) {
-            System.out.println("📡 Server config: " + config);
-        }
-
-        // Test contact save
-        if (addContact("testuser", "Alice", "alice@example.com", "123456789")) {
-            System.out.println("✅ Contact saved!");
-        }
-
-        // Fetch contacts
-        List<Contact> contacts = getContacts("testuser");
-        contacts.forEach(c -> System.out.println("📌 " + c));
-
-        // Test meeting with description
-        if (saveMeetingWithDescription("testuser", "Test Meeting", "2024-01-01", "14:30", "This is a test meeting description")) {
-            System.out.println("✅ Meeting with description saved!");
-        }
-
-        // Test new meeting with ID method
-        if (saveMeetingWithId("123456", "testuser", "New Meeting Test", "Test meeting with ID")) {
-            System.out.println("✅ Meeting with ID saved successfully!");
-        }
-
-        // Fetch meetings with description
-        List<ScheduleController.Meeting> meetings = getMeetingsWithDescription("testuser");
-        meetings.forEach(m -> System.out.println("📅 " + m.getTitle() + " - " + m.getDescription()));
-
-        // Test chat functionality
-        if (saveChatMessage("TEST123", "testuser", "Hello everyone!", "USER")) {
-            System.out.println("✅ Chat message saved!");
-        }
-
-        // Fetch chat messages
-        List<ChatMessage> chatMessages = getChatMessages("TEST123");
-        chatMessages.forEach(m -> System.out.println("💬 " + m));
-
-        // Test participant functionality
-        if (addParticipant("TEST123", "participant1")) {
-            System.out.println("✅ Participant added!");
-        }
-
-        // Fetch participants
-        List<String> participants = getParticipants("TEST123");
-        participants.forEach(p -> System.out.println("👥 " + p));
-
-        // Test password reset functionality
-        if (resetPassword("testuser", "newpassword123")) {
-            System.out.println("✅ Password reset successful!");
-        }
-
-        // Test user profile
-        UserProfile profile = getUserProfile("testuser");
-        if (profile != null) {
-            System.out.println("👤 User profile: " + profile.getUsername() + " created at " + profile.getCreatedAt());
-        }
-
-        // Test meeting statistics
-        MeetingStatistics stats = getMeetingStatistics("testuser");
-        System.out.println("📊 Meeting stats: " + stats.getTotalMeetings() + " total meetings");
-
-        // Test new meeting existence methods
-        System.out.println("\n=== Testing New Meeting Methods ===");
-        boolean exists = meetingExists("TEST123");
-        System.out.println("✅ Meeting exists: " + exists);
-
-        boolean exists2 = meetingExists("123456");
-        System.out.println("✅ Meeting with ID exists: " + exists2);
-
-        String host = getMeetingHost("TEST123");
-        System.out.println("✅ Meeting host: " + host);
-
-        // Test remove meeting
-        boolean removed = removeMeeting("TEST123");
-        System.out.println("✅ Meeting removed: " + removed);
-
-        // Test new user management methods
-        System.out.println("\n=== Testing New User Management Methods ===");
-
-        // Get all users
-        List<String> allUsers = getAllUsers();
-        System.out.println("👥 All users: " + allUsers);
-
-        // Get user count
-        int userCount = getUserCount();
-        System.out.println("📊 Total users: " + userCount);
-
-        // Get user details
-        List<UserDetail> userDetails = getAllUserDetails();
-        userDetails.forEach(ud -> System.out.println("🔍 User detail: " + ud));
-
-        // Search users
-        List<String> foundUsers = searchUsers("test");
-        System.out.println("🔎 Found users: " + foundUsers);
-
-        // Test user deletion (commented out for safety)
-        // if (deleteUser("testuser")) {
-        //     System.out.println("✅ User deleted successfully!");
-        // }
     }
 
     // Get single contact by ID

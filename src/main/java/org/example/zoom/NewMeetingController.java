@@ -6,6 +6,9 @@ import javafx.scene.control.TextField;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.control.ScrollPane;
+import javafx.application.Platform;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 public class NewMeetingController {
 
@@ -38,8 +41,32 @@ public class NewMeetingController {
         // Store the meeting ID globally so JoinController can access it
         HelloApplication.setActiveMeetingId(meetingId);
 
+        // CRITICAL: Save meeting to database immediately
+        String host = HelloApplication.getLoggedInUser();
+        if (host == null || host.isEmpty()) {
+            host = "Host";
+        }
+
+        // Save to database with explicit meeting ID
+        Database.saveMeetingWithId(meetingId, host, "Meeting " + meetingId, "Meeting created by " + host);
+
+        // Also add host as participant
+        Database.addParticipant(meetingId, host);
+
+        // Send WebSocket notification if connected
+        if (HelloApplication.isWebSocketConnected()) {
+            String deviceId = HelloApplication.getDeviceId();
+            String deviceName = HelloApplication.getDeviceName();
+            String content = "New meeting created by " + host + "|" + deviceId + "|" + deviceName;
+            HelloApplication.sendWebSocketMessage("MEETING_CREATED", meetingId, host, content);
+            System.out.println("📢 Sent MEETING_CREATED via WebSocket for meeting: " + meetingId);
+        }
+
         statusLabel.setText("✅ Meeting ID generated! Share it with participants.");
         System.out.println("🎯 New Meeting Controller: Meeting ID " + meetingId + " is ready for joining!");
+        System.out.println("📝 Meeting saved to database with ID: " + meetingId);
+        System.out.println("👤 Host: " + host);
+        System.out.println("🔌 WebSocket connected: " + HelloApplication.isWebSocketConnected());
     }
 
     @FXML
@@ -59,9 +86,12 @@ public class NewMeetingController {
 
         statusLabel.setText("✅ Meeting started with ID: " + meetingId);
 
-        // Send meeting created message via WebSocket
+        // Send meeting started message via WebSocket
         if (HelloApplication.isWebSocketConnected()) {
-            HelloApplication.sendWebSocketMessage("MEETING_CREATED", meetingId, "Meeting created by " + username);
+            String deviceId = HelloApplication.getDeviceId();
+            String deviceName = HelloApplication.getDeviceName();
+            String content = "Meeting started by " + username + "|" + deviceId + "|" + deviceName;
+            HelloApplication.sendWebSocketMessage("MEETING_STARTED", meetingId, username, content);
         }
 
         // Navigate directly to meeting view as host
@@ -100,7 +130,19 @@ public class NewMeetingController {
 
     @FXML
     protected void onShareInstructionsClick() {
-        String shareText = "Join my Zoom meeting!\nMeeting ID: " + meetingId + "\nUse this ID in the Join Meeting section.";
+        String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String host = HelloApplication.getLoggedInUser();
+
+        String shareText = "Join my Zoom meeting!\n" +
+                "Meeting ID: " + meetingId + "\n" +
+                "Host: " + host + "\n" +
+                "Created: " + currentTime + "\n" +
+                "\nInstructions:\n" +
+                "1. Open the Zoom application\n" +
+                "2. Go to Dashboard → Join Meeting\n" +
+                "3. Enter this Meeting ID: " + meetingId + "\n" +
+                "4. Click Join\n" +
+                "\nServer: " + HelloApplication.getCurrentServerUrl();
 
         Clipboard clipboard = Clipboard.getSystemClipboard();
         ClipboardContent content = new ClipboardContent();

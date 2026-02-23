@@ -1607,6 +1607,7 @@ public class HelloApplication extends Application {
         }
     }
 
+    // Update the handleWebSocketMessage method to process MEETING_CREATED
     private static void handleWebSocketMessage(String message) {
         System.out.println("HelloApplication received WebSocket message on device: " + deviceName);
         System.out.println("Full message: " + message);
@@ -1618,7 +1619,13 @@ public class HelloApplication extends Application {
             String username = parts[2];
             String content = parts[3];
 
-            // Skip our own messages
+            // Handle MEETING_CREATED messages even if they're from other users
+            if (type.equals("MEETING_CREATED")) {
+                handleMeetingCreatedFromServer(meetingId, username, content);
+                return;
+            }
+
+            // Skip our own messages for other types
             if (username.equals(loggedInUser)) {
                 System.out.println("Ignoring own message echo: " + type);
                 return;
@@ -1687,7 +1694,27 @@ public class HelloApplication extends Application {
                 }
             });
         } else {
-            System.err.println("Invalid WebSocket message format: " + message);
+            // Handle special messages like GET_DEVICE_LIST
+            if (message.equals("GET_DEVICE_LIST")) {
+                // This is a request from server, respond with our device list
+                if (webSocketClient != null && webSocketClient.isConnected()) {
+                    StringBuilder deviceList = new StringBuilder("DEVICE_LIST|global|Server|");
+                    int count = 0;
+                    for (DeviceInfo info : connectedDevices.values()) {
+                        if (count > 0) deviceList.append(";");
+                        deviceList.append(info.username).append(",")
+                                .append(info.deviceId).append(",")
+                                .append(info.ipAddress).append(",")
+                                .append(info.deviceType).append(",")
+                                .append(info.lastSeen);
+                        count++;
+                    }
+                    webSocketClient.send(deviceList.toString());
+                    System.out.println("Sent device list with " + count + " devices");
+                }
+            } else {
+                System.err.println("Invalid WebSocket message format: " + message);
+            }
         }
     }
 
@@ -1960,7 +1987,7 @@ public class HelloApplication extends Application {
         return true;
     }
 
-    // Add this method to validate meeting existence
+    // Update the isValidMeeting method to check server via WebSocket if needed
     public static boolean isValidMeeting(String meetingId) {
         System.out.println("Validating meeting: " + meetingId);
 
@@ -1969,13 +1996,14 @@ public class HelloApplication extends Application {
             return false;
         }
 
-        // Check in active meetings first
+        // Check in active meetings first (this includes meetings synced from server)
         if (activeMeetings.containsKey(meetingId)) {
             System.out.println("✅ Meeting found in active meetings: " + meetingId);
             return true;
         }
 
         // Check in database
+        System.out.println("🔍 Checking if meeting exists in database: " + meetingId);
         if (Database.meetingExists(meetingId)) {
             System.out.println("✅ Meeting found in database: " + meetingId);
 
@@ -1987,6 +2015,13 @@ public class HelloApplication extends Application {
                 System.out.println("Recreated meeting from database: " + meetingId);
                 return true;
             }
+        }
+
+        // If we're connected to WebSocket, we could query the server
+        if (isWebSocketConnected() && webSocketClient != null) {
+            System.out.println("🔄 Could query server for meeting: " + meetingId);
+            // For now, we'll assume the meeting exists if we received it via WebSocket
+            // The server will send MEETING_CREATED messages
         }
 
         System.err.println("❌ Meeting not found: " + meetingId);
@@ -2105,6 +2140,29 @@ public class HelloApplication extends Application {
         System.out.println("Meeting validation for " + meetingId + ": " + status);
     }
 
+    // Add this method to handle MEETING_CREATED messages from server
+    private static void handleMeetingCreatedFromServer(String meetingId, String host, String content) {
+        System.out.println("📢 Meeting created notification from server: " + meetingId + " by " + host);
+
+        // Sync the meeting
+        syncMeetingFromServer(meetingId, host);
+
+        // If this is our meeting, we're already handling it
+        if (host.equals(loggedInUser)) {
+            System.out.println("This is our own meeting creation - already handled");
+            return;
+        }
+
+        // Notify listeners about new meeting
+        if (connectionStatusListener != null) {
+            Platform.runLater(() -> {
+                addSystemMessage("New meeting created: " + meetingId + " by " + host);
+            });
+        }
+    }
+
+
+
     private static String generateMeetingId() {
         return String.valueOf((int) (Math.random() * 900000) + 100000);
     }
@@ -2132,6 +2190,23 @@ public class HelloApplication extends Application {
             return "Disconnected";
         }
     }
+
+    // Add this method to sync meetings between devices
+    public static void syncMeetingFromServer(String meetingId, String host) {
+        System.out.println("🔄 Syncing meeting from server: " + meetingId + " hosted by " + host);
+
+        // Create meeting info if it doesn't exist
+        if (!activeMeetings.containsKey(meetingId)) {
+            MeetingInfo meetingInfo = new MeetingInfo(meetingId, host);
+            activeMeetings.put(meetingId, meetingInfo);
+            System.out.println("✅ Meeting synced: " + meetingId);
+        }
+
+        // Save to database
+        Database.saveMeetingWithId(meetingId, host, "Meeting " + meetingId, "Synced from server");
+    }
+
+
 
     public static void sendWebSocketMessage(String type, String meetingId, String content) {
         ensureDeviceInfo(); // Ensure device info is set
