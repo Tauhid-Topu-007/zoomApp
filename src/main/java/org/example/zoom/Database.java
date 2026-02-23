@@ -468,12 +468,16 @@ public class Database {
     }
 
     /* ==============================
-       MEETING MANAGEMENT - ENHANCED
+       MEETING MANAGEMENT - FIXED
      ============================== */
 
-    // FIXED: Store meeting with proper meeting ID - THIS IS THE KEY FIX
+    /**
+     * FIXED: Store meeting with proper meeting ID - handles missing columns gracefully
+     */
     public static boolean saveMeetingWithId(String meetingId, String hostUsername, String title, String description) {
-        // First ensure meetings table has meeting_id column
+        System.out.println("📝 Saving meeting with ID: " + meetingId + " host: " + hostUsername);
+
+        // First ensure meetings table has the right structure
         ensureMeetingTableStructure();
 
         // Check if meeting already exists
@@ -482,13 +486,14 @@ public class Database {
             return true;
         }
 
+        // Try to save with meeting_id column
         String sql = "INSERT INTO meetings (meeting_id, username, title, description, date, time) VALUES (?, ?, ?, ?, CURDATE(), CURTIME())";
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, meetingId);
             stmt.setString(2, hostUsername);
-            stmt.setString(3, title);
-            stmt.setString(4, description);
+            stmt.setString(3, title != null ? title : "Meeting " + meetingId);
+            stmt.setString(4, description != null ? description : "");
             stmt.executeUpdate();
             System.out.println("✅ Meeting saved with ID: " + meetingId + " by host: " + hostUsername);
 
@@ -505,8 +510,8 @@ public class Database {
                 try (Connection conn = getConnection();
                      PreparedStatement stmt = conn.prepareStatement(altSql)) {
                     stmt.setString(1, hostUsername);
-                    stmt.setString(2, title);
-                    stmt.setString(3, description);
+                    stmt.setString(2, title != null ? title : "Meeting " + meetingId);
+                    stmt.setString(3, description != null ? description : "");
                     stmt.executeUpdate();
                     System.out.println("✅ Meeting saved without meeting_id column");
 
@@ -522,19 +527,40 @@ public class Database {
         }
     }
 
-    // Ensure meeting table has correct structure
+    /**
+     * Ensure meeting table has correct structure
+     */
     private static void ensureMeetingTableStructure() {
         try (Connection conn = getConnection()) {
-            // Check if meeting_id column exists
+            // Check if meetings table exists
             DatabaseMetaData metaData = conn.getMetaData();
-            ResultSet columns = metaData.getColumns(null, null, "meetings", "meeting_id");
+            ResultSet tables = metaData.getTables(null, null, "meetings", null);
 
-            if (!columns.next()) {
-                // Add meeting_id column
+            if (!tables.next()) {
+                // Create meetings table
+                String createSql = "CREATE TABLE meetings (" +
+                        "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                        "username VARCHAR(50) NOT NULL, " +
+                        "meeting_id VARCHAR(20), " +
+                        "title VARCHAR(255), " +
+                        "description TEXT, " +
+                        "date DATE, " +
+                        "time TIME, " +
+                        "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                        ")";
                 try (Statement stmt = conn.createStatement()) {
-                    String sql = "ALTER TABLE meetings ADD COLUMN meeting_id VARCHAR(20)";
-                    stmt.execute(sql);
-                    System.out.println("✅ Added meeting_id column to meetings table");
+                    stmt.execute(createSql);
+                    System.out.println("✅ Created meetings table");
+                }
+            } else {
+                // Check for meeting_id column
+                ResultSet columns = metaData.getColumns(null, null, "meetings", "meeting_id");
+                if (!columns.next()) {
+                    // Add meeting_id column if it doesn't exist
+                    try (Statement stmt = conn.createStatement()) {
+                        stmt.execute("ALTER TABLE meetings ADD COLUMN meeting_id VARCHAR(20)");
+                        System.out.println("✅ Added meeting_id column to meetings table");
+                    }
                 }
             }
         } catch (SQLException e) {
@@ -542,7 +568,9 @@ public class Database {
         }
     }
 
-    // FIXED: Enhanced meeting existence check
+    /**
+     * FIXED: Enhanced meeting existence check - handles missing columns gracefully
+     */
     public static boolean meetingExists(String meetingId) {
         System.out.println("🔍 Checking if meeting exists: " + meetingId);
 
@@ -553,7 +581,7 @@ public class Database {
             stmt.setString(1, meetingId);
             ResultSet rs = stmt.executeQuery();
             if (rs.next() && rs.getInt(1) > 0) {
-                System.out.println("✅ Meeting found in participants: " + meetingId);
+                System.out.println("✅ Meeting found in participants table: " + meetingId);
                 return true;
             }
         } catch (SQLException e) {
@@ -574,26 +602,38 @@ public class Database {
             System.err.println("❌ meetingExists (meetings) error: " + e.getMessage());
         }
 
-        // For backward compatibility, also check title as meeting ID
-        String sql3 = "SELECT COUNT(*) FROM meetings WHERE title = ?";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql3)) {
-            stmt.setString(1, meetingId);
-            ResultSet rs = stmt.executeQuery();
-            if (rs.next() && rs.getInt(1) > 0) {
-                System.out.println("✅ Meeting found by title: " + meetingId);
-                return true;
+        // Check if meeting_id exists in any other way (for backward compatibility)
+        try (Connection conn = getConnection()) {
+            // Check if title column exists and try searching by title
+            DatabaseMetaData metaData = conn.getMetaData();
+            ResultSet columns = metaData.getColumns(null, null, "meetings", "title");
+
+            if (columns.next()) {
+                // Title column exists, try searching by title
+                String titleSql = "SELECT COUNT(*) FROM meetings WHERE title = ?";
+                try (PreparedStatement stmt = conn.prepareStatement(titleSql)) {
+                    stmt.setString(1, meetingId);
+                    ResultSet rs = stmt.executeQuery();
+                    if (rs.next() && rs.getInt(1) > 0) {
+                        System.out.println("✅ Meeting found by title: " + meetingId);
+                        return true;
+                    }
+                }
             }
         } catch (SQLException e) {
-            System.err.println("❌ meetingExists (title) error: " + e.getMessage());
+            System.err.println("❌ meetingExists (title check) error: " + e.getMessage());
         }
 
         System.out.println("❌ Meeting not found in database: " + meetingId);
         return false;
     }
 
-    // FIXED: Get meeting host from database
+    /**
+     * FIXED: Get meeting host from database
+     */
     public static String getMeetingHost(String meetingId) {
+        System.out.println("🔍 Getting host for meeting: " + meetingId);
+
         // Try to get host from meeting_participants (first participant is usually host)
         String sql = "SELECT username FROM meeting_participants WHERE meeting_id = ? ORDER BY joined_at ASC LIMIT 1";
         try (Connection conn = getConnection();
@@ -628,7 +668,9 @@ public class Database {
         return null;
     }
 
-    // FIXED: Remove meeting from database
+    /**
+     * FIXED: Remove meeting from database
+     */
     public static boolean removeMeeting(String meetingId) {
         // Remove participants first
         String deleteParticipants = "DELETE FROM meeting_participants WHERE meeting_id = ?";
