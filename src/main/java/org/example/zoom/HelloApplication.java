@@ -26,6 +26,10 @@ import java.util.Collections;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.UUID;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 
 import javafx.scene.image.Image;
 
@@ -78,6 +82,9 @@ public class HelloApplication extends Application {
     // Connected devices tracking
     private static final Map<String, DeviceInfo> connectedDevices = new HashMap<>();
 
+    // HTTP client for REST API calls
+    private static HttpClient httpClient = HttpClient.newHttpClient();
+
     public static class DeviceInfo {
         String deviceId;
         String deviceName;
@@ -119,14 +126,13 @@ public class HelloApplication extends Application {
         stageReady = true;
 
         // Set device name from system properties if available
-        deviceName = System.getProperty("device.name", "Zoom-Device");
-        deviceId = System.getProperty("device.id", UUID.randomUUID().toString().substring(0, 8));
+        ensureDeviceInfo();
 
         System.out.println("Starting HelloApplication for device: " + deviceName + " (ID: " + deviceId + ")");
 
         Database.initializeDatabase();
 
-        // Initialize WebRTC manager as client only
+        // Initialize WebRTC manager
         webRTCManager = WebRTCManager.getInstance();
 
         setRoot("login-view.fxml");
@@ -138,33 +144,47 @@ public class HelloApplication extends Application {
         System.out.println("Run: node server/server.js");
     }
 
+    /**
+     * Ensure device info is properly set before any WebSocket operations
+     */
+    public static void ensureDeviceInfo() {
+        // First check if already set
+        if (deviceName != null && !deviceName.equals("Unknown") && deviceName.length() > 0) {
+            return;
+        }
+
+        // Try to get from system properties
+        String propName = System.getProperty("device.name");
+        if (propName != null && !propName.isEmpty()) {
+            deviceName = propName;
+            System.out.println("📱 Device name loaded from system properties: " + deviceName);
+        } else {
+            // Generate from device ID
+            if (deviceId == null || deviceId.isEmpty()) {
+                deviceId = System.getProperty("device.id", UUID.randomUUID().toString().substring(0, 8));
+            }
+            deviceName = "Device-" + deviceId.substring(0, 4);
+            System.setProperty("device.name", deviceName);
+            System.out.println("📱 Generated device name: " + deviceName);
+        }
+
+        // Ensure device ID is set
+        if (deviceId == null || deviceId.isEmpty()) {
+            deviceId = System.getProperty("device.id", UUID.randomUUID().toString().substring(0, 8));
+        }
+
+        // Update connected devices if user is logged in
+        if (loggedInUser != null && !connectedDevices.containsKey(deviceId)) {
+            DeviceInfo deviceInfo = new DeviceInfo(deviceId, deviceName, loggedInUser, getLocalIPAddress());
+            connectedDevices.put(deviceId, deviceInfo);
+        }
+
+        System.out.println("✅ Device info ensured: " + deviceName + " (" + deviceId + ")");
+    }
+
     private void initializeWebRTC() {
         try {
-            String signalingServer = getCurrentServerUrl().replace("ws://", "http://");
-
             webRTCManager = WebRTCManager.getInstance();
-
-            System.out.println("WebRTC manager initialized with signaling server: " + signalingServer);
-
-            webRTCManager.setStatusConsumer(message -> {
-                System.out.println("WebRTC Status: " + message);
-
-                if (webSocketClient != null && webSocketClient.isConnected()) {
-                    webSocketClient.sendMessage("WEBRTC_SIGNAL",
-                            activeMeetingId != null ? activeMeetingId : "global",
-                            loggedInUser,
-                            message);
-                }
-            });
-
-            webRTCManager.setVideoFrameConsumer(videoFrame -> {
-                Platform.runLater(() -> {
-                    if (videoControlsController != null) {
-                        videoControlsController.displayVideoFrame(videoFrame);
-                    }
-                });
-            });
-
             System.out.println("WebRTC manager initialized");
         } catch (Exception e) {
             System.err.println("Failed to initialize WebRTC: " + e.getMessage());
@@ -325,6 +345,8 @@ public class HelloApplication extends Application {
     }
 
     public static void toggleVideo() {
+        ensureDeviceInfo(); // Ensure device info is set
+
         videoOn = !videoOn;
         isVideoStreaming = videoOn;
 
@@ -420,6 +442,11 @@ public class HelloApplication extends Application {
         if (deviceInfo != null) {
             deviceInfo.isVideoOn = status.contains("STARTED");
             deviceInfo.updateLastSeen();
+        } else {
+            // Create new device info if not exists
+            deviceInfo = new DeviceInfo(deviceIdFromMsg, deviceNameFromMsg, username, "unknown");
+            deviceInfo.isVideoOn = status.contains("STARTED");
+            connectedDevices.put(deviceIdFromMsg, deviceInfo);
         }
 
         Platform.runLater(() -> {
@@ -605,6 +632,9 @@ public class HelloApplication extends Application {
 
     public static void setLoggedInUser(String username) {
         loggedInUser = username;
+
+        // Ensure device info is set
+        ensureDeviceInfo();
 
         // Update device info with username
         DeviceInfo deviceInfo = new DeviceInfo(deviceId, deviceName, username, getLocalIPAddress());
@@ -1524,6 +1554,10 @@ public class HelloApplication extends Application {
             DeviceInfo deviceInfo = connectedDevices.get(deviceIdFromMsg);
             if (deviceInfo != null) {
                 deviceInfo.updateLastSeen();
+            } else {
+                // Create new device info if not exists
+                deviceInfo = new DeviceInfo(deviceIdFromMsg, deviceNameFromMsg, username, "unknown");
+                connectedDevices.put(deviceIdFromMsg, deviceInfo);
             }
 
             Image videoFrame = convertBase64ToImage(base64Image);
@@ -1816,6 +1850,8 @@ public class HelloApplication extends Application {
     }
 
     public static String createNewMeeting() {
+        ensureDeviceInfo(); // Ensure device info is set
+
         String meetingId = generateMeetingId();
         String hostName = getLoggedInUser();
         if (hostName == null || hostName.isEmpty()) {
@@ -1853,6 +1889,8 @@ public class HelloApplication extends Application {
     }
 
     public static boolean joinMeeting(String meetingId, String participantName) {
+        ensureDeviceInfo(); // Ensure device info is set
+
         System.out.println("Attempting to join meeting: " + meetingId + " as " + participantName + " on device: " + deviceName);
 
         if (!meetingId.matches("\\d{6}")) {
@@ -2075,6 +2113,8 @@ public class HelloApplication extends Application {
     }
 
     public static void sendWebSocketMessage(String type, String meetingId, String content) {
+        ensureDeviceInfo(); // Ensure device info is set
+
         if (webSocketClient != null && webSocketClient.isConnected() && loggedInUser != null) {
             // Include device info in content if needed
             String enhancedContent = content;
@@ -2088,6 +2128,8 @@ public class HelloApplication extends Application {
     }
 
     public static void sendWebSocketMessage(String type, String meetingId, String username, String content) {
+        ensureDeviceInfo(); // Ensure device info is set
+
         if (webSocketClient != null && webSocketClient.isConnected()) {
             System.out.println("=== SENDING WEBSOCKET MESSAGE FROM DEVICE: " + deviceName + " ===");
             System.out.println("Type: " + type);
@@ -2124,6 +2166,8 @@ public class HelloApplication extends Application {
     }
 
     public static void toggleAudio() {
+        ensureDeviceInfo(); // Ensure device info is set
+
         audioMuted = !audioMuted;
         updateAudioButtonStyles();
 
@@ -2189,6 +2233,8 @@ public class HelloApplication extends Application {
     }
 
     public static void toggleDeafen() {
+        ensureDeviceInfo(); // Ensure device info is set
+
         isDeafened = !isDeafened;
 
         if (isDeafened) {
@@ -2254,6 +2300,8 @@ public class HelloApplication extends Application {
     }
 
     public static void toggleRecording() {
+        ensureDeviceInfo(); // Ensure device info is set
+
         isRecording = !isRecording;
 
         if (isRecording) {

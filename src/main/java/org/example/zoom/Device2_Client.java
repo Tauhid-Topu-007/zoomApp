@@ -18,7 +18,7 @@ import java.util.UUID;
 public class Device2_Client extends Application {
 
     private static String DEVICE_NAME = "Client-Device";
-    private static String SERVER_IP = "192.168.1.107";
+    private static String SERVER_IP = ""; // Start empty to force user entry
     private static int SERVER_PORT = 8887;
     private static String DEVICE_ID = UUID.randomUUID().toString().substring(0, 8);
 
@@ -40,15 +40,15 @@ public class Device2_Client extends Application {
         // Set initial system properties
         System.setProperty("device.name", DEVICE_NAME);
         System.setProperty("device.id", DEVICE_ID);
-        System.setProperty("server.ip", SERVER_IP);
-        System.setProperty("server.port", String.valueOf(SERVER_PORT));
 
         System.out.println("Initializing Client Device: " + DEVICE_NAME + " (ID: " + DEVICE_ID + ")");
+        System.out.println("IMPORTANT: You need to enter the SERVER's IP address (where server.js is running)");
+        System.out.println("Server IP should be something like: 192.168.0.113 (from your server logs)");
 
         // Initialize database
         Database.initializeDatabase();
 
-        // First show the configuration dialog without showing the main stage
+        // First show the configuration dialog
         boolean configured = showInitialConfigurationDialog();
 
         if (!configured) {
@@ -63,6 +63,8 @@ public class Device2_Client extends Application {
         System.setProperty("server.ip", SERVER_IP);
         System.setProperty("server.port", String.valueOf(SERVER_PORT));
 
+        System.out.println("Configured to connect to server at: " + SERVER_IP + ":" + SERVER_PORT);
+
         // Now load and show the main stage
         showMainStage(primaryStage);
     }
@@ -71,7 +73,7 @@ public class Device2_Client extends Application {
         // Create configuration dialog
         Dialog<ButtonType> dialog = new Dialog<>();
         dialog.setTitle("Client Configuration - " + DEVICE_NAME);
-        dialog.setHeaderText("Configure Server Connection for " + DEVICE_NAME);
+        dialog.setHeaderText("Connect to Zoom Server\n\nEnter the SERVER's IP address (where server.js is running)");
 
         // Set dialog to be movable and resizable
         dialog.setResizable(true);
@@ -87,7 +89,7 @@ public class Device2_Client extends Application {
         grid.setHgap(10);
         grid.setVgap(10);
         grid.setPadding(new javafx.geometry.Insets(20, 20, 10, 20));
-        grid.setPrefWidth(450);
+        grid.setPrefWidth(500);
 
         // Device name field
         TextField deviceNameField = new TextField();
@@ -104,10 +106,10 @@ public class Device2_Client extends Application {
         grid.add(new Label("Device ID:"), 0, 1);
         grid.add(deviceIdField, 1, 1);
 
-        // Server IP field
+        // Server IP field - IMPORTANT: This should be the SERVER's IP
         TextField ipField = new TextField();
-        ipField.setText(SERVER_IP);
-        ipField.setPromptText("e.g., 192.168.1.107");
+        ipField.setPromptText("e.g., 192.168.0.113 (SERVER's IP)");
+        ipField.setText(""); // Start empty
         grid.add(new Label("Server IP:"), 0, 2);
         grid.add(ipField, 1, 2);
 
@@ -126,10 +128,17 @@ public class Device2_Client extends Application {
         // Status area
         TextArea statusArea = new TextArea();
         statusArea.setEditable(false);
-        statusArea.setPrefRowCount(5);
-        statusArea.setText("Enter server details and click Test Connection");
+        statusArea.setPrefRowCount(6);
+        statusArea.setWrapText(true);
+        statusArea.setText("Enter the SERVER IP address shown in the server logs\n\n" +
+                "From your server logs, the IP is: 192.168.0.113");
         statusArea.setStyle("-fx-text-fill: #666666;");
         grid.add(statusArea, 0, 5, 2, 1);
+
+        // Add helpful tips
+        Label tipLabel = new Label("💡 IMPORTANT: The server IP is NOT your IP. It's the IP where server.js is running!");
+        tipLabel.setStyle("-fx-text-fill: #e74c3c; -fx-font-weight: bold; -fx-font-size: 12px;");
+        grid.add(tipLabel, 0, 6, 2, 1);
 
         dialog.getDialogPane().setContent(grid);
 
@@ -141,38 +150,47 @@ public class Device2_Client extends Application {
             String ip = ipField.getText().trim();
             String portStr = portField.getText().trim();
 
-            if (ip.isEmpty() || portStr.isEmpty()) {
-                statusArea.setText("Please enter both IP and port");
+            if (ip.isEmpty()) {
+                statusArea.setText("❌ Please enter the SERVER IP address");
+                statusArea.setStyle("-fx-text-fill: red;");
+                return;
+            }
+
+            if (portStr.isEmpty()) {
+                statusArea.setText("❌ Please enter a port number");
                 statusArea.setStyle("-fx-text-fill: red;");
                 return;
             }
 
             try {
                 int port = Integer.parseInt(portStr);
-                statusArea.setText("Testing connection to " + ip + ":" + port + "...");
+                statusArea.setText("Testing connection to SERVER at " + ip + ":" + port + "...");
                 statusArea.setStyle("-fx-text-fill: blue;");
 
                 // Run test in background
                 new Thread(() -> {
                     boolean success = testConnection(ip, port);
-                    String deviceList = "";
-                    if (success) {
-                        deviceList = getConnectedDevices(ip, port);
-                    }
-                    final String finalDeviceList = deviceList;
                     Platform.runLater(() -> {
                         if (success) {
-                            statusArea.setText("✓ Connection successful!\n\nConnected Devices:\n" + finalDeviceList);
+                            statusArea.setText("✅ Connection successful!\n\n" +
+                                    "Server at " + ip + ":" + port + " is reachable.\n\n" +
+                                    "You can now click Connect to proceed.");
                             statusArea.setStyle("-fx-text-fill: green;");
                         } else {
-                            statusArea.setText("✗ Connection failed!\n\n" + getTroubleshootingInfo());
+                            statusArea.setText("❌ Connection failed!\n\n" +
+                                    "Cannot reach server at " + ip + ":" + port + "\n\n" +
+                                    "Make sure:\n" +
+                                    "• The server is running on that computer\n" +
+                                    "• You're using the correct IP (check server logs)\n" +
+                                    "• Firewall allows port " + port + "\n" +
+                                    "• Both devices are on the same network");
                             statusArea.setStyle("-fx-text-fill: red;");
                         }
                     });
                 }).start();
 
             } catch (NumberFormatException ex) {
-                statusArea.setText("Invalid port number");
+                statusArea.setText("❌ Invalid port number");
                 statusArea.setStyle("-fx-text-fill: red;");
             }
         });
@@ -189,6 +207,20 @@ public class Device2_Client extends Application {
                 Platform.runLater(() -> {
                     statusArea.setText(scanResult);
                     statusArea.setStyle("-fx-text-fill: black;");
+
+                    // Try to extract server IP from scan
+                    String foundIP = extractServerIP(scanResult);
+                    if (foundIP != null) {
+                        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+                        alert.setTitle("Server Found");
+                        alert.setHeaderText("Found potential server at: " + foundIP);
+                        alert.setContentText("Would you like to use this IP?");
+
+                        Optional<ButtonType> result = alert.showAndWait();
+                        if (result.isPresent() && result.get() == ButtonType.OK) {
+                            ipField.setText(foundIP);
+                        }
+                    }
                 });
             }).start();
         });
@@ -214,14 +246,22 @@ public class Device2_Client extends Application {
             }
 
             String ip = ipField.getText().trim();
-            if (!ip.isEmpty()) {
-                if (isValidIPAddress(ip) || ip.equals("localhost")) {
-                    SERVER_IP = ip;
-                } else {
-                    showAlert(Alert.AlertType.ERROR, "Invalid IP",
-                            "Please enter a valid IP address.\nUsing default: " + SERVER_IP);
-                }
+            if (ip.isEmpty()) {
+                showAlert(Alert.AlertType.ERROR, "IP Required",
+                        "Please enter the SERVER IP address.\n\n" +
+                                "From your server logs, the IP is: 192.168.0.113");
+                return false;
             }
+
+            if (!isValidIPAddress(ip) && !ip.equals("localhost")) {
+                showAlert(Alert.AlertType.ERROR, "Invalid IP",
+                        "Please enter a valid IP address.\n\n" +
+                                "Example: 192.168.0.113 (from your server logs)");
+                return false;
+            }
+
+            // Store the server IP
+            SERVER_IP = ip;
 
             String portStr = portField.getText().trim();
             if (!portStr.isEmpty()) {
@@ -242,24 +282,45 @@ public class Device2_Client extends Application {
             // Save auto-reconnect setting
             System.setProperty("auto.reconnect", String.valueOf(autoReconnectCheck.isSelected()));
 
+            // Test the connection one more time before proceeding
+            if (!testConnection(SERVER_IP, SERVER_PORT)) {
+                Alert confirmAlert = new Alert(Alert.AlertType.CONFIRMATION);
+                confirmAlert.setTitle("Connection Test Failed");
+                confirmAlert.setHeaderText("Cannot connect to server at " + SERVER_IP + ":" + SERVER_PORT);
+                confirmAlert.setContentText(
+                        "Make sure:\n" +
+                                "• Server is running on " + SERVER_IP + "\n" +
+                                "• You can ping " + SERVER_IP + "\n" +
+                                "• Firewall allows port " + SERVER_PORT + "\n\n" +
+                                "Do you want to continue anyway?");
+
+                Optional<ButtonType> confirmResult = confirmAlert.showAndWait();
+                if (!confirmResult.isPresent() || confirmResult.get() != ButtonType.OK) {
+                    return false;
+                }
+            }
+
+            System.out.println("✅ Client configured to connect to server: " + SERVER_IP + ":" + SERVER_PORT);
             return true;
         }
 
         return false;
     }
 
-    private String getConnectedDevices(String ip, int port) {
-        StringBuilder result = new StringBuilder();
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(ip, port), 2000);
-            // In a real implementation, you would query the server for connected devices
-            result.append("  • Server is reachable\n");
-            result.append("  • Port ").append(port).append(" is open\n");
-            result.append("  • Ready to connect\n");
-        } catch (Exception e) {
-            result.append("  • Could not get device list\n");
+    private String extractServerIP(String scanResult) {
+        // Look for IP addresses in the scan result
+        String[] lines = scanResult.split("\n");
+        for (String line : lines) {
+            if (line.contains("Found server:") || line.contains("✅") || line.contains("PORT OPEN")) {
+                // Extract IP using regex
+                java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})");
+                java.util.regex.Matcher matcher = pattern.matcher(line);
+                if (matcher.find()) {
+                    return matcher.group(1);
+                }
+            }
         }
-        return result.toString();
+        return null;
     }
 
     private void showMainStage(Stage primaryStage) {
@@ -270,13 +331,16 @@ public class Device2_Client extends Application {
             // Store loader in scene user data for later access
             scene.setUserData(loader);
 
-            // Configure stage
-            primaryStage.setTitle("Zoom Client - " + DEVICE_NAME + " [ID: " + DEVICE_ID + "] [Connecting to: " + SERVER_IP + ":" + SERVER_PORT + "]");
+            // Configure stage with the actual server IP
+            String displayTitle = String.format("Zoom Client - %s [ID: %s] [Connecting to SERVER: %s:%d]",
+                    DEVICE_NAME, DEVICE_ID, SERVER_IP, SERVER_PORT);
+
+            primaryStage.setTitle(displayTitle);
             primaryStage.setScene(scene);
             primaryStage.setWidth(900);
             primaryStage.setHeight(700);
 
-            // Position the stage based on device number to avoid overlap
+            // Position the stage
             positionStage(primaryStage);
 
             // Make sure stage is movable
@@ -289,7 +353,11 @@ public class Device2_Client extends Application {
             primaryStage.show();
 
             System.out.println("Stage initialized and shown for: " + DEVICE_NAME);
+            System.out.println("Connecting to SERVER at: " + SERVER_IP + ":" + SERVER_PORT);
             System.out.println("Stage position: X=" + primaryStage.getX() + ", Y=" + primaryStage.getY());
+
+            // Set server config in HelloApplication
+            HelloApplication.setServerConfig(SERVER_IP, String.valueOf(SERVER_PORT));
 
             // Test connection before proceeding
             new Thread(() -> {
@@ -302,7 +370,7 @@ public class Device2_Client extends Application {
                     }
                 }
 
-                // Auto-login after a short delay with device-specific username
+                // Auto-login after a short delay
                 try {
                     Thread.sleep(2000);
                     Platform.runLater(() -> {
@@ -343,8 +411,8 @@ public class Device2_Client extends Application {
 
             javafx.geometry.Rectangle2D screenBounds = javafx.stage.Screen.getPrimary().getVisualBounds();
 
-            // Position windows in a grid to avoid overlap
-            int cols = 3; // 3 columns
+            // Position windows in a grid
+            int cols = 3;
             int row = (deviceNum - 1) / cols;
             int col = (deviceNum - 1) % cols;
 
@@ -364,35 +432,20 @@ public class Device2_Client extends Application {
 
             System.out.println("Positioned " + DEVICE_NAME + " at (" + x + ", " + y + ")");
         } catch (Exception e) {
-            // Default positioning if calculation fails
             stage.setX(100);
             stage.setY(100);
         }
     }
 
     private boolean testServerConnection() {
-        System.out.println("Testing connection to " + SERVER_IP + ":" + SERVER_PORT + "...");
+        System.out.println("Testing connection to SERVER at " + SERVER_IP + ":" + SERVER_PORT + "...");
 
-        // Try socket connection
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(SERVER_IP, SERVER_PORT), 3000);
-            System.out.println("✓ Socket connection successful");
+            System.out.println("✓ Connection to server successful");
             return true;
         } catch (Exception e) {
-            System.err.println("✗ Socket connection failed: " + e.getMessage());
-
-            // Try ping as fallback
-            try {
-                InetAddress address = InetAddress.getByName(SERVER_IP);
-                if (address.isReachable(3000)) {
-                    System.out.println("✓ Ping successful but port " + SERVER_PORT + " is not responding");
-                    System.out.println("  Make sure the server application is running on that port");
-                    return false;
-                }
-            } catch (Exception ex) {
-                System.err.println("✗ Ping failed: " + ex.getMessage());
-            }
-
+            System.err.println("✗ Connection to server failed: " + e.getMessage());
             return false;
         }
     }
@@ -409,7 +462,7 @@ public class Device2_Client extends Application {
     private boolean showConnectionErrorDialog() {
         Dialog<ButtonType> dialog = new Dialog<>();
         dialog.setTitle("Connection Error - " + DEVICE_NAME);
-        dialog.setHeaderText("Cannot connect to server: " + SERVER_IP + ":" + SERVER_PORT);
+        dialog.setHeaderText("Cannot connect to SERVER at: " + SERVER_IP + ":" + SERVER_PORT);
 
         ButtonType retryButton = new ButtonType("Retry", ButtonBar.ButtonData.OK_DONE);
         ButtonType reconfigureButton = new ButtonType("Reconfigure", ButtonBar.ButtonData.OTHER);
@@ -428,6 +481,7 @@ public class Device2_Client extends Application {
         infoArea.setEditable(false);
         infoArea.setPrefRowCount(8);
         infoArea.setPrefWidth(500);
+        infoArea.setWrapText(true);
         infoArea.setText(getTroubleshootingInfo());
 
         Label deviceLabel = new Label("Device: " + DEVICE_NAME + " (ID: " + DEVICE_ID + ")");
@@ -463,29 +517,28 @@ public class Device2_Client extends Application {
                 "TROUBLESHOOTING INFORMATION\n" +
                         "===========================\n\n" +
                         "1. CHECK SERVER:\n" +
-                        "   • Is the server application running on %s:%d?\n" +
-                        "   • Check firewall settings on server\n\n" +
-                        "2. CHECK NETWORK:\n" +
-                        "   • Are all devices on same network?\n" +
-                        "   • Can you ping the server? Try: ping %s\n\n" +
-                        "3. CHECK FIREWALL:\n" +
-                        "   • Windows: Allow port %d in firewall\n" +
-                        "   • Command: netsh advfirewall firewall add rule name=\"Zoom\" dir=in action=allow protocol=TCP localport=%d\n\n" +
-                        "4. VERIFY CONNECTION:\n" +
-                        "   • Try: telnet %s %d\n" +
-                        "   • Use 'Test Connection' button in config\n\n" +
-                        "5. MULTI-DEVICE SETUP:\n" +
-                        "   • Maximum clients: Unlimited\n" +
-                        "   • Make sure server IP is correct\n" +
-                        "   • All clients must use same server IP and port\n",
-                SERVER_IP, SERVER_PORT, SERVER_IP, SERVER_PORT, SERVER_PORT, SERVER_IP, SERVER_PORT
+                        "   • Is the Node.js server running on %s:%d?\n" +
+                        "   • Command: node server/server.js\n" +
+                        "   • Look for: '✅ WebSocket server is listening'\n\n" +
+                        "2. CORRECT IP:\n" +
+                        "   • From your server logs, the IP is: 192.168.0.113\n" +
+                        "   • You entered: %s\n" +
+                        "   • Make sure you're using the SERVER's IP, not your own\n\n" +
+                        "3. CHECK NETWORK:\n" +
+                        "   • Are both devices on the same network?\n" +
+                        "   • Can you ping %s? Try: ping %s\n\n" +
+                        "4. CHECK FIREWALL:\n" +
+                        "   • On the SERVER, run: netsh advfirewall firewall add rule name=\"Zoom\" dir=in action=allow protocol=TCP localport=%d\n\n" +
+                        "5. VERIFY CONNECTION:\n" +
+                        "   • Try: telnet %s %d\n",
+                SERVER_IP, SERVER_PORT, SERVER_IP, SERVER_IP, SERVER_IP, SERVER_PORT, SERVER_IP, SERVER_PORT
         );
     }
 
     private String scanForServers() {
         StringBuilder result = new StringBuilder();
-        result.append("Network Scan Results:\n");
-        result.append("=====================\n\n");
+        result.append("🔍 NETWORK SCAN RESULTS\n");
+        result.append("======================\n\n");
 
         try {
             String localIP = java.net.InetAddress.getLocalHost().getHostAddress();
@@ -498,23 +551,21 @@ public class Device2_Client extends Application {
             int foundServers = 0;
             result.append("Active hosts:\n");
 
-            for (int i = 1; i <= 254; i++) { // Scan entire subnet
+            // Scan the local subnet
+            for (int i = 1; i <= 254; i++) {
                 String testIP = networkPrefix + i;
                 try {
                     InetAddress addr = InetAddress.getByName(testIP);
                     if (addr.isReachable(200)) {
                         result.append("  ✓ ").append(testIP).append(" - reachable");
 
-                        // Test common ports
-                        for (int port : new int[]{8887, 8888, 8889, 8890, 9000, 9001}) {
-                            try (Socket s = new Socket()) {
-                                s.connect(new InetSocketAddress(testIP, port), 100);
-                                result.append(" [PORT ").append(port).append(" OPEN - Possible Zoom Server]");
-                                foundServers++;
-                                break;
-                            } catch (Exception e) {
-                                // Port not open
-                            }
+                        // Test port 8887
+                        try (Socket s = new Socket()) {
+                            s.connect(new InetSocketAddress(testIP, 8887), 100);
+                            result.append(" [PORT 8887 OPEN - Zoom Server!]");
+                            foundServers++;
+                        } catch (Exception e) {
+                            // Port not open
                         }
                         result.append("\n");
                     }
@@ -524,11 +575,14 @@ public class Device2_Client extends Application {
             }
 
             if (foundServers == 0) {
-                result.append("\nNo Zoom servers found on the network.\n");
-                result.append("Make sure the host device is running and firewall is configured.\n");
+                result.append("\n❌ No Zoom servers found on the network.\n");
+                result.append("Make sure:\n");
+                result.append("• Node.js server is running on another computer\n");
+                result.append("• You're using the correct IP: 192.168.0.113\n");
+                result.append("• Firewall allows port 8887 on the server\n");
             } else {
-                result.append("\nFound ").append(foundServers).append(" potential server(s).\n");
-                result.append("Use one of the IPs above to connect.\n");
+                result.append("\n✅ Found ").append(foundServers).append(" potential server(s).\n");
+                result.append("Use the IP address 192.168.0.113 to connect.\n");
             }
 
         } catch (Exception e) {
@@ -539,8 +593,11 @@ public class Device2_Client extends Application {
     }
 
     private boolean isValidIPAddress(String ip) {
+        if (ip == null || ip.isEmpty()) return false;
+        if (ip.equals("localhost")) return true;
+
         String ipPattern = "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$";
-        return ip.matches(ipPattern) || ip.equals("localhost");
+        return ip.matches(ipPattern);
     }
 
     private void showAlert(Alert.AlertType type, String title, String message) {
@@ -560,7 +617,6 @@ public class Device2_Client extends Application {
     }
 
     public static void main(String[] args) {
-        // Check if instance number is provided
         if (args.length > 0) {
             try {
                 int instance = Integer.parseInt(args[0]);
@@ -570,7 +626,13 @@ public class Device2_Client extends Application {
             }
         }
 
+        System.out.println("\n" + "=".repeat(60));
         System.out.println("Starting " + DEVICE_NAME + " - CLIENT DEVICE");
+        System.out.println("=".repeat(60));
+        System.out.println("\nIMPORTANT: You need to connect to the SERVER's IP address");
+        System.out.println("From your server logs, the server IP is: 192.168.0.113");
+        System.out.println("Make sure to enter this IP in the configuration dialog.\n");
+
         launch(args);
     }
 }
