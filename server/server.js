@@ -137,6 +137,7 @@ const wss = new WebSocketServer({
 const clients = new Map();
 const meetings = new Map();
 const peerConnections = new Map(); // Store peer connections
+const meetingStore = new Map(); // Store meeting information for validation
 
 // Debug endpoint to test connectivity
 app.get('/ping', (req, res) => {
@@ -157,14 +158,12 @@ app.get('/health', (req, res) => {
 
     console.log(`📊 Health check from: ${clientIp}:${clientPort}`);
 
-    // Log request headers for debugging
-    console.log('   Headers:', req.headers);
-
     res.json({
         status: 'healthy',
         serverTime: new Date().toISOString(),
         clients: clients.size,
         meetings: meetings.size,
+        meetingStore: meetingStore.size,
         peerConnections: Array.from(peerConnections.values())
             .reduce((total, meeting) => total + meeting.size, 0),
         uptime: Math.floor(process.uptime()),
@@ -199,6 +198,55 @@ app.get('/api/network-info', (req, res) => {
         connectionURLs: localIPs.map(ip => `ws://${ip}:${PORT}`),
         interfaces: networkInfo.details
     });
+});
+
+// API endpoint to get all active meetings
+app.get('/api/meetings', (req, res) => {
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    console.log(`📋 Meeting list requested from: ${clientIp}`);
+
+    const meetingList = [];
+    for (const [meetingId, meeting] of meetingStore) {
+        meetingList.push({
+            id: meetingId,
+            host: meeting.host,
+            participants: meeting.participants.size,
+            created: meeting.created,
+            title: meeting.title || `Meeting ${meetingId}`
+        });
+    }
+
+    res.json({
+        meetings: meetingList,
+        count: meetingList.length,
+        timestamp: Date.now()
+    });
+});
+
+// API endpoint to validate a specific meeting
+app.get('/api/meeting/:meetingId', (req, res) => {
+    const { meetingId } = req.params;
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
+    console.log(`🔍 Meeting validation requested for ${meetingId} from: ${clientIp}`);
+
+    const meeting = meetingStore.get(meetingId);
+    if (meeting) {
+        res.json({
+            exists: true,
+            meetingId: meetingId,
+            host: meeting.host,
+            participants: meeting.participants.size,
+            created: meeting.created,
+            title: meeting.title || `Meeting ${meetingId}`
+        });
+    } else {
+        res.json({
+            exists: false,
+            meetingId: meetingId,
+            message: 'Meeting not found'
+        });
+    }
 });
 
 // API endpoint to create peer connection offer
@@ -306,7 +354,9 @@ app.get('/api/meeting-participants/:meetingId', (req, res) => {
                     audioMuted: userInfo.audioMuted,
                     videoOn: userInfo.videoOn,
                     isRecording: userInfo.isRecording,
-                    ip: userInfo.ip
+                    ip: userInfo.ip,
+                    deviceName: userInfo.deviceName || 'Unknown',
+                    deviceId: userInfo.deviceId || userId
                 };
             }
         }
@@ -323,6 +373,7 @@ app.get('/', (req, res) => {
     const serverStats = {
         clients: clients.size,
         meetings: meetings.size,
+        meetingStore: meetingStore.size,
         webRTCConnections: Array.from(peerConnections.values())
             .reduce((total, meeting) => total + meeting.size, 0),
         uptime: Math.floor(process.uptime())
@@ -332,6 +383,13 @@ app.get('/', (req, res) => {
     const firewallCmd = process.platform === 'win32'
         ? 'netsh advfirewall firewall add rule name="Zoom WebSocket" dir=in action=allow protocol=TCP localport=8887'
         : 'sudo ufw allow 8887/tcp';
+
+    const meetingList = Array.from(meetingStore.entries()).map(([id, meeting]) => ({
+        id,
+        host: meeting.host,
+        participants: meeting.participants.size,
+        created: meeting.created
+    }));
 
     res.send(`
         <!DOCTYPE html>
@@ -627,6 +685,32 @@ app.get('/', (req, res) => {
                     line-height: 25px;
                     margin-right: 10px;
                 }
+
+                .meeting-list {
+                    max-height: 300px;
+                    overflow-y: auto;
+                }
+
+                .meeting-item {
+                    background: #e8f4f8;
+                    margin: 5px 0;
+                    padding: 10px;
+                    border-radius: 5px;
+                    border-left: 3px solid #3498db;
+                }
+
+                .meeting-id {
+                    font-weight: bold;
+                    color: #2980b9;
+                }
+
+                .meeting-host {
+                    color: #27ae60;
+                }
+
+                .meeting-participants {
+                    color: #e67e22;
+                }
             </style>
         </head>
         <body>
@@ -651,6 +735,7 @@ app.get('/', (req, res) => {
                         <p><strong>Uptime:</strong> ${serverStats.uptime}s</p>
                         <p><strong>Connected Clients:</strong> ${serverStats.clients}</p>
                         <p><strong>Active Meetings:</strong> ${serverStats.meetings}</p>
+                        <p><strong>Meeting Store:</strong> ${serverStats.meetingStore}</p>
                     </div>
 
                     <div class="card card-primary">
@@ -687,7 +772,26 @@ app.get('/', (req, res) => {
                                 <div class="stat-value" id="webrtcCount">${serverStats.webRTCConnections}</div>
                                 <div class="stat-label">WebRTC Pairs</div>
                             </div>
+                            <div class="stat-item">
+                                <div class="stat-value" id="storeCount">${serverStats.meetingStore}</div>
+                                <div class="stat-label">Stored Meetings</div>
+                            </div>
                         </div>
+                    </div>
+
+                    <div class="card card-info">
+                        <h2>📋 Active Meetings</h2>
+                        <div class="meeting-list">
+                            ${meetingList.length > 0 ? meetingList.map(meeting => `
+                                <div class="meeting-item">
+                                    <div><span class="meeting-id">${meeting.id}</span></div>
+                                    <div><span class="meeting-host">Host: ${meeting.host}</span></div>
+                                    <div><span class="meeting-participants">Participants: ${meeting.participants}</span></div>
+                                    <div><small>Created: ${new Date(meeting.created).toLocaleString()}</small></div>
+                                </div>
+                            `).join('') : '<p>No active meetings</p>'}
+                        </div>
+                        <button class="test-btn" onclick="refreshMeetings()">🔄 Refresh Meetings</button>
                     </div>
 
                     <div class="card card-info">
@@ -710,6 +814,7 @@ app.get('/', (req, res) => {
                         <button class="test-btn" onclick="testAllInterfaces()">🌐 Test All Interfaces</button>
                         <button class="test-btn" onclick="checkFirewall()">🔥 Check Firewall</button>
                         <button class="test-btn" onclick="showNetworkInfo()">📋 Network Info</button>
+                        <button class="test-btn" onclick="listMeetings()">📋 List Meetings</button>
 
                         <div id="diagnosticOutput" class="diagnostic-panel">
                             Ready to run diagnostics...
@@ -741,6 +846,12 @@ app.get('/', (req, res) => {
                             <strong>Ping test from client:</strong>
                             <code>ping ${localIPs[0] || 'SERVER_IP'}</code>
                             <button class="copy-btn" onclick="copyToClipboard('ping ${localIPs[0] || 'SERVER_IP'}')">Copy</button>
+                        </div>
+                        <div class="step">
+                            <span class="step-number">5</span>
+                            <strong>Check available meetings:</strong>
+                            <code>curl http://${localIPs[0] || 'SERVER_IP'}:${PORT}/api/meetings</code>
+                            <button class="copy-btn" onclick="copyToClipboard('curl http://${localIPs[0] || 'SERVER_IP'}:${PORT}/api/meetings')">Copy</button>
                         </div>
                     </div>
 
@@ -776,6 +887,7 @@ app.get('/', (req, res) => {
                         <button class="test-btn" onclick="testPing()">🏓 Ping Server</button>
                         <button class="test-btn" onclick="testHealth()">❤️ Health Check</button>
                         <button class="test-btn" onclick="testWebSocket()">🔌 WebSocket Test</button>
+                        <button class="test-btn" onclick="testMeetings()">📋 Get Meetings</button>
                         <div id="testResult" style="margin-top: 10px;"></div>
                     </div>
 
@@ -803,8 +915,8 @@ app.get('/', (req, res) => {
                                 <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">Disable VPN on all laptops</td>
                             </tr>
                             <tr>
-                                <td style="padding: 10px;">Corporate network</td>
-                                <td style="padding: 10px;">Use mobile hotspot instead</td>
+                                <td style="padding: 10px;">Meeting not found</td>
+                                <td style="padding: 10px;">Check /api/meetings endpoint to see available meetings</td>
                             </tr>
                         </table>
                     </div>
@@ -894,6 +1006,22 @@ app.get('/', (req, res) => {
                     });
                 }
 
+                async function listMeetings() {
+                    const output = document.getElementById('diagnosticOutput');
+                    output.innerHTML = 'Fetching meetings...\\n';
+
+                    try {
+                        const response = await fetch('/api/meetings');
+                        const data = await response.json();
+                        output.innerHTML += '📋 Found ' + data.count + ' meetings:\\n';
+                        data.meetings.forEach(meeting => {
+                            output.innerHTML += '  • ' + meeting.id + ' (Host: ' + meeting.host + ', Participants: ' + meeting.participants + ')\\n';
+                        });
+                    } catch (error) {
+                        output.innerHTML += '❌ Failed to fetch meetings: ' + error + '\\n';
+                    }
+                }
+
                 async function testPing() {
                     const result = document.getElementById('testResult');
                     result.innerHTML = 'Testing ping...';
@@ -912,9 +1040,24 @@ app.get('/', (req, res) => {
                     try {
                         const response = await fetch('/health');
                         const data = await response.json();
-                        result.innerHTML = '✅ Server healthy! Connected clients: ' + data.clients;
+                        result.innerHTML = '✅ Server healthy! Connected clients: ' + data.clients + ', Meetings: ' + data.meetings;
                     } catch (error) {
                         result.innerHTML = '❌ Health check failed: ' + error;
+                    }
+                }
+
+                async function testMeetings() {
+                    const result = document.getElementById('testResult');
+                    result.innerHTML = 'Fetching meetings...';
+                    try {
+                        const response = await fetch('/api/meetings');
+                        const data = await response.json();
+                        result.innerHTML = '✅ Found ' + data.count + ' meetings';
+                        if (data.count > 0) {
+                            result.innerHTML += '\\n' + data.meetings.map(m => m.id).join(', ');
+                        }
+                    } catch (error) {
+                        result.innerHTML = '❌ Failed to fetch meetings: ' + error;
                     }
                 }
 
@@ -944,6 +1087,10 @@ app.get('/', (req, res) => {
                     }
                 }
 
+                function refreshMeetings() {
+                    location.reload();
+                }
+
                 // Auto-refresh stats
                 setInterval(() => {
                     fetch('/health')
@@ -952,6 +1099,7 @@ app.get('/', (req, res) => {
                             document.getElementById('clientCount').textContent = data.clients;
                             document.getElementById('meetingCount').textContent = data.meetings;
                             document.getElementById('webrtcCount').textContent = data.peerConnections;
+                            document.getElementById('storeCount').textContent = data.meetingStore;
                             document.getElementById('footerClientCount').textContent = data.clients;
                             document.getElementById('footerMeetingCount').textContent = data.meetings;
                         })
@@ -978,12 +1126,15 @@ wss.on('listening', () => {
 wss.on('connection', (ws, req) => {
     const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     const clientPort = req.socket.remotePort;
+    const deviceId = req.headers['device-id'] || `Device-${Math.floor(Math.random() * 10000)}`;
+    const deviceName = req.headers['device-name'] || `Laptop-${Math.floor(Math.random() * 100)}`;
 
     console.log('\n' + '='.repeat(50));
     console.log(`🔌 NEW CONNECTION ATTEMPT`);
     console.log(`   IP: ${clientIp}`);
     console.log(`   Port: ${clientPort}`);
-    console.log(`   Headers:`, req.headers);
+    console.log(`   Device ID: ${deviceId}`);
+    console.log(`   Device Name: ${deviceName}`);
     console.log('='.repeat(50));
 
     const userId = `User-${Math.floor(Math.random() * 10000)}`;
@@ -991,6 +1142,8 @@ wss.on('connection', (ws, req) => {
 
     clients.set(ws, {
         id: userId,
+        deviceId: deviceId,
+        deviceName: deviceName,
         connectionId: connectionId,
         ip: clientIp,
         port: clientPort,
@@ -1005,7 +1158,7 @@ wss.on('connection', (ws, req) => {
         userAgent: req.headers['user-agent'] || 'Unknown'
     });
 
-    console.log(`✅ Connection established - UserID: ${userId}`);
+    console.log(`✅ Connection established - UserID: ${userId}, Device: ${deviceName}`);
     console.log(`📊 Total connected clients: ${clients.size}`);
 
     // Send connection success message
@@ -1013,6 +1166,7 @@ wss.on('connection', (ws, req) => {
         type: 'CONNECTION_SUCCESS',
         data: {
             userId: userId,
+            deviceId: deviceId,
             message: 'Connected to server successfully',
             serverIPs: localIPs,
             yourIP: clientIp,
@@ -1037,12 +1191,28 @@ wss.on('connection', (ws, req) => {
         data: stunConfig
     }));
 
-    const welcomeMessage = `SYSTEM|global|Server|CONNECTED|${userId}|Welcome! Your IP: ${clientIp}`;
+    // Send current meeting list
+    const meetingList = [];
+    for (const [meetingId, meeting] of meetingStore) {
+        meetingList.push({
+            id: meetingId,
+            host: meeting.host,
+            participants: meeting.participants.size,
+            title: meeting.title || `Meeting ${meetingId}`
+        });
+    }
+
+    ws.send(JSON.stringify({
+        type: 'MEETING_LIST',
+        data: meetingList
+    }));
+
+    const welcomeMessage = `SYSTEM|global|Server|CONNECTED|${userId}|Welcome! Your IP: ${clientIp}, Device: ${deviceName}`;
     ws.send(welcomeMessage);
-    console.log(`📤 Sent welcome to ${userId}`);
+    console.log(`📤 Sent welcome to ${userId} (${deviceName})`);
 
     // Notify others
-    broadcast(`SYSTEM|global|Server|USER_JOINED|${userId}|${userId} joined from ${clientIp}`, ws);
+    broadcast(`SYSTEM|global|Server|USER_JOINED|${userId}|${deviceName} (${deviceId}) joined from ${clientIp}`, ws);
 
     // Heartbeat
     const heartbeatInterval = setInterval(() => {
@@ -1129,6 +1299,13 @@ wss.on('connection', (ws, req) => {
                 case 'WEBRTC_SIGNAL':
                     handleWebRTCSignal(ws, userId, meetingId, content);
                     break;
+                case 'GET_ALL_MEETINGS':
+                case 'GET_MEETINGS':
+                    handleGetAllMeetings(ws, userId, meetingId, content);
+                    break;
+                case 'VALIDATE_MEETING':
+                    handleValidateMeeting(ws, userId, meetingId, content);
+                    break;
                 case 'PING':
                     ws.send(`PONG|${meetingId}|Server|${Date.now()}`);
                     break;
@@ -1148,20 +1325,20 @@ wss.on('connection', (ws, req) => {
     });
 
     ws.on('close', (code, reason) => {
-        console.log(`❌ ${userId} disconnected (Code: ${code}, Reason: ${reason})`);
+        console.log(`❌ ${userId} (${deviceName}) disconnected (Code: ${code}, Reason: ${reason})`);
         clearInterval(heartbeatInterval);
         clearInterval(timeoutCheck);
 
         const userInfo = clients.get(ws);
         if (userInfo && userInfo.currentMeeting) {
-            broadcastToMeeting(`USER_LEFT|${userInfo.currentMeeting}|${userId}|${userId} disconnected`, userInfo.currentMeeting, ws);
+            broadcastToMeeting(`USER_LEFT|${userInfo.currentMeeting}|${userId}|${deviceName} disconnected`, userInfo.currentMeeting, ws);
             removeUserFromMeeting(userInfo.currentMeeting, userId);
             cleanupWebRTCConnections(userInfo.currentMeeting, userId);
         }
 
         clients.delete(ws);
         console.log(`📊 Remaining clients: ${clients.size}`);
-        broadcast(`SYSTEM|global|Server|USER_LEFT|${userId}|${userId} left`);
+        broadcast(`SYSTEM|global|Server|USER_LEFT|${userId}|${deviceName} left`);
     });
 
     ws.on('error', (error) => {
@@ -1262,26 +1439,143 @@ function handleChatMessage(ws, userId, meetingId, content) {
 function handleMeetingCreated(ws, userId, meetingId, content) {
     console.log(`🎯 ${userId} created meeting: ${meetingId}`);
 
+    const userInfo = clients.get(ws);
+    const deviceName = userInfo ? userInfo.deviceName : 'Unknown';
+
+    // Parse content for additional info
+    const contentParts = content.split('|');
+    const meetingTitle = contentParts.length > 0 ? contentParts[0] : `Meeting ${meetingId}`;
+    const deviceInfo = contentParts.length > 1 ? contentParts[1] : deviceName;
+
     if (!meetings.has(meetingId)) {
         meetings.set(meetingId, {
             id: meetingId,
             host: userId,
+            hostDevice: deviceName,
             participants: new Set([userId]),
             created: new Date(),
+            title: meetingTitle,
+            deviceInfo: deviceInfo,
             webrtcEnabled: true
         });
     }
 
-    const userInfo = clients.get(ws);
+    // Store in meetingStore for persistence
+    if (!meetingStore.has(meetingId)) {
+        meetingStore.set(meetingId, {
+            id: meetingId,
+            host: userId,
+            hostDevice: deviceName,
+            participants: new Set([userId]),
+            created: new Date(),
+            title: meetingTitle,
+            deviceInfo: deviceInfo
+        });
+    }
+
     if (userInfo) {
         userInfo.currentMeeting = meetingId;
     }
 
-    broadcast(`SYSTEM|${meetingId}|Server|MEETING_CREATED|${userId}|created meeting ${meetingId}`);
+    // Broadcast to ALL clients (including those not in the meeting)
+    broadcast(`SYSTEM|${meetingId}|Server|MEETING_CREATED|${userId}|created meeting ${meetingId} on ${deviceName}`, ws);
+
+    // Also send as JSON for clients that prefer JSON
+    broadcast(JSON.stringify({
+        type: 'MEETING_CREATED',
+        data: {
+            meetingId: meetingId,
+            host: userId,
+            hostDevice: deviceName,
+            title: meetingTitle,
+            timestamp: Date.now()
+        }
+    }), ws);
+}
+
+function handleGetAllMeetings(ws, userId, meetingId, content) {
+    console.log(`📋 ${userId} requested all meetings`);
+
+    const meetingList = [];
+    for (const [mid, meeting] of meetingStore) {
+        meetingList.push({
+            id: mid,
+            host: meeting.host,
+            hostDevice: meeting.hostDevice,
+            participants: meeting.participants.size,
+            created: meeting.created,
+            title: meeting.title || `Meeting ${mid}`
+        });
+    }
+
+    // Also add meetings from active meetings map
+    for (const [mid, meeting] of meetings) {
+        if (!meetingStore.has(mid)) {
+            meetingList.push({
+                id: mid,
+                host: meeting.host,
+                hostDevice: meeting.hostDevice || 'Unknown',
+                participants: meeting.participants.size,
+                created: meeting.created,
+                title: meeting.title || `Meeting ${mid}`
+            });
+        }
+    }
+
+    ws.send(JSON.stringify({
+        type: 'MEETING_LIST_RESPONSE',
+        data: meetingList
+    }));
+
+    // Also send as pipe-delimited for backward compatibility
+    const pipeResponse = `MEETING_LIST|global|Server|${meetingList.map(m => `${m.id}|${m.host}|${m.participants}`).join(';')}`;
+    ws.send(pipeResponse);
+}
+
+function handleValidateMeeting(ws, userId, meetingId, content) {
+    console.log(`🔍 ${userId} validating meeting: ${meetingId}`);
+
+    const meeting = meetingStore.get(meetingId) || meetings.get(meetingId);
+
+    if (meeting) {
+        const response = `MEETING_VALIDATION_RESPONSE|${meetingId}|Server|VALID|${meeting.host}`;
+        ws.send(response);
+
+        // Also send as JSON
+        ws.send(JSON.stringify({
+            type: 'MEETING_VALIDATION_RESPONSE',
+            data: {
+                meetingId: meetingId,
+                valid: true,
+                host: meeting.host,
+                hostDevice: meeting.hostDevice,
+                participants: meeting.participants.size
+            }
+        }));
+
+        console.log(`✅ Meeting ${meetingId} is valid (host: ${meeting.host})`);
+    } else {
+        const response = `MEETING_VALIDATION_RESPONSE|${meetingId}|Server|INVALID|Meeting not found`;
+        ws.send(response);
+
+        ws.send(JSON.stringify({
+            type: 'MEETING_VALIDATION_RESPONSE',
+            data: {
+                meetingId: meetingId,
+                valid: false,
+                message: 'Meeting not found'
+            }
+        }));
+
+        console.log(`❌ Meeting ${meetingId} not found`);
+    }
 }
 
 function handleUserJoined(ws, userId, meetingId, content) {
     console.log(`✅ ${userId} joined meeting: ${meetingId}`);
+
+    const userInfo = clients.get(ws);
+    const deviceName = userInfo ? userInfo.deviceName : 'Unknown';
 
     const meeting = meetings.get(meetingId);
     if (meeting) {
@@ -1292,17 +1586,32 @@ function handleUserJoined(ws, userId, meetingId, content) {
             host: userId,
             participants: new Set([userId]),
             created: new Date(),
-            webrtcEnabled: true
+            hostDevice: deviceName,
+            title: `Meeting ${meetingId}`
         });
     }
 
-    const userInfo = clients.get(ws);
+    // Also update meetingStore
+    const storeMeeting = meetingStore.get(meetingId);
+    if (storeMeeting) {
+        storeMeeting.participants.add(userId);
+    } else {
+        meetingStore.set(meetingId, {
+            id: meetingId,
+            host: userId,
+            hostDevice: deviceName,
+            participants: new Set([userId]),
+            created: new Date(),
+            title: `Meeting ${meetingId}`
+        });
+    }
+
     if (userInfo) {
         userInfo.currentMeeting = meetingId;
     }
 
     broadcastToMeeting(`USER_JOINED|${meetingId}|${userId}|${content}`, meetingId, ws);
-    broadcastToMeeting(`SYSTEM|${meetingId}|Server|USER_JOINED|${userId}|joined the meeting`, meetingId);
+    broadcastToMeeting(`SYSTEM|${meetingId}|Server|USER_JOINED|${userId}|${deviceName} joined the meeting`, meetingId);
 
     // Send ICE server config to new user
     ws.send(JSON.stringify({
@@ -1313,33 +1622,75 @@ function handleUserJoined(ws, userId, meetingId, content) {
     // Notify other participants about new peer
     broadcastToMeeting(JSON.stringify({
         type: 'WEBRTC_NEW_PEER',
-        data: { userId: userId }
+        data: {
+            userId: userId,
+            deviceName: deviceName,
+            meetingId: meetingId
+        }
     }), meetingId, ws);
+
+    // Send updated participant list
+    sendParticipantList(meetingId);
 }
 
 function handleUserLeft(ws, userId, meetingId, content) {
     console.log(`🚪 ${userId} left meeting: ${meetingId}`);
-    removeUserFromMeeting(meetingId, userId);
 
     const userInfo = clients.get(ws);
+    const deviceName = userInfo ? userInfo.deviceName : 'Unknown';
+
+    removeUserFromMeeting(meetingId, userId);
+
     if (userInfo) {
         userInfo.currentMeeting = null;
     }
 
     broadcastToMeeting(`USER_LEFT|${meetingId}|${userId}|${content}`, meetingId, ws);
-    broadcastToMeeting(`SYSTEM|${meetingId}|Server|USER_LEFT|${userId}|left the meeting`, meetingId);
+    broadcastToMeeting(`SYSTEM|${meetingId}|Server|USER_LEFT|${userId}|${deviceName} left the meeting`, meetingId);
 
     broadcastToMeeting(JSON.stringify({
         type: 'WEBRTC_PEER_LEFT',
-        data: { userId: userId }
+        data: {
+            userId: userId,
+            deviceName: deviceName
+        }
     }), meetingId, ws);
+
+    // Send updated participant list
+    sendParticipantList(meetingId);
+}
+
+function sendParticipantList(meetingId) {
+    const meeting = meetings.get(meetingId);
+    if (!meeting) return;
+
+    const participants = [];
+    for (const userId of meeting.participants) {
+        for (const [client, info] of clients) {
+            if (info.id === userId) {
+                participants.push({
+                    id: userId,
+                    deviceName: info.deviceName,
+                    deviceId: info.deviceId,
+                    audioMuted: info.audioMuted,
+                    videoOn: info.videoOn
+                });
+                break;
+            }
+        }
+    }
+
+    broadcastToMeeting(JSON.stringify({
+        type: 'PARTICIPANT_LIST',
+        data: participants
+    }), meetingId);
 }
 
 function handleMeetingEnded(ws, userId, meetingId, content) {
     console.log(`🔚 ${userId} ended meeting: ${meetingId}`);
 
     const meeting = meetings.get(meetingId);
-    if (meeting && meeting.host === userId) {
+    if (meeting && (meeting.host === userId || meeting.host === 'User-' + userId)) {
         broadcastToMeeting(`MEETING_ENDED|${meetingId}|${userId}|${content}`, meetingId);
         broadcastToMeeting(`SYSTEM|${meetingId}|Server|MEETING_ENDED|${userId}|ended the meeting`, meetingId);
 
@@ -1354,6 +1705,7 @@ function handleMeetingEnded(ws, userId, meetingId, content) {
 
         peerConnections.delete(meetingId);
         meetings.delete(meetingId);
+        // Keep in meetingStore for history
         console.log(`🗑️ Cleaned up all data for meeting ${meetingId}`);
     }
 }
@@ -1371,6 +1723,9 @@ function handleAudioStatus(ws, userId, meetingId, content) {
     if (content.includes('muted') || content.includes('unmuted') || content.includes('deafened')) {
         broadcastToMeeting(`SYSTEM|${meetingId}|Server|AUDIO_STATUS|${userId}|${content}`, meetingId);
     }
+
+    // Update participant list
+    sendParticipantList(meetingId);
 }
 
 function handleVideoStatus(ws, userId, meetingId, content) {
@@ -1387,6 +1742,9 @@ function handleVideoStatus(ws, userId, meetingId, content) {
     if (content.includes('started') || content.includes('stopped') || content.includes('recording')) {
         broadcastToMeeting(`SYSTEM|${meetingId}|Server|VIDEO_STATUS|${userId}|${content}`, meetingId);
     }
+
+    // Update participant list
+    sendParticipantList(meetingId);
 }
 
 function broadcastToMeeting(message, meetingId, sender) {
@@ -1428,6 +1786,12 @@ function removeUserFromMeeting(meetingId, userId) {
             broadcastToMeeting(`SYSTEM|${meetingId}|Server|HOST_CHANGED|${newHost}|is now the host`, meetingId);
             console.log(`👑 New host for meeting ${meetingId}: ${newHost}`);
         }
+    }
+
+    // Also remove from meetingStore if needed
+    const storeMeeting = meetingStore.get(meetingId);
+    if (storeMeeting) {
+        storeMeeting.participants.delete(userId);
     }
 }
 
@@ -1478,6 +1842,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     console.log('\n🔍 QUICK TESTS:');
     console.log(`   From THIS laptop: curl http://localhost:${PORT}/health`);
     console.log(`   From CLIENT laptop: curl http://${localIPs[0] || 'SERVER_IP'}:${PORT}/health`);
+    console.log(`   List meetings: curl http://${localIPs[0] || 'SERVER_IP'}:${PORT}/api/meetings`);
 
     console.log('\n⚠️  WINDOWS FIREWALL (Run as Administrator):');
     console.log(`   netsh advfirewall firewall add rule name="Zoom WebSocket" dir=in action=allow protocol=TCP localport=${PORT}`);
@@ -1512,12 +1877,13 @@ setInterval(() => {
     console.log(`📊 SERVER STATUS UPDATE`);
     console.log(`   Connected Clients: ${clients.size}`);
     console.log(`   Active Meetings: ${meetings.size}`);
+    console.log(`   Meeting Store: ${meetingStore.size}`);
     console.log(`   WebRTC Pairs: ${Array.from(peerConnections.values()).reduce((total, meeting) => total + meeting.size, 0)}`);
 
     if (clients.size > 0) {
         console.log(`   👤 Connected clients:`);
         for (const [_, info] of clients) {
-            console.log(`      - ${info.id} (${info.ip})`);
+            console.log(`      - ${info.id} (${info.deviceName || 'Unknown'}) [${info.ip}]`);
             if (info.currentMeeting) {
                 console.log(`        📅 In meeting: ${info.currentMeeting}`);
             }
@@ -1528,6 +1894,13 @@ setInterval(() => {
         console.log(`   📅 Active meetings:`);
         for (const [id, meeting] of meetings) {
             console.log(`      - Meeting ${id}: ${meeting.participants.size} participants (Host: ${meeting.host})`);
+        }
+    }
+
+    if (meetingStore.size > 0) {
+        console.log(`   📅 Meeting store:`);
+        for (const [id, meeting] of meetingStore) {
+            console.log(`      - ${id}: created by ${meeting.host} on ${meeting.hostDevice || 'Unknown'}`);
         }
     }
     console.log('-'.repeat(40));
@@ -1579,4 +1952,4 @@ process.on('SIGINT', () => {
 });
 
 // Export for testing
-module.exports = { wss, clients, meetings, peerConnections };
+module.exports = { wss, clients, meetings, meetingStore, peerConnections };

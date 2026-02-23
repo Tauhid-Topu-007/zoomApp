@@ -1,0 +1,7 @@
+Zoom Meeting Recording
+Date: Tue Feb 24 03:05:21 GMT+06:00 2026
+Duration: 0 seconds
+Resolution: 640x480
+FPS: 15
+User: Topu1
+Meeting: 870294

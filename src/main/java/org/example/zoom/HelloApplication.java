@@ -2163,7 +2163,86 @@ public class HelloApplication extends Application {
         System.out.println("✅ Synced " + meetings.length + " meetings from server");
     }
 
+    /**
+     * NEW: Get all active meetings from server/database
+     */
+    public static List<MeetingInfo> getAllActiveMeetings() {
+        List<MeetingInfo> meetings = new ArrayList<>();
 
+        // First, get from database
+        List<Database.MeetingInfo> dbMeetings = Database.getAllMeetings();
+        for (Database.MeetingInfo dbMeeting : dbMeetings) {
+            MeetingInfo meetingInfo = new MeetingInfo(dbMeeting.getMeetingId(), dbMeeting.getHost());
+            // Add participants count
+            for (int i = 0; i < dbMeeting.getParticipantCount(); i++) {
+                meetingInfo.addParticipant("participant");
+            }
+            meetings.add(meetingInfo);
+        }
+
+        // Also add from active meetings map
+        for (Map.Entry<String, MeetingInfo> entry : activeMeetings.entrySet()) {
+            boolean exists = false;
+            for (MeetingInfo m : meetings) {
+                if (m.getMeetingId().equals(entry.getKey())) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                meetings.add(entry.getValue());
+            }
+        }
+
+        return meetings;
+    }
+
+
+    /**
+     * NEW: Force refresh meetings from server
+     */
+    public static void refreshMeetingsFromServer() {
+        if (isWebSocketConnected() && webSocketClient != null) {
+            System.out.println("📋 Requesting meeting list refresh from server");
+            webSocketClient.sendMessage("GET_ALL_MEETINGS", "global", loggedInUser, "refresh");
+        }
+    }
+
+    /**
+     * NEW: Handle meeting validation response
+     */
+    private static void handleMeetingValidationResponse(String meetingId, String status) {
+        System.out.println("📋 Meeting validation response: " + meetingId + " = " + status);
+
+        if (status.contains("VALID") || status.contains("EXISTS")) {
+            // Meeting exists on server, sync it
+            String[] parts = status.split("\\|");
+            if (parts.length >= 2) {
+                String host = parts[1];
+                syncMeetingFromServer(meetingId, host);
+            }
+        }
+    }
+
+    /**
+     * NEW: Handle meeting list response
+     */
+    private static void handleMeetingListResponse(String content) {
+        System.out.println("📋 Received meeting list response");
+        String[] meetings = content.split(";");
+
+        for (String meetingStr : meetings) {
+            String[] parts = meetingStr.split("\\|");
+            if (parts.length >= 2) {
+                String meetingId = parts[0];
+                String host = parts[1];
+
+                if (!activeMeetings.containsKey(meetingId)) {
+                    syncMeetingFromServer(meetingId, host);
+                }
+            }
+        }
+    }
 
     public static void addParticipantToMeeting(String meetingId, String username) {
         if (meetingId != null && username != null) {
