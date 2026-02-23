@@ -5,6 +5,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.application.Platform;
 
 public class JoinController {
 
@@ -21,6 +22,8 @@ public class JoinController {
         setupKeyHandlers();
 
         System.out.println("🔍 Join Controller initialized - checking for available meetings...");
+        System.out.println("Current user: " + HelloApplication.getLoggedInUser());
+        System.out.println("WebSocket connected: " + HelloApplication.isWebSocketConnected());
     }
 
     private void checkForMeetingId() {
@@ -69,25 +72,49 @@ public class JoinController {
             return;
         }
 
-        // Use HelloApplication's meeting validation system
+        statusLabel.setText("🔄 Validating meeting...");
+
+        // Check if meeting exists
         if (!HelloApplication.isValidMeeting(meetingId)) {
             statusLabel.setText("❌ Meeting not found! Check the ID or create a new meeting.");
             return;
         }
 
+        // Get the current logged in user (the one who logged in)
+        String loggedInUser = HelloApplication.getLoggedInUser();
+
+        // Use the logged in username instead of the name field for consistency
+        String participantName = loggedInUser != null ? loggedInUser : name;
+
+        System.out.println("Attempting to join meeting: " + meetingId + " as: " + participantName);
+        System.out.println("WebSocket connected: " + HelloApplication.isWebSocketConnected());
+
         // Join the meeting using HelloApplication's system
-        boolean joined = HelloApplication.joinMeeting(meetingId, name);
+        boolean joined = HelloApplication.joinMeeting(meetingId, participantName);
 
         if (joined) {
-            statusLabel.setText("✅ Joining meeting...");
+            statusLabel.setText("✅ Successfully joined meeting! Loading...");
 
-            // Navigate to meeting view after a brief delay to show the status
+            // If WebSocket is connected, send a notification that we joined
+            if (HelloApplication.isWebSocketConnected()) {
+                String deviceId = HelloApplication.getDeviceId();
+                String deviceName = HelloApplication.getDeviceName();
+                String content = participantName + " joined the meeting|" + deviceId + "|" + deviceName;
+
+                HelloApplication.sendWebSocketMessage("USER_JOINED", meetingId, participantName, content);
+                System.out.println("Sent USER_JOINED notification for meeting: " + meetingId);
+            } else {
+                System.out.println("WebSocket not connected - will work in offline mode");
+            }
+
+            // Navigate to meeting view after a brief delay
             new Thread(() -> {
                 try {
-                    Thread.sleep(1000); // Show status for 1 second
-                    javafx.application.Platform.runLater(() -> {
+                    Thread.sleep(1500); // Show status for 1.5 seconds
+                    Platform.runLater(() -> {
                         try {
                             HelloApplication.setRoot("meeting-view.fxml");
+                            System.out.println("Navigated to meeting view");
                         } catch (Exception e) {
                             e.printStackTrace();
                             statusLabel.setText("❌ Error navigating to meeting: " + e.getMessage());

@@ -1921,29 +1921,46 @@ public class HelloApplication extends Application {
             return false;
         }
 
+        // Set the active meeting ID
         setActiveMeetingId(meetingId);
-        setMeetingHost(false);
 
+        // Determine if this user is the host
+        MeetingInfo meetingInfo = activeMeetings.get(meetingId);
+        boolean isHost = meetingInfo != null && participantName.equals(meetingInfo.getHost());
+        setMeetingHost(isHost);
+
+        // Add participant to meeting
         addParticipantToMeeting(meetingId, participantName);
 
+        // Send WebSocket notification if connected
         if (isWebSocketConnected()) {
             String content = participantName + " joined the meeting|" + deviceId + "|" + deviceName;
             sendWebSocketMessage("USER_JOINED", meetingId, participantName, content);
-            System.out.println("Joined meeting via WebSocket: " + meetingId + " as " + participantName);
+            System.out.println("✅ Sent USER_JOINED via WebSocket for meeting: " + meetingId);
+
+            // Also request current participants list
+            if (webSocketClient != null) {
+                webSocketClient.send("GET_DEVICE_LIST");
+            }
         } else {
-            System.out.println("Joined meeting locally: " + meetingId + " as " + participantName + " (WebSocket offline)");
+            System.out.println("⚠️ WebSocket not connected - meeting joined in offline mode");
         }
 
+        // Start WebRTC if enabled
         if (webRTCEnabled && webRTCManager != null) {
             startWebRTCSession();
         }
 
         notifyControllersMeetingStateChanged(true);
 
-        System.out.println("JOIN SUCCESS: " + participantName + " joined meeting " + meetingId);
+        System.out.println("✅ JOIN SUCCESS: " + participantName + " joined meeting " + meetingId);
+        System.out.println("Is host: " + isHost);
+        System.out.println("Active participants: " + getMeetingParticipants(meetingId));
+
         return true;
     }
 
+    // Add this method to validate meeting existence
     public static boolean isValidMeeting(String meetingId) {
         System.out.println("Validating meeting: " + meetingId);
 
@@ -1952,23 +1969,27 @@ public class HelloApplication extends Application {
             return false;
         }
 
+        // Check in active meetings first
         if (activeMeetings.containsKey(meetingId)) {
-            System.out.println("Meeting found in active meetings: " + meetingId);
+            System.out.println("✅ Meeting found in active meetings: " + meetingId);
             return true;
         }
 
+        // Check in database
         if (Database.meetingExists(meetingId)) {
-            System.out.println("Meeting found in database: " + meetingId);
+            System.out.println("✅ Meeting found in database: " + meetingId);
 
+            // Get host from database and recreate meeting info
             String host = Database.getMeetingHost(meetingId);
             if (host != null) {
                 MeetingInfo meetingInfo = new MeetingInfo(meetingId, host);
                 activeMeetings.put(meetingId, meetingInfo);
+                System.out.println("Recreated meeting from database: " + meetingId);
                 return true;
             }
         }
 
-        System.err.println("Meeting not found: " + meetingId);
+        System.err.println("❌ Meeting not found: " + meetingId);
         return false;
     }
 

@@ -212,6 +212,9 @@ public class MeetingController {
         System.out.println("Is Host: " + HelloApplication.isMeetingHost());
         System.out.println("WebSocket Connected: " + HelloApplication.isWebSocketConnected());
 
+        // Ensure WebSocket is connected and get the client
+        ensureWebSocketConnected();
+
         fileTransferHandler = new FileTransferHandler(this);
         createVideoPlaceholder();
         initializeAudioVideoControllers();
@@ -231,24 +234,21 @@ public class MeetingController {
         // Create downloads folder
         createDownloadsFolder();
 
+        // Request current participant list from server
+        requestParticipantList();
+
         System.out.println("MeetingController initialized successfully");
     }
 
+    // Update the initializeChatWebSocketConnection method
     private void initializeChatWebSocketConnection() {
         // Get WebSocket client from HelloApplication
-        webSocketClient = HelloApplication.getWebSocketClient();
+        ensureWebSocketConnected();
 
         if (webSocketClient != null) {
             // Set message handler for chat messages
-            try {
-                webSocketClient.getClass().getMethod("setMessageHandler", java.util.function.Consumer.class)
-                        .invoke(webSocketClient, (java.util.function.Consumer<String>) this::handleChatWebSocketMessage);
-                System.out.println("Chat message handler set on WebSocket client");
-            } catch (Exception e) {
-                System.out.println("Could not set message handler: " + e.getMessage());
-                // Try alternative approach
-                webSocketClient.setMessageHandler(this::handleChatWebSocketMessage);
-            }
+            webSocketClient.setMessageHandler(this::handleWebSocketMessage);
+            System.out.println("Chat message handler set on WebSocket client");
 
             // Update chat UI status
             updateChatConnectionUI();
@@ -257,8 +257,15 @@ public class MeetingController {
             // Join meeting notification
             String meetingId = HelloApplication.getActiveMeetingId();
             if (meetingId != null && webSocketClient.isConnected()) {
-                webSocketClient.sendMessage("USER_JOINED", meetingId, currentUser, "joined the meeting");
-                System.out.println("Sent USER_JOINED notification");
+                String deviceId = HelloApplication.getDeviceId();
+                String deviceName = HelloApplication.getDeviceName();
+                String content = currentUser + " joined the meeting|" + deviceId + "|" + deviceName;
+
+                webSocketClient.sendMessage("USER_JOINED", meetingId, currentUser, content);
+                System.out.println("Sent USER_JOINED notification for meeting: " + meetingId);
+
+                // Request current participants
+                webSocketClient.send("GET_DEVICE_LIST");
             }
         } else {
             addSystemMessage("Chat not connected to server - messages will be local only");
@@ -536,14 +543,12 @@ public class MeetingController {
             String meetingId = HelloApplication.getActiveMeetingId();
             if (meetingId != null) {
                 // Save to database
-                boolean saved = Database.saveChatMessage(meetingId, username, msg, "USER");
-                if (saved) {
-                    System.out.println("Chat message saved to database for user: " + username);
-                } else {
-                    System.err.println("Failed to save chat message to database");
-                }
+                Database.saveChatMessage(meetingId, username, msg, "USER");
+                System.out.println("Chat message saved to database");
 
                 // Send via WebSocket to all participants
+                ensureWebSocketConnected();
+
                 if (webSocketClient != null && webSocketClient.isConnected()) {
                     System.out.println("WebSocket is connected, sending message...");
                     webSocketClient.sendMessage("CHAT_MESSAGE", meetingId, username, msg);
@@ -551,13 +556,18 @@ public class MeetingController {
                 } else {
                     System.err.println("WebSocket NOT connected - chat message not sent to other participants");
                     addSystemMessage("Warning: Chat message saved locally but not sent to other participants (no connection)");
+
+                    // Try to reconnect
+                    webSocketClient = HelloApplication.getWebSocketClient();
+                    if (webSocketClient != null && !webSocketClient.isConnected()) {
+                        webSocketClient.connect();
+                    }
                 }
             } else {
                 System.err.println("No active meeting ID");
             }
         }
     }
-
     @FXML
     protected void onSendFileInMeeting() {
         if (stage == null) {
@@ -1623,6 +1633,24 @@ public class MeetingController {
         return closest;
     }
 
+    private void ensureWebSocketConnected() {
+        webSocketClient = HelloApplication.getWebSocketClient();
+
+        if (webSocketClient == null || !webSocketClient.isConnected()) {
+            System.out.println("WebSocket not connected, attempting to reconnect...");
+            HelloApplication.ensureWebSocketConnection();
+            webSocketClient = HelloApplication.getWebSocketClient();
+        }
+    }
+    // Add this method to request participant list from server
+    private void requestParticipantList() {
+        if (webSocketClient != null && webSocketClient.isConnected()) {
+            webSocketClient.send("GET_DEVICE_LIST");
+            System.out.println("Requested participant list from server");
+        }
+    }
+
+
     private void enablePopupDragging(Parent root, Stage popupStage) {
         final double[] xOffset = new double[1];
         final double[] yOffset = new double[1];
@@ -2535,80 +2563,184 @@ public class MeetingController {
         }
     }
 
+    // Update the handleWebSocketMessage method to be more robust
     public void handleWebSocketMessage(String message) {
         try {
             System.out.println("=== MEETING CONTROLLER RECEIVED WEBSOCKET MESSAGE ===");
             System.out.println("Full message: " + message);
 
-            String[] parts = message.split("\\|", 4);
+            String[] parts = message.split("\\|", -1); // -1 to keep empty strings
             if (parts.length >= 4) {
                 String type = parts[0];
                 String meetingId = parts[1];
                 String username = parts[2];
                 String content = parts[3];
 
-                System.out.println("Parsed: Type=" + type + ", Meeting=" + meetingId + ", User=" + username + ", Content=" + content);
+                System.out.println("Parsed: Type=" + type + ", Meeting=" + meetingId + ", User=" + username);
 
-                // Skip our own messages (they're already displayed)
+                // Check if this message is for our meeting
+                String currentMeetingId = HelloApplication.getActiveMeetingId();
+                if (!meetingId.equals(currentMeetingId) && !meetingId.equals("global")) {
+                    System.out.println("Ignoring - not our meeting. Current: " + currentMeetingId + ", Received: " + meetingId);
+                    return;
+                }
+
+                // Skip our own messages
                 if (username.equals(currentUser)) {
                     System.out.println("Skipping own message: " + type);
                     return;
                 }
 
-                // Check meeting ID
-                String currentMeetingId = HelloApplication.getActiveMeetingId();
-                if (!meetingId.equals(currentMeetingId) && !meetingId.equals("global")) {
-                    System.out.println("Ignoring - wrong meeting ID. Current: " + currentMeetingId + ", Received: " + meetingId);
-                    return;
-                }
-
+                final String finalMessage = message;
                 Platform.runLater(() -> {
                     try {
-                        System.out.println("Processing message type: " + type);
+                        switch (type) {
+                            case "USER_JOINED":
+                                System.out.println("🔔 User joined: " + username);
+                                handleUserJoined(username, content);
+                                break;
 
-                        if ("CHAT_MESSAGE".equals(type)) {
-                            System.out.println("Handling CHAT_MESSAGE from " + username);
-                            handleIncomingChatMessage(username, content);
-                        } else if ("CHAT".equals(type)) { // Backward compatibility
-                            System.out.println("Handling CHAT from " + username);
-                            handleIncomingChatMessage(username, content);
-                        } else if ("VIDEO_FRAME".equals(type)) {
-                            System.out.println("Video frame from: " + username);
-                            int frameCount = framesReceived.incrementAndGet();
-                            if (frameCount % 10 == 0) {
-                                System.out.println("Total frames received: " + frameCount + " from " + username);
-                            }
-                            handleVideoFrameFromServer(username, content);
-                        } else if ("VIDEO_STATUS".equals(type)) {
-                            handleVideoStatus(username, content);
-                        } else if ("USER_JOINED".equals(type)) {
-                            addSystemMessage(username + " joined the meeting");
-                            addParticipant(username);
-                        } else if ("USER_LEFT".equals(type)) {
-                            addSystemMessage(username + " left the meeting");
-                            removeParticipant(username);
-                        } else if ("AUDIO_STATUS".equals(type)) {
-                            addSystemMessage(username + " " + content);
-                        } else if ("MEETING_CREATED".equals(type)) {
-                            addSystemMessage("Meeting created: " + content);
-                        } else if ("FILE_TRANSFER".equals(type)) {
-                            handleIncomingFileTransfer(username, content);
-                        } else {
-                            System.out.println("Unknown message type: " + type);
+                            case "USER_LEFT":
+                                System.out.println("🔔 User left: " + username);
+                                handleUserLeft(username, content);
+                                break;
+
+                            case "CHAT_MESSAGE":
+                            case "CHAT":
+                                handleIncomingChatMessage(username, content);
+                                break;
+
+                            case "VIDEO_FRAME":
+                                handleVideoFrameFromServer(username, content);
+                                break;
+
+                            case "VIDEO_STATUS":
+                                handleVideoStatus(username, content);
+                                break;
+
+                            case "AUDIO_STATUS":
+                                addSystemMessage(username + " " + content);
+                                break;
+
+                            case "FILE_TRANSFER":
+                                handleIncomingFileTransfer(username, content);
+                                break;
+
+                            case "DEVICE_LIST":
+                                handleDeviceList(content);
+                                break;
+
+                            case "DEVICE_CONNECTED":
+                                if (parts.length >= 5) {
+                                    handleDeviceConnected(username, parts[4]);
+                                }
+                                break;
+
+                            case "DEVICE_DISCONNECTED":
+                                if (parts.length >= 5) {
+                                    handleDeviceDisconnected(username, parts[4]);
+                                }
+                                break;
+
+                            case "SYSTEM":
+                                addSystemMessage(content);
+                                break;
+
+                            default:
+                                System.out.println("Unknown message type: " + type);
+                                break;
                         }
                     } catch (Exception e) {
-                        System.err.println("Error in Platform.runLater: " + e.getMessage());
+                        System.err.println("Error processing message: " + e.getMessage());
                         e.printStackTrace();
                     }
                 });
             } else {
-                System.err.println("Invalid WebSocket message format: " + message);
+                System.err.println("Invalid message format. Parts: " + parts.length);
             }
         } catch (Exception e) {
             System.err.println("Error in handleWebSocketMessage: " + e.getMessage());
             e.printStackTrace();
         }
     }
+
+    // Add handler for user joined
+    private void handleUserJoined(String username, String content) {
+        System.out.println("User joined meeting: " + username);
+
+        // Parse device info if present
+        String[] parts = content.split("\\|");
+        String deviceInfo = parts.length > 1 ? parts[1] : "unknown";
+
+        addParticipant(username);
+        addSystemMessage(username + " joined the meeting");
+
+        // Update participants list
+        updateParticipantsList();
+    }
+
+    // Add handler for device list
+    private void handleDeviceList(String content) {
+        System.out.println("Received device list: " + content);
+        String[] devices = content.split(";");
+
+        // Clear current participants except host
+        String host = HelloApplication.getLoggedInUser();
+        currentParticipants.clear();
+        if (host != null) {
+            currentParticipants.add(host);
+        }
+
+        // Add participants from device list
+        for (String deviceStr : devices) {
+            String[] parts = deviceStr.split(",");
+            if (parts.length >= 1) {
+                String username = parts[0];
+                if (!username.equals(host) && !currentParticipants.contains(username)) {
+                    currentParticipants.add(username);
+                    System.out.println("Added participant from device list: " + username);
+                }
+            }
+        }
+
+        updateParticipantsList();
+    }
+
+    // Add handler for device connected
+    private void handleDeviceConnected(String username, String deviceInfo) {
+        System.out.println("Device connected: " + username + " - " + deviceInfo);
+        if (!currentParticipants.contains(username) && !username.equals(currentUser)) {
+            addParticipant(username);
+            addSystemMessage(username + " connected to server");
+        }
+    }
+
+    // Add handler for device disconnected
+    private void handleDeviceDisconnected(String username, String deviceInfo) {
+        System.out.println("Device disconnected: " + username);
+        if (currentParticipants.contains(username)) {
+            removeParticipant(username);
+            addSystemMessage(username + " disconnected from server");
+        }
+    }
+
+
+    // Add handler for user left
+    private void handleUserLeft(String username, String content) {
+        System.out.println("User left meeting: " + username);
+
+        removeParticipant(username);
+        addSystemMessage(username + " left the meeting");
+
+        // Update participants list
+        updateParticipantsList();
+
+        // Clear video if this user was streaming
+        if (isDisplayingVideoFromUser(username)) {
+            clearVideoDisplay();
+        }
+    }
+
 
     private void handleVideoFrameFromServer(String username, String base64Image) {
         try {
