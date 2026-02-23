@@ -25,8 +25,26 @@ public class JoinController {
         System.out.println("Current user: " + HelloApplication.getLoggedInUser());
         System.out.println("WebSocket connected: " + HelloApplication.isWebSocketConnected());
 
+        // Request meeting list from server to sync
+        if (HelloApplication.isWebSocketConnected()) {
+            System.out.println("📋 Requesting meeting list from server...");
+            HelloApplication.requestMeetingList();
+        }
+
         // List all active meetings for debugging
         System.out.println("Active meetings in system: " + HelloApplication.getActiveMeetings().keySet());
+
+        // Also check database for meetings
+        System.out.println("Checking database for meetings...");
+        if (HelloApplication.getActiveMeetingId() != null) {
+            boolean exists = Database.meetingExists(HelloApplication.getActiveMeetingId());
+            System.out.println("Meeting " + HelloApplication.getActiveMeetingId() + " exists in DB: " + exists);
+        }
+
+        // If no active meetings, show helpful message
+        if (HelloApplication.getActiveMeetings().isEmpty()) {
+            statusLabel.setText("ℹ️ No meetings found. Please enter a valid Meeting ID.");
+        }
     }
 
     private void checkForMeetingId() {
@@ -87,8 +105,24 @@ public class JoinController {
         System.out.println("WebSocket connected: " + HelloApplication.isWebSocketConnected());
         System.out.println("Active meetings before validation: " + HelloApplication.getActiveMeetings().keySet());
 
+        // First check if meeting exists locally
+        boolean meetingExists = HelloApplication.isValidMeeting(meetingId);
+
+        // If not found locally but WebSocket is connected, request validation from server
+        if (!meetingExists && HelloApplication.isWebSocketConnected()) {
+            statusLabel.setText("🔄 Checking with server for meeting...");
+            System.out.println("Meeting not found locally, requesting server validation");
+
+            // We need to wait for server response - this is async
+            // For simplicity, we'll check again after a short delay
+            // In a real app, you'd use a callback or CompletableFuture
+
+            // For now, let's try to join anyway - the server might have it
+            meetingExists = tryValidateWithServer(meetingId);
+        }
+
         // Check if meeting exists
-        if (!HelloApplication.isValidMeeting(meetingId)) {
+        if (!meetingExists) {
             statusLabel.setText("❌ Meeting not found! Check the ID or create a new meeting.");
 
             // Show available meetings for debugging
@@ -98,8 +132,25 @@ public class JoinController {
                     msg.append(id).append(" ");
                 }
                 System.out.println(msg.toString());
+            } else {
+                System.out.println("No active meetings found locally");
+
+                // Try to sync with server
+                if (HelloApplication.isWebSocketConnected()) {
+                    statusLabel.setText("🔄 Syncing with server...");
+                    HelloApplication.requestMeetingList();
+
+                    // Check again after a short delay
+                    Thread.sleep(1000);
+                    if (HelloApplication.isValidMeeting(meetingId)) {
+                        meetingExists = true;
+                    }
+                }
             }
-            return;
+
+            if (!meetingExists) {
+                return;
+            }
         }
 
         System.out.println("✅ Meeting validated successfully: " + meetingId);
@@ -145,9 +196,34 @@ public class JoinController {
         }
     }
 
+
     @FXML
     protected void onCancelClick() throws Exception {
         HelloApplication.setRoot("dashboard-view.fxml");
+    }
+    /**
+     * NEW: Try to validate meeting with server
+     */
+    private boolean tryValidateWithServer(String meetingId) {
+        if (!HelloApplication.isWebSocketConnected()) {
+            return false;
+        }
+
+        System.out.println("🔄 Validating meeting with server: " + meetingId);
+
+        // Send validation request
+        HelloApplication.sendWebSocketMessage("VALIDATE_MEETING", meetingId,
+                HelloApplication.getLoggedInUser(), meetingId);
+
+        // Wait for response (simplified - in real app use callback)
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            // Ignore
+        }
+
+        // Check again
+        return HelloApplication.isValidMeeting(meetingId);
     }
 
     @FXML

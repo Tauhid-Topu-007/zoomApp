@@ -22,6 +22,7 @@ public class NewMeetingController {
     private ScrollPane mainScrollPane;
 
     private String meetingId;
+    private String host; // Make host a class field
 
     @FXML
     public void initialize() {
@@ -42,31 +43,67 @@ public class NewMeetingController {
         HelloApplication.setActiveMeetingId(meetingId);
 
         // CRITICAL: Save meeting to database immediately
-        String host = HelloApplication.getLoggedInUser();
+        host = HelloApplication.getLoggedInUser();
         if (host == null || host.isEmpty()) {
             host = "Host";
         }
 
         // Save to database with explicit meeting ID
-        Database.saveMeetingWithId(meetingId, host, "Meeting " + meetingId, "Meeting created by " + host);
+        boolean saved = Database.saveMeetingWithId(meetingId, host, "Meeting " + meetingId,
+                "Meeting created by " + host + " on device: " + HelloApplication.getDeviceName());
+
+        if (saved) {
+            System.out.println("✅ Meeting saved to database with ID: " + meetingId);
+        } else {
+            System.err.println("❌ Failed to save meeting to database, trying alternative method");
+            // Alternative: at least add participant
+            Database.addParticipant(meetingId, host);
+        }
 
         // Also add host as participant
         Database.addParticipant(meetingId, host);
 
-        // Send WebSocket notification if connected
+        // CRITICAL: Send WebSocket notification multiple times to ensure delivery
         if (HelloApplication.isWebSocketConnected()) {
             String deviceId = HelloApplication.getDeviceId();
             String deviceName = HelloApplication.getDeviceName();
             String content = "New meeting created by " + host + "|" + deviceId + "|" + deviceName;
+
+            // Store values in final variables for lambda
+            final String finalMeetingId = meetingId;
+            final String finalHost = host;
+            final String finalDeviceId = deviceId;
+            final String finalDeviceName = deviceName;
+            final String finalContent = content;
+
+            // Send first message
             HelloApplication.sendWebSocketMessage("MEETING_CREATED", meetingId, host, content);
             System.out.println("📢 Sent MEETING_CREATED via WebSocket for meeting: " + meetingId);
+
+            // Send second message after short delay - using final variables
+            new Thread(() -> {
+                try {
+                    Thread.sleep(500);
+                    if (HelloApplication.isWebSocketConnected()) {
+                        HelloApplication.sendWebSocketMessage("MEETING_AVAILABLE", finalMeetingId, finalHost,
+                                finalMeetingId + "|" + finalHost + "|" + finalDeviceName);
+                        System.out.println("📢 Sent additional MEETING_AVAILABLE notification");
+                    }
+                } catch (InterruptedException e) {
+                    // Ignore
+                }
+            }).start();
+        } else {
+            System.out.println("⚠️ WebSocket not connected - meeting only available locally");
         }
 
         statusLabel.setText("✅ Meeting ID generated! Share it with participants.");
         System.out.println("🎯 New Meeting Controller: Meeting ID " + meetingId + " is ready for joining!");
-        System.out.println("📝 Meeting saved to database with ID: " + meetingId);
         System.out.println("👤 Host: " + host);
         System.out.println("🔌 WebSocket connected: " + HelloApplication.isWebSocketConnected());
+
+        // Request meeting list to sync with server
+        HelloApplication.requestMeetingList();
     }
 
     @FXML
