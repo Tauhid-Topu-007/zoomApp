@@ -118,6 +118,23 @@ public class LoginController {
                     }
                 });
             }
+
+            @Override
+            public void onMeetingListChanged(java.util.Map<String, HelloApplication.MeetingInfo> meetings) {
+                // Login screen doesn't need to show meetings, but we must implement the method
+                System.out.println("📅 Meeting list updated on login screen: " + meetings.size() + " meetings available");
+                // Optionally update a label or status if you want to show meeting count
+                Platform.runLater(() -> {
+                    if (meetings.size() > 0 && messageLabel != null) {
+                        // You could optionally show a message that meetings are available
+                        // but don't override error/success messages
+                        if (!messageLabel.getText().contains("❌") && !messageLabel.getText().contains("✅")) {
+                            messageLabel.setText("📅 " + meetings.size() + " meeting(s) available");
+                            messageLabel.setStyle("-fx-text-fill: #f39c12; -fx-font-size: 12px;");
+                        }
+                    }
+                });
+            }
         });
     }
 

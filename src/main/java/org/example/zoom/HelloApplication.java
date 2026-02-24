@@ -85,6 +85,10 @@ public class HelloApplication extends Application {
     // HTTP client for REST API calls
     private static HttpClient httpClient = HttpClient.newHttpClient();
 
+    // Meeting synchronization
+    private static final Map<String, Long> meetingLastSeen = new HashMap<>();
+    private static final long MEETING_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+
     public static class DeviceInfo {
         String deviceId;
         String deviceName;
@@ -118,6 +122,7 @@ public class HelloApplication extends Application {
     public interface ConnectionStatusListener {
         void onConnectionStatusChanged(boolean connected, String status);
         void onDeviceListChanged(Map<String, DeviceInfo> devices);
+        void onMeetingListChanged(Map<String, MeetingInfo> meetings);
     }
 
     @Override
@@ -142,6 +147,9 @@ public class HelloApplication extends Application {
         System.out.println("Primary stage initialized and ready");
         System.out.println("Make sure Node.js server is running on port " + DEFAULT_PORT);
         System.out.println("Run: node server/server.js");
+
+        // Start meeting cleanup task
+        startMeetingCleanupTask();
     }
 
     /**
@@ -275,6 +283,7 @@ public class HelloApplication extends Application {
             }
 
             activeMeetings.remove(meetingId);
+            meetingLastSeen.remove(meetingId);
             activeParticipants.clear();
             connectedDevices.clear();
 
@@ -297,6 +306,7 @@ public class HelloApplication extends Application {
             if (connectionStatusListener != null) {
                 Platform.runLater(() -> {
                     connectionStatusListener.onDeviceListChanged(new HashMap<>(connectedDevices));
+                    connectionStatusListener.onMeetingListChanged(new HashMap<>(activeMeetings));
                 });
             }
         }
@@ -340,6 +350,7 @@ public class HelloApplication extends Application {
         if (connectionStatusListener != null) {
             Platform.runLater(() -> {
                 connectionStatusListener.onDeviceListChanged(new HashMap<>(connectedDevices));
+                connectionStatusListener.onMeetingListChanged(new HashMap<>(activeMeetings));
             });
         }
     }
@@ -645,6 +656,9 @@ public class HelloApplication extends Application {
         if (username != null) {
             initializeWebSocket(username);
         }
+
+        // Request meetings from server
+        requestAllMeetings();
     }
 
     public static String getLoggedInUser() {
@@ -668,6 +682,8 @@ public class HelloApplication extends Application {
         isMeetingHost = false;
         connectionInitialized = false;
         connectedDevices.clear();
+        activeMeetings.clear();
+        meetingLastSeen.clear();
 
         audioMuted = false;
         isDeafened = false;
@@ -887,6 +903,9 @@ public class HelloApplication extends Application {
             // Send device info once connected
             sendDeviceInfo();
 
+            // Request meetings after connection
+            requestAllMeetings();
+
         } catch (Exception e) {
             System.err.println("Failed to initialize WebSocket: " + e.getMessage());
             handleConnectionFailure(serverUrl);
@@ -974,6 +993,7 @@ public class HelloApplication extends Application {
                             consecutiveFailures = 0;
                             System.out.println("Connection restored, sending device info");
                             sendDeviceInfo();
+                            requestAllMeetings();
                         }
                     }
 
@@ -1067,6 +1087,7 @@ public class HelloApplication extends Application {
             Platform.runLater(() -> {
                 listener.onConnectionStatusChanged(connected, status);
                 listener.onDeviceListChanged(new HashMap<>(connectedDevices));
+                listener.onMeetingListChanged(new HashMap<>(activeMeetings));
             });
         }
     }
@@ -1625,6 +1646,24 @@ public class HelloApplication extends Application {
                 return;
             }
 
+            // Handle MEETING_LIST responses
+            if (type.equals("MEETING_LIST") || type.equals("MEETING_LIST_RESPONSE")) {
+                handleMeetingListResponse(content);
+                return;
+            }
+
+            // Handle GET_ALL_MEETINGS responses
+            if (type.equals("ALL_MEETINGS_RESPONSE")) {
+                handleAllMeetingsResponse(content);
+                return;
+            }
+
+            // Handle MEETING_VALIDATION_RESPONSE
+            if (type.equals("MEETING_VALIDATION_RESPONSE")) {
+                handleMeetingValidationResponse(meetingId, content);
+                return;
+            }
+
             // Skip our own messages for other types
             if (username.equals(loggedInUser)) {
                 System.out.println("Ignoring own message echo: " + type);
@@ -1877,7 +1916,7 @@ public class HelloApplication extends Application {
     }
 
     /**
-     * UPDATED: Create new meeting with proper broadcasting
+     * Create new meeting with proper broadcasting
      */
     public static String createNewMeeting() {
         ensureDeviceInfo(); // Ensure device info is set
@@ -1892,6 +1931,7 @@ public class HelloApplication extends Application {
 
         MeetingInfo meetingInfo = new MeetingInfo(meetingId, hostName);
         activeMeetings.put(meetingId, meetingInfo);
+        meetingLastSeen.put(meetingId, System.currentTimeMillis());
 
         setActiveMeetingId(meetingId);
         setMeetingHost(true);
@@ -1919,10 +1959,13 @@ public class HelloApplication extends Application {
             // Also send a second message to ensure it's received
             try {
                 Thread.sleep(100); // Small delay
-                sendWebSocketMessage("MEETING_AVAILABLE", meetingId, hostName, meetingId + "|" + hostName);
+                sendWebSocketMessage("MEETING_AVAILABLE", meetingId, hostName, meetingId + "|" + hostName + "|" + deviceName);
             } catch (InterruptedException e) {
                 // Ignore
             }
+
+            // Request meeting list refresh on server
+            requestAllMeetings();
         } else {
             System.out.println("⚠️ WebSocket not connected - meeting only available locally");
         }
@@ -1932,6 +1975,12 @@ public class HelloApplication extends Application {
         }
 
         notifyControllersMeetingStateChanged(true);
+
+        if (connectionStatusListener != null) {
+            Platform.runLater(() -> {
+                connectionStatusListener.onMeetingListChanged(new HashMap<>(activeMeetings));
+            });
+        }
 
         System.out.println("MEETING CREATION SUCCESS: " + meetingId + " - Ready for participants to join!");
         return meetingId;
@@ -1949,10 +1998,13 @@ public class HelloApplication extends Application {
 
         boolean meetingExists = false;
 
+        // Check in active meetings
         if (activeMeetings.containsKey(meetingId)) {
             System.out.println("Meeting found in active meetings: " + meetingId);
             meetingExists = true;
+            meetingLastSeen.put(meetingId, System.currentTimeMillis());
         }
+        // Check in database
         else if (Database.meetingExists(meetingId)) {
             System.out.println("Meeting found in database: " + meetingId);
 
@@ -1960,13 +2012,19 @@ public class HelloApplication extends Application {
             if (host != null) {
                 MeetingInfo meetingInfo = new MeetingInfo(meetingId, host);
                 activeMeetings.put(meetingId, meetingInfo);
+                meetingLastSeen.put(meetingId, System.currentTimeMillis());
                 meetingExists = true;
                 System.out.println("Recreated meeting from database: " + meetingId);
             }
         }
+        // Check with server via WebSocket
+        else if (isWebSocketConnected()) {
+            System.out.println("Meeting not found locally, validating with server: " + meetingId);
+            meetingExists = validateMeetingWithServer(meetingId);
+        }
 
         if (!meetingExists) {
-            System.err.println("Meeting not found: " + meetingId);
+            System.err.println("Meeting not found after all checks: " + meetingId);
             return false;
         }
 
@@ -1991,6 +2049,9 @@ public class HelloApplication extends Application {
             if (webSocketClient != null) {
                 webSocketClient.send("GET_DEVICE_LIST");
             }
+
+            // Request meeting list to sync
+            requestAllMeetings();
         } else {
             System.out.println("⚠️ WebSocket not connected - meeting joined in offline mode");
         }
@@ -2006,11 +2067,55 @@ public class HelloApplication extends Application {
         System.out.println("Is host: " + isHost);
         System.out.println("Active participants: " + getMeetingParticipants(meetingId));
 
+        if (connectionStatusListener != null) {
+            Platform.runLater(() -> {
+                connectionStatusListener.onMeetingListChanged(new HashMap<>(activeMeetings));
+            });
+        }
+
         return true;
     }
 
     /**
-     * UPDATED: Enhanced meeting validation that checks multiple sources
+     * Validate meeting with server
+     */
+    private static boolean validateMeetingWithServer(String meetingId) {
+        if (!isWebSocketConnected() || webSocketClient == null) {
+            return false;
+        }
+
+        System.out.println("🔄 Sending validation request to server for meeting: " + meetingId);
+        sendWebSocketMessage("VALIDATE_MEETING", meetingId, loggedInUser, meetingId);
+
+        // Wait for response (simplified - in production use CompletableFuture)
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        // Check if meeting was added during validation
+        boolean exists = activeMeetings.containsKey(meetingId);
+        if (!exists) {
+            // Check database again
+            exists = Database.meetingExists(meetingId);
+        }
+
+        return exists;
+    }
+
+    /**
+     * Request all meetings from server
+     */
+    public static void requestAllMeetings() {
+        if (isWebSocketConnected() && webSocketClient != null && loggedInUser != null) {
+            System.out.println("📋 Requesting all meetings from server");
+            webSocketClient.sendMessage("GET_ALL_MEETINGS", "global", loggedInUser, "Request all meetings");
+        }
+    }
+
+    /**
+     * Enhanced meeting validation that checks multiple sources
      */
     public static boolean isValidMeeting(String meetingId) {
         System.out.println("🔍 Validating meeting: " + meetingId + " on device: " + deviceName);
@@ -2023,6 +2128,7 @@ public class HelloApplication extends Application {
         // 1. Check in active meetings (in-memory)
         if (activeMeetings.containsKey(meetingId)) {
             System.out.println("✅ Meeting found in active meetings: " + meetingId);
+            meetingLastSeen.put(meetingId, System.currentTimeMillis());
             return true;
         }
 
@@ -2036,6 +2142,7 @@ public class HelloApplication extends Application {
             if (host != null) {
                 MeetingInfo meetingInfo = new MeetingInfo(meetingId, host);
                 activeMeetings.put(meetingId, meetingInfo);
+                meetingLastSeen.put(meetingId, System.currentTimeMillis());
                 System.out.println("✅ Recreated meeting from database: " + meetingId);
                 return true;
             }
@@ -2048,18 +2155,30 @@ public class HelloApplication extends Application {
             String host = participants.get(0); // First participant is usually host
             MeetingInfo meetingInfo = new MeetingInfo(meetingId, host);
             activeMeetings.put(meetingId, meetingInfo);
+            meetingLastSeen.put(meetingId, System.currentTimeMillis());
             return true;
         }
 
         // 4. If connected to WebSocket, request server to validate
         if (isWebSocketConnected() && webSocketClient != null) {
             System.out.println("🔄 Requesting server validation for meeting: " + meetingId);
-            webSocketClient.sendMessage("VALIDATE_MEETING", meetingId, loggedInUser, meetingId);
-            // Note: We'll get response asynchronously, so for now return false
-            // The response will be handled in handleWebSocketMessage
+            sendWebSocketMessage("VALIDATE_MEETING", meetingId, loggedInUser, meetingId);
+
+            // Give server a moment to respond
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
+            // Check again after validation
+            if (activeMeetings.containsKey(meetingId)) {
+                System.out.println("✅ Meeting validated by server: " + meetingId);
+                return true;
+            }
         }
 
-        System.err.println("❌ Meeting not found: " + meetingId);
+        System.err.println("❌ Meeting not found after all checks: " + meetingId);
         return false;
     }
 
@@ -2071,6 +2190,7 @@ public class HelloApplication extends Application {
 
         MeetingInfo meetingInfo = new MeetingInfo(meetingId, hostName);
         activeMeetings.put(meetingId, meetingInfo);
+        meetingLastSeen.put(meetingId, System.currentTimeMillis());
 
         Database.saveMeetingWithId(meetingId, hostName, "Test Meeting " + meetingId, "Quick join test meeting");
 
@@ -2132,84 +2252,9 @@ public class HelloApplication extends Application {
             System.out.println("Participant removed: " + name);
         }
     }
-    /**
-     * NEW: Request all active meetings from server
-     */
-    public static void requestMeetingList() {
-        if (isWebSocketConnected() && webSocketClient != null && loggedInUser != null) {
-            System.out.println("📋 Requesting meeting list from server");
-            webSocketClient.sendMessage("GET_MEETINGS", "global", loggedInUser, "Request meeting list");
-        }
-    }
-    /**
-     * NEW: Handle meeting list response from server
-     */
-    private static void handleMeetingList(String content) {
-        System.out.println("📋 Received meeting list: " + content);
-        String[] meetings = content.split(";");
-
-        for (String meetingInfo : meetings) {
-            String[] parts = meetingInfo.split(",");
-            if (parts.length >= 2) {
-                String meetingId = parts[0];
-                String host = parts[1];
-
-                if (!activeMeetings.containsKey(meetingId)) {
-                    syncMeetingFromServer(meetingId, host);
-                }
-            }
-        }
-
-        System.out.println("✅ Synced " + meetings.length + " meetings from server");
-    }
 
     /**
-     * NEW: Get all active meetings from server/database
-     */
-    public static List<MeetingInfo> getAllActiveMeetings() {
-        List<MeetingInfo> meetings = new ArrayList<>();
-
-        // First, get from database
-        List<Database.MeetingInfo> dbMeetings = Database.getAllMeetings();
-        for (Database.MeetingInfo dbMeeting : dbMeetings) {
-            MeetingInfo meetingInfo = new MeetingInfo(dbMeeting.getMeetingId(), dbMeeting.getHost());
-            // Add participants count
-            for (int i = 0; i < dbMeeting.getParticipantCount(); i++) {
-                meetingInfo.addParticipant("participant");
-            }
-            meetings.add(meetingInfo);
-        }
-
-        // Also add from active meetings map
-        for (Map.Entry<String, MeetingInfo> entry : activeMeetings.entrySet()) {
-            boolean exists = false;
-            for (MeetingInfo m : meetings) {
-                if (m.getMeetingId().equals(entry.getKey())) {
-                    exists = true;
-                    break;
-                }
-            }
-            if (!exists) {
-                meetings.add(entry.getValue());
-            }
-        }
-
-        return meetings;
-    }
-
-
-    /**
-     * NEW: Force refresh meetings from server
-     */
-    public static void refreshMeetingsFromServer() {
-        if (isWebSocketConnected() && webSocketClient != null) {
-            System.out.println("📋 Requesting meeting list refresh from server");
-            webSocketClient.sendMessage("GET_ALL_MEETINGS", "global", loggedInUser, "refresh");
-        }
-    }
-
-    /**
-     * NEW: Handle meeting validation response
+     * Handle meeting validation response
      */
     private static void handleMeetingValidationResponse(String meetingId, String status) {
         System.out.println("📋 Meeting validation response: " + meetingId + " = " + status);
@@ -2225,7 +2270,7 @@ public class HelloApplication extends Application {
     }
 
     /**
-     * NEW: Handle meeting list response
+     * Handle meeting list response
      */
     private static void handleMeetingListResponse(String content) {
         System.out.println("📋 Received meeting list response");
@@ -2242,12 +2287,67 @@ public class HelloApplication extends Application {
                 }
             }
         }
+
+        if (connectionStatusListener != null) {
+            Platform.runLater(() -> {
+                connectionStatusListener.onMeetingListChanged(new HashMap<>(activeMeetings));
+            });
+        }
+    }
+
+    /**
+     * Handle all meetings response
+     */
+    private static void handleAllMeetingsResponse(String content) {
+        System.out.println("📋 Received all meetings response");
+        try {
+            // Try to parse as JSON first
+            if (content.startsWith("{")) {
+                // JSON format - would need JSON parser
+                System.out.println("Received JSON meeting list");
+                return;
+            }
+        } catch (Exception e) {
+            // Not JSON, continue with pipe format
+        }
+
+        // Pipe-delimited format: meetingId|host|participantCount;...
+        String[] meetings = content.split(";");
+        int addedCount = 0;
+
+        for (String meetingStr : meetings) {
+            String[] parts = meetingStr.split("\\|");
+            if (parts.length >= 2) {
+                String meetingId = parts[0];
+                String host = parts[1];
+
+                if (!activeMeetings.containsKey(meetingId)) {
+                    MeetingInfo meetingInfo = new MeetingInfo(meetingId, host);
+                    activeMeetings.put(meetingId, meetingInfo);
+                    meetingLastSeen.put(meetingId, System.currentTimeMillis());
+                    addedCount++;
+
+                    // Also save to database
+                    Database.saveMeetingWithId(meetingId, host, "Meeting " + meetingId,
+                            "Synced from server");
+                }
+            }
+        }
+
+        System.out.println("✅ Added " + addedCount + " meetings from server response");
+
+        if (connectionStatusListener != null) {
+            Platform.runLater(() -> {
+                connectionStatusListener.onMeetingListChanged(new HashMap<>(activeMeetings));
+            });
+        }
     }
 
     public static void addParticipantToMeeting(String meetingId, String username) {
         if (meetingId != null && username != null) {
             Database.addParticipant(meetingId, username);
             addParticipant(username);
+            meetingLastSeen.put(meetingId, System.currentTimeMillis());
         }
     }
 
@@ -2268,6 +2368,7 @@ public class HelloApplication extends Application {
     private static void createMeeting(String meetingId, String host) {
         MeetingInfo meetingInfo = new MeetingInfo(meetingId, host);
         activeMeetings.put(meetingId, meetingInfo);
+        meetingLastSeen.put(meetingId, System.currentTimeMillis());
         System.out.println("Meeting registered: " + meetingId + " hosted by " + host);
     }
 
@@ -2279,6 +2380,7 @@ public class HelloApplication extends Application {
             } else {
                 meetingInfo.removeParticipant(username);
             }
+            meetingLastSeen.put(meetingId, System.currentTimeMillis());
         }
     }
 
@@ -2287,7 +2389,7 @@ public class HelloApplication extends Application {
     }
 
     /**
-     * Handle MEETING_CREATED messages from server - UPDATED
+     * Handle MEETING_CREATED messages from server
      */
     private static void handleMeetingCreatedFromServer(String meetingId, String host, String content) {
         System.out.println("📢 Meeting created notification from server: " + meetingId + " by " + host);
@@ -2295,31 +2397,32 @@ public class HelloApplication extends Application {
         // Parse content for device info if available
         String[] parts = content.split("\\|");
         String deviceInfo = parts.length > 1 ? parts[1] : "unknown";
-        String deviceName = parts.length > 2 ? parts[2] : "unknown";
+        String deviceNameFromMsg = parts.length > 2 ? parts[2] : "unknown";
 
         // Sync the meeting
         syncMeetingFromServer(meetingId, host);
 
         // Save to database immediately
         Database.saveMeetingWithId(meetingId, host, "Meeting " + meetingId,
-                "Meeting created by " + host + " on device: " + deviceName);
+                "Meeting created by " + host + " on device: " + deviceNameFromMsg);
 
-        // Notify listeners about new meeting
         System.out.println("✅ Meeting synced from server: " + meetingId + " available for joining");
 
         if (connectionStatusListener != null) {
             Platform.runLater(() -> {
                 addSystemMessage("New meeting available: " + meetingId + " created by " + host);
+                connectionStatusListener.onMeetingListChanged(new HashMap<>(activeMeetings));
             });
         }
     }
-
 
     private static String generateMeetingId() {
         return String.valueOf((int) (Math.random() * 900000) + 100000);
     }
 
     public static Map<String, MeetingInfo> getActiveMeetings() {
+        // Clean up old meetings first
+        cleanupOldMeetings();
         return new HashMap<>(activeMeetings);
     }
 
@@ -2344,7 +2447,7 @@ public class HelloApplication extends Application {
     }
 
     /**
-     * Sync meeting from server - UPDATED to ensure database persistence
+     * Sync meeting from server
      */
     public static void syncMeetingFromServer(String meetingId, String host) {
         System.out.println("🔄 Syncing meeting from server: " + meetingId + " hosted by " + host);
@@ -2353,6 +2456,7 @@ public class HelloApplication extends Application {
         if (!activeMeetings.containsKey(meetingId)) {
             MeetingInfo meetingInfo = new MeetingInfo(meetingId, host);
             activeMeetings.put(meetingId, meetingInfo);
+            meetingLastSeen.put(meetingId, System.currentTimeMillis());
             System.out.println("✅ Meeting synced to active meetings: " + meetingId);
         }
 
@@ -2366,10 +2470,53 @@ public class HelloApplication extends Application {
             Database.addParticipant(meetingId, host);
             System.out.println("✅ At least added participant record for meeting: " + meetingId);
         }
+
+        if (connectionStatusListener != null) {
+            Platform.runLater(() -> {
+                connectionStatusListener.onMeetingListChanged(new HashMap<>(activeMeetings));
+            });
+        }
     }
 
+    /**
+     * Clean up old meetings
+     */
+    private static void cleanupOldMeetings() {
+        long now = System.currentTimeMillis();
+        List<String> toRemove = new ArrayList<>();
 
+        for (Map.Entry<String, Long> entry : meetingLastSeen.entrySet()) {
+            if (now - entry.getValue() > MEETING_TIMEOUT) {
+                toRemove.add(entry.getKey());
+            }
+        }
 
+        for (String meetingId : toRemove) {
+            activeMeetings.remove(meetingId);
+            meetingLastSeen.remove(meetingId);
+            System.out.println("Cleaned up old meeting: " + meetingId);
+        }
+    }
+
+    /**
+     * Start meeting cleanup task
+     */
+    private static void startMeetingCleanupTask() {
+        Thread cleanupThread = new Thread(() -> {
+            while (true) {
+                try {
+                    Thread.sleep(60000); // Run every minute
+                    cleanupOldMeetings();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        });
+        cleanupThread.setDaemon(true);
+        cleanupThread.setName("Meeting-Cleanup-Thread");
+        cleanupThread.start();
+    }
 
     public static void sendWebSocketMessage(String type, String meetingId, String content) {
         ensureDeviceInfo(); // Ensure device info is set
@@ -2377,7 +2524,8 @@ public class HelloApplication extends Application {
         if (webSocketClient != null && webSocketClient.isConnected() && loggedInUser != null) {
             // Include device info in content if needed
             String enhancedContent = content;
-            if (type.equals("VIDEO_STATUS") || type.equals("USER_JOINED") || type.equals("USER_LEFT")) {
+            if (type.equals("VIDEO_STATUS") || type.equals("USER_JOINED") || type.equals("USER_LEFT") ||
+                    type.equals("MEETING_CREATED")) {
                 enhancedContent = content + "|" + deviceId + "|" + deviceName;
             }
             webSocketClient.sendMessage(type, meetingId, loggedInUser, enhancedContent);
@@ -2820,10 +2968,14 @@ public class HelloApplication extends Application {
                         // Send device info immediately after connecting
                         sendDeviceInfo();
 
+                        // Request meetings after connection
+                        requestAllMeetings();
+
                         if (connectionStatusListener != null) {
                             Platform.runLater(() -> {
                                 connectionStatusListener.onConnectionStatusChanged(true, "Connected to " + serverUrl);
                                 connectionStatusListener.onDeviceListChanged(new HashMap<>(connectedDevices));
+                                connectionStatusListener.onMeetingListChanged(new HashMap<>(activeMeetings));
                             });
                         }
                     }

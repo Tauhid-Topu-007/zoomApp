@@ -22,7 +22,7 @@ public class NewMeetingController {
     private ScrollPane mainScrollPane;
 
     private String meetingId;
-    private String host; // Make host a class field
+    private String host;
 
     @FXML
     public void initialize() {
@@ -39,7 +39,7 @@ public class NewMeetingController {
         meetingId = HelloApplication.createNewMeeting();
         meetingIdField.setText(meetingId);
 
-        // Store the meeting ID globally so JoinController can access it
+        // Store the meeting ID globally so other controllers can access it
         HelloApplication.setActiveMeetingId(meetingId);
 
         // CRITICAL: Save meeting to database immediately
@@ -80,7 +80,7 @@ public class NewMeetingController {
             HelloApplication.sendWebSocketMessage("MEETING_CREATED", meetingId, host, content);
             System.out.println("📢 Sent MEETING_CREATED via WebSocket for meeting: " + meetingId);
 
-            // Send second message after short delay - using final variables
+            // Send second message after short delay
             new Thread(() -> {
                 try {
                     Thread.sleep(500);
@@ -88,11 +88,17 @@ public class NewMeetingController {
                         HelloApplication.sendWebSocketMessage("MEETING_AVAILABLE", finalMeetingId, finalHost,
                                 finalMeetingId + "|" + finalHost + "|" + finalDeviceName);
                         System.out.println("📢 Sent additional MEETING_AVAILABLE notification");
+
+                        // Request meeting list to sync with server
+                        HelloApplication.requestAllMeetings();
                     }
                 } catch (InterruptedException e) {
                     // Ignore
                 }
             }).start();
+
+            // Also send via HTTP API if available
+            sendMeetingViaHttp(meetingId, host, deviceName);
         } else {
             System.out.println("⚠️ WebSocket not connected - meeting only available locally");
         }
@@ -103,7 +109,32 @@ public class NewMeetingController {
         System.out.println("🔌 WebSocket connected: " + HelloApplication.isWebSocketConnected());
 
         // Request meeting list to sync with server
-        HelloApplication.requestMeetingList();
+        HelloApplication.requestAllMeetings();
+    }
+
+    /**
+     * Send meeting via HTTP API as backup
+     */
+    private void sendMeetingViaHttp(String meetingId, String host, String deviceName) {
+        try {
+            String serverUrl = "http://" + HelloApplication.getServerIp() + ":" + HelloApplication.getServerPort() + "/api/meeting";
+            java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+            String json = String.format("{\"meetingId\":\"%s\",\"host\":\"%s\",\"deviceName\":\"%s\"}",
+                    meetingId, host, deviceName);
+
+            java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create(serverUrl))
+                    .header("Content-Type", "application/json")
+                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(json))
+                    .build();
+
+            client.sendAsync(request, java.net.http.HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(response -> {
+                        System.out.println("📡 HTTP meeting notification sent: " + response.statusCode());
+                    });
+        } catch (Exception e) {
+            System.err.println("❌ Failed to send meeting via HTTP: " + e.getMessage());
+        }
     }
 
     @FXML
@@ -149,6 +180,31 @@ public class NewMeetingController {
         content.putString(meetingId);
         clipboard.setContent(content);
         statusLabel.setText("✅ Meeting ID copied! Participants can paste it to join.");
+
+        // Also show a popup with connection instructions
+        showConnectionInstructions();
+    }
+
+    private void showConnectionInstructions() {
+        Platform.runLater(() -> {
+            String serverIp = HelloApplication.getServerIp();
+            String serverPort = HelloApplication.getServerPort();
+
+            String instructions = "📋 MEETING JOIN INSTRUCTIONS\n\n" +
+                    "Meeting ID: " + meetingId + "\n\n" +
+                    "For other devices to join:\n\n" +
+                    "1. Make sure they are connected to the SAME WiFi network\n" +
+                    "2. When joining, they should use this server IP: " + serverIp + "\n" +
+                    "3. Port: " + serverPort + "\n\n" +
+                    "If joining from localhost, they can use the meeting ID directly.\n\n" +
+                    "The meeting ID is also valid for: " + serverIp + ":" + serverPort;
+
+            javafx.scene.control.Alert alert = new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.INFORMATION);
+            alert.setTitle("Meeting Join Instructions");
+            alert.setHeaderText("Share this information with participants");
+            alert.setContentText(instructions);
+            alert.showAndWait();
+        });
     }
 
     @FXML
@@ -169,17 +225,24 @@ public class NewMeetingController {
     protected void onShareInstructionsClick() {
         String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         String host = HelloApplication.getLoggedInUser();
+        String serverIp = HelloApplication.getServerIp();
+        String serverPort = HelloApplication.getServerPort();
 
         String shareText = "Join my Zoom meeting!\n" +
                 "Meeting ID: " + meetingId + "\n" +
                 "Host: " + host + "\n" +
                 "Created: " + currentTime + "\n" +
-                "\nInstructions:\n" +
+                "\nCONNECTION DETAILS:\n" +
+                "Server IP: " + serverIp + "\n" +
+                "Server Port: " + serverPort + "\n" +
+                "\nINSTRUCTIONS:\n" +
                 "1. Open the Zoom application\n" +
                 "2. Go to Dashboard → Join Meeting\n" +
                 "3. Enter this Meeting ID: " + meetingId + "\n" +
-                "4. Click Join\n" +
-                "\nServer: " + HelloApplication.getCurrentServerUrl();
+                "4. If prompted for server, use: " + serverIp + "\n" +
+                "5. Port: " + serverPort + "\n" +
+                "6. Click Join\n" +
+                "\n⚠️ Make sure you're on the same WiFi network!";
 
         Clipboard clipboard = Clipboard.getSystemClipboard();
         ClipboardContent content = new ClipboardContent();

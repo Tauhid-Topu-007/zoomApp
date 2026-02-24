@@ -1,181 +1,306 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <?import javafx.geometry.Insets?>
-<?import javafx.scene.control.*?>
-<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ListView?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.scene.control.Tooltip?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.ColumnConstraints?>
+<?import javafx.scene.layout.GridPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.RowConstraints?>
+<?import javafx.scene.layout.VBox?>
 <?import javafx.scene.text.Font?>
 
-<ScrollPane xmlns="http://javafx.com/javafx/11.0.1" xmlns:fx="http://javafx.com/fxml/1"
-            fx:controller="org.example.zoom.DashboardController"
-            fx:id="mainScrollPane"
-            style="-fx-background: #2c3e50; -fx-border-color: #2c3e50;"
-            fitToWidth="true" fitToHeight="true"
-            hbarPolicy="NEVER" vbarPolicy="AS_NEEDED">
+<BorderPane maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" prefHeight="700.0" prefWidth="1100.0" style="-fx-background-color: #2c3e50;" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" fx:controller="org.example.zoom.DashboardController">
 
-    <content>
-        <VBox spacing="25" alignment="TOP_CENTER"
-              style="-fx-background-color: #2c3e50; -fx-padding: 30; -fx-min-width: 900;">
-
-            <!-- Header Section -->
-            <VBox spacing="15" alignment="CENTER">
-                <Label text="Classroom Dashboard" style="-fx-text-fill: white; -fx-font-size: 36px; -fx-font-weight: bold;"/>
-                <Label fx:id="welcomeLabel" text="Welcome, User!" style="-fx-text-fill: #ecf0f1; -fx-font-size: 20px;"/>
-
-                <!-- Connection Status Banner -->
-                <HBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 15; -fx-background-radius: 10;">
-                    <VBox spacing="5" alignment="CENTER_LEFT">
-                        <Label fx:id="connectionInfoLabel" text="Connecting..."
-                               style="-fx-text-fill: #f39c12; -fx-font-size: 14px; -fx-font-weight: bold;"/>
-                        <Label text="Server: ws://localhost:8887"
-                               style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
-                    </VBox>
-                    <Button text="🔄 Refresh" onAction="#onTestConnectionClick"
-                            style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 80;"/>
+    <!-- Top Section with Welcome and Connection Info -->
+    <top>
+        <VBox style="-fx-background-color: #34495e;" BorderPane.alignment="CENTER">
+            <children>
+                <!-- Welcome and Settings Row -->
+                <HBox alignment="CENTER_LEFT" spacing="20.0" style="-fx-background-color: #2c3e50;">
+                    <children>
+                        <Label fx:id="welcomeLabel" style="-fx-font-size: 24px; -fx-text-fill: white;" text="Welcome, User!">
+                            <font>
+                                <Font name="System Bold" size="24.0" />
+                            </font>
+                            <padding>
+                                <Insets left="20.0" top="20.0" />
+                            </padding>
+                        </Label>
+                        <Region HBox.hgrow="ALWAYS" />
+                        <Button fx:id="settingsButton" mnemonicParsing="false" onAction="#onSettingsClick" style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-size: 14px;" text="⚙ Settings">
+                            <tooltip>
+                                <Tooltip text="Configure server settings" />
+                            </tooltip>
+                            <HBox.margin>
+                                <Insets right="20.0" />
+                            </HBox.margin>
+                        </Button>
+                    </children>
                 </HBox>
-            </VBox>
 
-            <!-- Quick Connection Section -->
-            <VBox spacing="15" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 25; -fx-background-radius: 15;">
-                <Label text="🔗 Quick Connection Tools" style="-fx-text-fill: white; -fx-font-size: 20px; -fx-font-weight: bold;"/>
+                <!-- Connection Status Row -->
+                <HBox alignment="CENTER_LEFT" spacing="15.0" style="-fx-background-color: #34495e;">
+                    <children>
+                        <Label fx:id="connectionInfoLabel" style="-fx-text-fill: #ecf0f1;" text="Disconnected | No Server">
+                            <padding>
+                                <Insets left="20.0" top="10.0" bottom="10.0" />
+                            </padding>
+                        </Label>
+                        <Label fx:id="deviceCountLabel" style="-fx-text-fill: #3498db;" text="📱 0 device(s)">
+                            <padding>
+                                <Insets top="10.0" bottom="10.0" />
+                            </padding>
+                        </Label>
+                        <Label fx:id="meetingCountLabel" style="-fx-text-fill: #e67e22;" text="📅 0 meeting(s)">
+                            <padding>
+                                <Insets top="10.0" bottom="10.0" />
+                            </padding>
+                        </Label>
+                        <Region HBox.hgrow="ALWAYS" />
 
-                <HBox spacing="20" alignment="CENTER">
-                    <!-- Quick Connect -->
-                    <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #2c3e50; -fx-padding: 15; -fx-background-radius: 10;">
-                        <Label text="Auto Discovery" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
-                        <Label text="Find servers automatically" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
-                        <Button text="Quick Connect" onAction="#onQuickConnectClick"
-                                style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 140;"/>
-                    </VBox>
-
-                    <!-- Manual Connect -->
-                    <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #2c3e50; -fx-padding: 15; -fx-background-radius: 10;">
-                        <Label text=" Manual Setup" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
-                        <Label text="Enter server IP manually" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
-                        <Button text="Manual Connect" onAction="#onManualConnectClick"
-                                style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 140;"/>
-                    </VBox>
-
-                    <!-- Network Tools -->
-                    <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #2c3e50; -fx-padding: 15; -fx-background-radius: 10;">
-                        <Label text="🔍 Network Tools" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
-                        <Label text="Diagnose connection issues" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
-                        <Button text="Diagnose" onAction="#onNetworkDiagnosticClick"
-                                style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 140;"/>
-                    </VBox>
+                        <!-- Connection Action Buttons -->
+                        <Button mnemonicParsing="false" onAction="#onTestConnectionClick" style="-fx-background-color: #27ae60; -fx-text-fill: white;" text="Test Connection">
+                            <tooltip>
+                                <Tooltip text="Test current connection status" />
+                            </tooltip>
+                            <HBox.margin>
+                                <Insets right="5.0" />
+                            </HBox.margin>
+                        </Button>
+                        <Button mnemonicParsing="false" onAction="#onQuickConnectClick" style="-fx-background-color: #3498db; -fx-text-fill: white;" text="Quick Connect">
+                            <tooltip>
+                                <Tooltip text="Auto-discover and connect to server" />
+                            </tooltip>
+                            <HBox.margin>
+                                <Insets right="5.0" />
+                            </HBox.margin>
+                        </Button>
+                        <Button mnemonicParsing="false" onAction="#onManualConnectClick" style="-fx-background-color: #9b59b6; -fx-text-fill: white;" text="Manual Connect">
+                            <tooltip>
+                                <Tooltip text="Manually enter server IP and port" />
+                            </tooltip>
+                            <HBox.margin>
+                                <Insets right="5.0" />
+                            </HBox.margin>
+                        </Button>
+                        <Button mnemonicParsing="false" onAction="#onConnectionGuideClick" style="-fx-background-color: #f39c12; -fx-text-fill: white;" text="Guide">
+                            <tooltip>
+                                <Tooltip text="Show connection guide" />
+                            </tooltip>
+                            <HBox.margin>
+                                <Insets right="20.0" />
+                            </HBox.margin>
+                        </Button>
+                    </children>
                 </HBox>
-            </VBox>
-
-            <!-- Main Features Grid -->
-            <VBox spacing="15">
-                <Label text="🎯 Main Features" style="-fx-text-fill: white; -fx-font-size: 24px; -fx-font-weight: bold; -fx-alignment: CENTER;"/>
-
-                <GridPane hgap="20" vgap="20" alignment="CENTER">
-                    <columnConstraints>
-                        <ColumnConstraints prefWidth="220"/>
-                        <ColumnConstraints prefWidth="220"/>
-                        <ColumnConstraints prefWidth="220"/>
-                    </columnConstraints>
-                    <rowConstraints>
-                        <RowConstraints prefHeight="160"/>
-                        <RowConstraints prefHeight="160"/>
-                    </rowConstraints>
-
-                    <!-- Row 1 -->
-                    <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="0" GridPane.rowIndex="0">
-                        <Label text="🎯 New Meeting" style="-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 16px;"/>
-                        <Label text="Start instant meeting with participants" style="-fx-text-fill: #bdc3c7; -fx-font-size: 12px; -fx-text-alignment: CENTER;"/>
-                        <Button text="Start Meeting" onAction="#onNewMeetingClick"
-                                style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 140;"/>
-                    </VBox>
-
-                    <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="1" GridPane.rowIndex="0">
-                        <Label text="🔗 Join Meeting" style="-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 16px;"/>
-                        <Label text="Join existing meeting with ID" style="-fx-text-fill: #bdc3c7; -fx-font-size: 12px; -fx-text-alignment: CENTER;"/>
-                        <Button text="Join Meeting" onAction="#onJoinClick"
-                                style="-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 140;"/>
-                    </VBox>
-
-                    <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="2" GridPane.rowIndex="0">
-                        <Label text="💬 Group Chat" style="-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 16px;"/>
-                        <Label text="Chat with meeting participants" style="-fx-text-fill: #bdc3c7; -fx-font-size: 12px; -fx-text-alignment: CENTER;"/>
-                        <Button text="Open Chat" onAction="#onChatClick"
-                                style="-fx-background-color: #e67e22; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 140;"/>
-                    </VBox>
-
-                    <!-- Row 2 -->
-                    <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="0" GridPane.rowIndex="1">
-                        <Label text="🖥️ Share Screen" style="-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 16px;"/>
-                        <Label text="Share your screen with others" style="-fx-text-fill: #bdc3c7; -fx-font-size: 12px; -fx-text-alignment: CENTER;"/>
-                        <Button text="Share Screen" onAction="#onShareScreenClick"
-                                style="-fx-background-color: #1abc9c; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 140;"/>
-                    </VBox>
-
-                    <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="1" GridPane.rowIndex="1">
-                        <Label text="⚙️ Settings" style="-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 16px;"/>
-                        <Label text="Configure server and preferences" style="-fx-text-fill: #bdc3c7; -fx-font-size: 12px; -fx-text-alignment: CENTER;"/>
-                        <Button text="Open Settings" onAction="#onSettingsClick"
-                                style="-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 140;"/>
-                    </VBox>
-
-                    <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;" GridPane.columnIndex="2" GridPane.rowIndex="1">
-                        <Label text="📅 Schedule" style="-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 16px;"/>
-                        <Label text="Plan and schedule meetings" style="-fx-text-fill: #bdc3c7; -fx-font-size: 12px; -fx-text-alignment: CENTER;"/>
-                        <Button text="Schedule" onAction="#onScheduleClick"
-                                style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 140;"/>
-                    </VBox>
-                </GridPane>
-            </VBox>
-
-            <!-- Additional Tools Section -->
-            <VBox spacing="15" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 25; -fx-background-radius: 15;">
-                <Label text="🛠️ Additional Tools" style="-fx-text-fill: white; -fx-font-size: 20px; -fx-font-weight: bold;"/>
-
-                <HBox spacing="20" alignment="CENTER">
-                    <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #2c3e50; -fx-padding: 15; -fx-background-radius: 10;">
-                        <Label text="👥 Contacts" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
-                        <Button text="Manage Contacts" onAction="#onContactsClick"
-                                style="-fx-background-color: #f1c40f; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 140;"/>
-                    </VBox>
-
-                    <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #2c3e50; -fx-padding: 15; -fx-background-radius: 10;">
-                        <Label text="🎥 Recordings" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
-                        <Button text="View Recordings" onAction="#onRecordingsClick"
-                                style="-fx-background-color: #d35400; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 140;"/>
-                    </VBox>
-
-                    <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #2c3e50; -fx-padding: 15; -fx-background-radius: 10;">
-                        <Label text="📚 Guide" style="-fx-text-fill: white; -fx-font-weight: bold;"/>
-                        <Button text="View Guide" onAction="#onConnectionGuideClick"
-                                style="-fx-background-color: #f39c12; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 140;"/>
-                    </VBox>
-                </HBox>
-            </VBox>
-
-            <!-- Connection Status Guide -->
-            <VBox spacing="10" alignment="CENTER" style="-fx-background-color: #34495e; -fx-padding: 20; -fx-background-radius: 10;">
-                <Label text="📊 Connection Status Guide" style="-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 16px;"/>
-                <HBox spacing="30" alignment="CENTER">
-                    <VBox spacing="5" alignment="CENTER">
-                        <Label text="🟢 Connected" style="-fx-text-fill: #2ecc71; -fx-font-size: 14px; -fx-font-weight: bold;"/>
-                        <Label text="Ready for all features" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
-                    </VBox>
-                    <VBox spacing="5" alignment="CENTER">
-                        <Label text="🟡 Connecting" style="-fx-text-fill: #f39c12; -fx-font-size: 14px; -fx-font-weight: bold;"/>
-                        <Label text="Establishing connection" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
-                    </VBox>
-                    <VBox spacing="5" alignment="CENTER">
-                        <Label text="Disconnected" style="-fx-text-fill: #e74c3c; -fx-font-size: 14px; -fx-font-weight: bold;"/>
-                        <Label text="Use connection tools above" style="-fx-text-fill: #bdc3c7; -fx-font-size: 11px;"/>
-                    </VBox>
-                </HBox>
-            </VBox>
-
-            <!-- Footer -->
-            <VBox spacing="5" alignment="CENTER" style="-fx-padding: 20;">
-                <Button text="🚪 Logout" onAction="#onLogoutClick"
-                        style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-pref-width: 120;"/>
-                <Label text="HSTU Classroom Application v1.0.0" style="-fx-text-fill: #7f8c8d; -fx-font-size: 10px;"/>
-            </VBox>
+            </children>
         </VBox>
-    </content>
-</ScrollPane>
+    </top>
+
+    <!-- Center Section with Main Content -->
+    <center>
+        <ScrollPane fx:id="mainScrollPane" fitToHeight="true" fitToWidth="true" hbarPolicy="NEVER" style="-fx-background: #2c3e50; -fx-border-color: #2c3e50;" vbarPolicy="AS_NEEDED">
+            <content>
+                <VBox alignment="TOP_CENTER" spacing="20.0" style="-fx-background-color: #2c3e50; -fx-padding: 20;">
+                    <children>
+                        <!-- Quick Action Buttons Grid -->
+                        <GridPane alignment="CENTER" hgap="15.0" style="-fx-background-color: #34495e; -fx-background-radius: 10; -fx-padding: 20;" vgap="15.0">
+                            <columnConstraints>
+                                <ColumnConstraints hgrow="SOMETIMES" minWidth="10.0" prefWidth="200.0" />
+                                <ColumnConstraints hgrow="SOMETIMES" minWidth="10.0" prefWidth="200.0" />
+                                <ColumnConstraints hgrow="SOMETIMES" minWidth="10.0" prefWidth="200.0" />
+                            </columnConstraints>
+                            <rowConstraints>
+                                <RowConstraints minHeight="10.0" prefHeight="100.0" vgrow="SOMETIMES" />
+                                <RowConstraints minHeight="10.0" prefHeight="100.0" vgrow="SOMETIMES" />
+                            </rowConstraints>
+
+                            <!-- Row 1 -->
+                            <children>
+                                <Button maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onNewMeetingClick" style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-size: 18px;" text="➕ New Meeting">
+                                    <tooltip>
+                                        <Tooltip text="Create a new meeting" />
+                                    </tooltip>
+                                </Button>
+
+                                <Button maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onJoinClick" style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-size: 18px;" text="🔗 Join Meeting" GridPane.columnIndex="1">
+                                    <tooltip>
+                                        <Tooltip text="Join an existing meeting" />
+                                    </tooltip>
+                                </Button>
+
+                                <Button maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onScheduleClick" style="-fx-background-color: #f39c12; -fx-text-fill: white; -fx-font-size: 18px;" text="📅 Schedule" GridPane.columnIndex="2">
+                                    <tooltip>
+                                        <Tooltip text="Schedule a future meeting" />
+                                    </tooltip>
+                                </Button>
+
+                                <!-- Row 2 -->
+                                <Button maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onShareScreenClick" style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-size: 18px;" text="🖥 Share Screen" GridPane.rowIndex="1">
+                                    <tooltip>
+                                        <Tooltip text="Share your screen with participants" />
+                                    </tooltip>
+                                </Button>
+
+                                <Button maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onContactsClick" style="-fx-background-color: #e67e22; -fx-text-fill: white; -fx-font-size: 18px;" text="👥 Contacts" GridPane.columnIndex="1" GridPane.rowIndex="1">
+                                    <tooltip>
+                                        <Tooltip text="Manage your contacts" />
+                                    </tooltip>
+                                </Button>
+
+                                <Button maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onChatClick" style="-fx-background-color: #1abc9c; -fx-text-fill: white; -fx-font-size: 18px;" text="💬 Chat" GridPane.columnIndex="2" GridPane.rowIndex="1">
+                                    <tooltip>
+                                        <Tooltip text="Open chat" />
+                                    </tooltip>
+                                </Button>
+                            </children>
+                        </GridPane>
+
+                        <Separator prefWidth="200.0" style="-fx-background-color: #34495e;" />
+
+                        <!-- Action Buttons Row -->
+                        <HBox alignment="CENTER" spacing="10.0">
+                            <children>
+                                <Button mnemonicParsing="false" onAction="#onRecordingsClick" style="-fx-background-color: #e74c3c; -fx-text-fill: white;" text="🎥 Recordings">
+                                    <tooltip>
+                                        <Tooltip text="View your recordings" />
+                                    </tooltip>
+                                </Button>
+                                <Button mnemonicParsing="false" onAction="#onNetworkDiagnosticClick" style="-fx-background-color: #95a5a6; -fx-text-fill: white;" text="🔍 Network Diagnostic">
+                                    <tooltip>
+                                        <Tooltip text="Run network diagnostics" />
+                                    </tooltip>
+                                </Button>
+                                <Button mnemonicParsing="false" onAction="#onStartServerClick" style="-fx-background-color: #2c3e50; -fx-text-fill: white;" text="🚀 Start Server">
+                                    <tooltip>
+                                        <Tooltip text="Instructions to start Node.js server" />
+                                    </tooltip>
+                                </Button>
+                                <Button mnemonicParsing="false" onAction="#onLogoutClick" style="-fx-background-color: #c0392b; -fx-text-fill: white;" text="🚪 Logout">
+                                    <tooltip>
+                                        <Tooltip text="Logout from application" />
+                                    </tooltip>
+                                </Button>
+                            </children>
+                        </HBox>
+
+                        <!-- Devices Panel -->
+                        <VBox fx:id="devicesPanel" spacing="10.0" style="-fx-background-color: #34495e; -fx-background-radius: 10; -fx-padding: 15;">
+                            <children>
+                                <HBox alignment="CENTER_LEFT" spacing="10.0">
+                                    <children>
+                                        <Label style="-fx-text-fill: white; -fx-font-size: 18px; -fx-font-weight: bold;" text="📱 Connected Devices" />
+                                        <Region HBox.hgrow="ALWAYS" />
+                                        <Label fx:id="deviceCountLabelSmall" style="-fx-text-fill: #3498db;" text="0 devices" />
+                                        <Button mnemonicParsing="false" onAction="#onShowDevicesClick" style="-fx-background-color: #e74c3c; -fx-text-fill: white;" text="Hide">
+                                            <tooltip>
+                                                <Tooltip text="Hide devices panel" />
+                                            </tooltip>
+                                        </Button>
+                                    </children>
+                                </HBox>
+                                <ListView fx:id="devicesListView" prefHeight="200.0" style="-fx-background-color: #2c3e50; -fx-control-inner-background: #2c3e50; -fx-text-fill: white;">
+                                    <tooltip>
+                                        <Tooltip text="Double-click a device for details" />
+                                    </tooltip>
+                                </ListView>
+                                <HBox alignment="CENTER_RIGHT" spacing="10.0">
+                                    <children>
+                                        <Button mnemonicParsing="false" onAction="#onShowDevicesClick" style="-fx-background-color: #3498db; -fx-text-fill: white;" text="Refresh">
+                                            <tooltip>
+                                                <Tooltip text="Refresh device list" />
+                                            </tooltip>
+                                        </Button>
+                                    </children>
+                                </HBox>
+                            </children>
+                        </VBox>
+
+                        <!-- Meetings Panel -->
+                        <VBox fx:id="meetingsPanel" spacing="10.0" style="-fx-background-color: #34495e; -fx-background-radius: 10; -fx-padding: 15;">
+                            <children>
+                                <HBox alignment="CENTER_LEFT" spacing="10.0">
+                                    <children>
+                                        <Label style="-fx-text-fill: white; -fx-font-size: 18px; -fx-font-weight: bold;" text="📅 Active Meetings" />
+                                        <Region HBox.hgrow="ALWAYS" />
+                                        <Label fx:id="meetingCountLabelSmall" style="-fx-text-fill: #e67e22;" text="0 meetings" />
+                                        <Button mnemonicParsing="false" onAction="#onShowMeetingsClick" style="-fx-background-color: #e74c3c; -fx-text-fill: white;" text="Hide">
+                                            <tooltip>
+                                                <Tooltip text="Hide meetings panel" />
+                                            </tooltip>
+                                        </Button>
+                                    </children>
+                                </HBox>
+                                <ListView fx:id="meetingsListView" prefHeight="200.0" style="-fx-background-color: #2c3e50; -fx-control-inner-background: #2c3e50; -fx-text-fill: white;">
+                                    <tooltip>
+                                        <Tooltip text="Double-click a meeting to join" />
+                                    </tooltip>
+                                </ListView>
+                                <HBox alignment="CENTER_RIGHT" spacing="10.0">
+                                    <children>
+                                        <Button mnemonicParsing="false" onAction="#onRefreshMeetingsClick" style="-fx-background-color: #e67e22; -fx-text-fill: white;" text="🔄 Refresh Meetings">
+                                            <tooltip>
+                                                <Tooltip text="Refresh meeting list from server" />
+                                            </tooltip>
+                                        </Button>
+                                        <Button mnemonicParsing="false" onAction="#onShowMeetingsClick" style="-fx-background-color: #3498db; -fx-text-fill: white;" text="Refresh">
+                                            <tooltip>
+                                                <Tooltip text="Refresh meeting list" />
+                                            </tooltip>
+                                        </Button>
+                                    </children>
+                                </HBox>
+                            </children>
+                        </VBox>
+
+                        <!-- Status Message Area -->
+                        <HBox alignment="CENTER" style="-fx-background-color: #34495e; -fx-background-radius: 5; -fx-padding: 10;">
+                            <children>
+                                <Label fx:id="statusMessageLabel" style="-fx-text-fill: #ecf0f1;" text="Ready">
+                                    <font>
+                                        <Font size="14.0" />
+                                    </font>
+                                </Label>
+                            </children>
+                        </HBox>
+                    </children>
+                </VBox>
+            </content>
+        </ScrollPane>
+    </center>
+
+    <!-- Bottom Section with Additional Controls -->
+    <bottom>
+        <HBox alignment="CENTER_RIGHT" spacing="10.0" style="-fx-background-color: #34495e; -fx-padding: 10;">
+            <children>
+                <Button mnemonicParsing="false" onAction="#onShowDevicesClick" style="-fx-background-color: #3498db; -fx-text-fill: white;" text="📱 Show Devices">
+                    <tooltip>
+                        <Tooltip text="Show/hide connected devices" />
+                    </tooltip>
+                </Button>
+                <Button mnemonicParsing="false" onAction="#onShowMeetingsClick" style="-fx-background-color: #e67e22; -fx-text-fill: white;" text="📅 Show Meetings">
+                    <tooltip>
+                        <Tooltip text="Show/hide active meetings" />
+                    </tooltip>
+                </Button>
+                <Button mnemonicParsing="false" onAction="#onNetworkDiagnosticClick" style="-fx-background-color: #95a5a6; -fx-text-fill: white;" text="🔍 Diagnostics">
+                    <tooltip>
+                        <Tooltip text="Run network diagnostics" />
+                    </tooltip>
+                </Button>
+                <Label style="-fx-text-fill: #7f8c8d;" text="Zoom Project v2.0">
+                    <HBox.margin>
+                        <Insets right="10.0" />
+                    </HBox.margin>
+                </Label>
+            </children>
+        </HBox>
+    </bottom>
+</BorderPane>
