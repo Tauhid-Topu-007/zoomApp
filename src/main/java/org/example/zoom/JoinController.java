@@ -11,6 +11,8 @@ import javafx.scene.control.ButtonType;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 public class JoinController {
 
@@ -33,9 +35,9 @@ public class JoinController {
         // Request meeting list from server to sync
         if (HelloApplication.isWebSocketConnected()) {
             System.out.println("📋 Requesting meeting list from server...");
-            HelloApplication.requestAllMeetings();
+            HelloApplication.refreshMeetingsFromServer();
 
-            // Also request all meetings via direct message
+            // Also request all meetings
             if (HelloApplication.getWebSocketClient() != null) {
                 HelloApplication.getWebSocketClient().send("GET_ALL_MEETINGS");
             }
@@ -61,13 +63,6 @@ public class JoinController {
             statusLabel.setText("ℹ️ No meetings found. Please enter a valid Meeting ID or create one.");
         } else {
             statusLabel.setText("📋 Enter Meeting ID and Name to join");
-            displayAvailableMeetings();
-        }
-
-        // Auto-fill name if user is logged in
-        String loggedInUser = HelloApplication.getLoggedInUser();
-        if (loggedInUser != null && !loggedInUser.isEmpty()) {
-            nameField.setText(loggedInUser);
         }
     }
 
@@ -80,18 +75,6 @@ public class JoinController {
             System.out.println("✅ Auto-filled meeting ID from NewMeeting: " + activeMeetingId);
         } else {
             System.out.println("ℹ️ No active meeting ID detected from NewMeetingController");
-
-            // Check clipboard for a 6-digit number
-            try {
-                String clipboard = javafx.scene.input.Clipboard.getSystemClipboard().getString();
-                if (clipboard != null && clipboard.matches("\\d{6}")) {
-                    meetingIdField.setText(clipboard);
-                    statusLabel.setText("📋 Meeting ID found in clipboard! Click Join to enter.");
-                    System.out.println("✅ Auto-filled meeting ID from clipboard: " + clipboard);
-                }
-            } catch (Exception e) {
-                // Ignore clipboard errors
-            }
         }
     }
 
@@ -172,7 +155,7 @@ public class JoinController {
             showAvailableMeetings();
 
             // Ask if user wants to create a new meeting
-            askToCreateNewMeeting(meetingId);
+            askToCreateNewMeeting();
             return;
         }
 
@@ -218,7 +201,7 @@ public class JoinController {
             HelloApplication.sendWebSocketMessage("VALIDATE_MEETING", meetingId,
                     HelloApplication.getLoggedInUser(), meetingId);
 
-            // Wait for response (give server time to respond)
+            // Wait for response (simplified - in production use CompletableFuture)
             Thread.sleep(1500);
 
             // Check again
@@ -239,20 +222,6 @@ public class JoinController {
     /**
      * Show available meetings
      */
-    private void displayAvailableMeetings() {
-        List<Database.MeetingInfo> dbMeetings = Database.getAllMeetings();
-
-        if (!dbMeetings.isEmpty()) {
-            StringBuilder msg = new StringBuilder("Available meetings:\n");
-            for (Database.MeetingInfo meeting : dbMeetings) {
-                msg.append("• ").append(meeting.getMeetingId())
-                        .append(" (Host: ").append(meeting.getHost())
-                        .append(")\n");
-            }
-            System.out.println(msg.toString());
-        }
-    }
-
     private void showAvailableMeetings() {
         List<Database.MeetingInfo> dbMeetings = Database.getAllMeetings();
 
@@ -265,15 +234,6 @@ public class JoinController {
                         .append(")\n");
             }
             System.out.println(msg.toString());
-
-            // Show in UI as well
-            Platform.runLater(() -> {
-                Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                alert.setTitle("Available Meetings");
-                alert.setHeaderText("These meetings are currently available:");
-                alert.setContentText(msg.toString());
-                alert.showAndWait();
-            });
         }
 
         if (!HelloApplication.getActiveMeetings().isEmpty()) {
@@ -292,12 +252,12 @@ public class JoinController {
     /**
      * Ask user if they want to create a new meeting
      */
-    private void askToCreateNewMeeting(String meetingId) {
+    private void askToCreateNewMeeting() {
         Platform.runLater(() -> {
             Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
             alert.setTitle("Meeting Not Found");
-            alert.setHeaderText("Meeting ID: " + meetingId + " was not found");
-            alert.setContentText("Would you like to create a new meeting with this ID?");
+            alert.setHeaderText("Meeting ID: " + meetingIdField.getText().trim() + " was not found");
+            alert.setContentText("Would you like to create a new meeting?");
 
             ButtonType createButton = new ButtonType("Create New Meeting");
             ButtonType tryAgainButton = new ButtonType("Try Again");
@@ -309,8 +269,6 @@ public class JoinController {
             if (result.isPresent()) {
                 if (result.get() == createButton) {
                     try {
-                        HelloApplication.createMeetingForTesting(meetingId);
-                        HelloApplication.setActiveMeetingId(meetingId);
                         HelloApplication.setRoot("new-meeting-view.fxml");
                     } catch (Exception e) {
                         e.printStackTrace();
@@ -375,7 +333,7 @@ public class JoinController {
 
         // Request meetings from server
         if (HelloApplication.isWebSocketConnected()) {
-            HelloApplication.requestAllMeetings();
+            HelloApplication.refreshMeetingsFromServer();
             if (HelloApplication.getWebSocketClient() != null) {
                 HelloApplication.getWebSocketClient().send("GET_ALL_MEETINGS");
             }

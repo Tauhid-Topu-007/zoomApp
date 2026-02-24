@@ -28,22 +28,13 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
     private Label deviceCountLabel;
 
     @FXML
-    private Label meetingCountLabel;
-
-    @FXML
     private ScrollPane mainScrollPane;
 
     @FXML
     private ListView<String> devicesListView;
 
     @FXML
-    private ListView<String> meetingsListView;
-
-    @FXML
     private VBox devicesPanel;
-
-    @FXML
-    private VBox meetingsPanel;
 
     private boolean wasConnected = false;
     private AtomicBoolean alertInProgress = new AtomicBoolean(false);
@@ -67,12 +58,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
             devicesPanel.setManaged(false);
         }
 
-        // Configure meetings panel
-        if (meetingsPanel != null) {
-            meetingsPanel.setVisible(true);
-            meetingsPanel.setManaged(true);
-        }
-
         // Configure devices list view
         if (devicesListView != null) {
             devicesListView.setStyle("-fx-background-color: #34495e; -fx-text-fill: white; -fx-control-inner-background: #34495e;");
@@ -83,21 +68,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
                     String selected = devicesListView.getSelectionModel().getSelectedItem();
                     if (selected != null && !selected.startsWith("📡") && !selected.startsWith("\n") && !selected.startsWith("===")) {
                         showDeviceDetails(selected);
-                    }
-                }
-            });
-        }
-
-        // Configure meetings list view
-        if (meetingsListView != null) {
-            meetingsListView.setStyle("-fx-background-color: #34495e; -fx-text-fill: white; -fx-control-inner-background: #34495e;");
-
-            // Add double-click handler to join meeting
-            meetingsListView.setOnMouseClicked(event -> {
-                if (event.getClickCount() == 2) {
-                    String selected = meetingsListView.getSelectionModel().getSelectedItem();
-                    if (selected != null && selected.matches(".*\\d{6}.*")) {
-                        joinMeetingFromSelection(selected);
                     }
                 }
             });
@@ -114,7 +84,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
             // Update connection info immediately
             updateConnectionInfo();
             updateDeviceCount();
-            updateMeetingCount();
 
             // Set initial connection state
             wasConnected = HelloApplication.isWebSocketConnected();
@@ -131,9 +100,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
                         }
                     }).start();
                 });
-            } else {
-                // If connected, request meetings list
-                HelloApplication.requestAllMeetings();
             }
         }
     }
@@ -189,21 +155,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         }
     }
 
-    private void updateMeetingCount() {
-        if (meetingCountLabel != null) {
-            Map<String, HelloApplication.MeetingInfo> meetings = HelloApplication.getActiveMeetings();
-            int count = meetings.size();
-
-            if (count > 0) {
-                meetingCountLabel.setText("📅 " + count + " active meeting(s)");
-                meetingCountLabel.setStyle("-fx-text-fill: #e67e22; -fx-font-size: 12px; -fx-font-weight: bold;");
-            } else {
-                meetingCountLabel.setText("📅 No active meetings");
-                meetingCountLabel.setStyle("-fx-text-fill: #95a5a6; -fx-font-size: 12px;");
-            }
-        }
-    }
-
     private void updateDevicesList(Map<String, HelloApplication.DeviceInfo> devices) {
         if (devicesListView == null) return;
 
@@ -248,40 +199,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         });
     }
 
-    private void updateMeetingsList(Map<String, HelloApplication.MeetingInfo> meetings) {
-        if (meetingsListView == null) return;
-
-        Platform.runLater(() -> {
-            meetingsListView.getItems().clear();
-
-            if (meetings.isEmpty()) {
-                meetingsListView.getItems().add("📅 No active meetings");
-                meetingsListView.getItems().add("Create a new meeting to get started!");
-                return;
-            }
-
-            // Add header
-            meetingsListView.getItems().add("=== Available Meetings (" + meetings.size() + ") ===");
-            meetingsListView.getItems().add("(Double-click to join)");
-
-            // Add each meeting
-            for (HelloApplication.MeetingInfo meeting : meetings.values()) {
-                String host = meeting.getHost() != null ? meeting.getHost() : "Unknown";
-                int participantCount = meeting.getParticipantCount();
-
-                String meetingEntry = String.format("  📍 Meeting ID: %s\n     Host: %s\n     Participants: %d\n     Created: %s",
-                        meeting.getMeetingId(),
-                        host,
-                        participantCount,
-                        new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date(meeting.getCreatedTime())));
-
-                meetingsListView.getItems().add(meetingEntry);
-            }
-
-            meetingsListView.getItems().add("\nTotal: " + meetings.size() + " meeting(s) available");
-        });
-    }
-
     private void showDeviceDetails(String deviceInfo) {
         // Parse device info and show details dialog
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
@@ -291,46 +208,12 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         alert.showAndWait();
     }
 
-    private void joinMeetingFromSelection(String selected) {
-        // Extract meeting ID from the selected string
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(\\d{6})");
-        java.util.regex.Matcher matcher = pattern.matcher(selected);
-
-        if (matcher.find()) {
-            String meetingId = matcher.group(1);
-            String username = HelloApplication.getLoggedInUser();
-
-            if (username == null || username.isEmpty()) {
-                username = "Participant";
-            }
-
-            // Try to join the meeting
-            boolean joined = HelloApplication.joinMeeting(meetingId, username);
-
-            if (joined) {
-                try {
-                    HelloApplication.setRoot("meeting-view.fxml");
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    showPopup("Error", "Failed to open meeting view: " + e.getMessage());
-                }
-            } else {
-                showPopup("Join Failed", "Could not join meeting: " + meetingId);
-            }
-        }
-    }
-
     @Override
     public void onConnectionStatusChanged(boolean connected, String status) {
         System.out.println("🔗 Connection status changed: " + connected + " - " + status);
         Platform.runLater(() -> {
             updateConnectionInfo();
             handleConnectionStateChange(connected, status);
-
-            // If connection is restored, request meetings list
-            if (connected) {
-                HelloApplication.requestAllMeetings();
-            }
         });
     }
 
@@ -349,21 +232,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         });
     }
 
-    @Override
-    public void onMeetingListChanged(Map<String, HelloApplication.MeetingInfo> meetings) {
-        System.out.println("📅 Meeting list changed: " + meetings.size() + " meetings available");
-        Platform.runLater(() -> {
-            updateMeetingsList(meetings);
-            updateMeetingCount();
-
-            // Show meetings panel if there are meetings and it's not already visible
-            if (meetingsPanel != null && !meetings.isEmpty() && !meetingsPanel.isVisible()) {
-                meetingsPanel.setVisible(true);
-                meetingsPanel.setManaged(true);
-            }
-        });
-    }
-
     private void handleConnectionStateChange(boolean connected, String status) {
         long currentTime = System.currentTimeMillis();
 
@@ -374,9 +242,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         if (connected && !wasConnected) {
             showConnectionSuccessPopup();
             lastConnectionChangeTime = currentTime;
-
-            // Request meetings when connection is established
-            HelloApplication.requestAllMeetings();
         } else if (!connected && wasConnected) {
             showConnectionLostPopup();
             lastConnectionChangeTime = currentTime;
@@ -385,13 +250,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
             if (devicesPanel != null) {
                 devicesPanel.setVisible(false);
                 devicesPanel.setManaged(false);
-            }
-
-            // Clear meetings list when disconnected
-            if (meetingsListView != null) {
-                meetingsListView.getItems().clear();
-                meetingsListView.getItems().add("📅 Disconnected from server");
-                meetingsListView.getItems().add("Connect to see available meetings");
             }
         }
 
@@ -636,16 +494,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
     }
 
     @FXML
-    protected void onRefreshMeetingsClick() {
-        if (HelloApplication.isWebSocketConnected()) {
-            HelloApplication.requestAllMeetings();
-            showPopup("Refreshing", "Requesting updated meeting list from server...");
-        } else {
-            showPopup("Not Connected", "Cannot refresh meetings - not connected to server");
-        }
-    }
-
-    @FXML
     protected void onConnectionGuideClick() {
         showConnectionGuide();
     }
@@ -663,9 +511,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
                         "3. Verify Connection:\n" +
                         "   • Green connection status = ✅ Connected\n" +
                         "   • Server console shows new connections\n\n" +
-                        "4. Available Meetings:\n" +
-                        "   • After connecting, active meetings will appear\n" +
-                        "   • Double-click any meeting to join\n\n" +
                         "💡 Tip: Keep the Node.js server terminal open!");
     }
 
@@ -674,16 +519,12 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
         // Test the current connection
         SimpleWebSocketClient client = HelloApplication.getWebSocketClient();
         if (client != null && client.isConnected()) {
-            int deviceCount = HelloApplication.getConnectedDevices().size();
-            int meetingCount = HelloApplication.getActiveMeetings().size();
-
             showPopup("Connection Status",
                     "✅ Connected to Node.js Server!\n\n" +
                             "Server: " + HelloApplication.getCurrentServerUrl() + "\n" +
                             "Status: Active and Ready\n" +
-                            "Connected Devices: " + deviceCount + "\n" +
-                            "Active Meetings: " + meetingCount + "\n\n" +
-                            "You can now create/join meetings!");
+                            "You can now create/join meetings!\n\n" +
+                            "Connected Devices: " + HelloApplication.getConnectedDevices().size());
         } else {
             showPopup("Connection Status",
                     "❌ Not connected to Node.js server.\n\n" +
@@ -720,21 +561,6 @@ public class DashboardController implements HelloApplication.ConnectionStatusLis
                 // Refresh device list when showing
                 Map<String, HelloApplication.DeviceInfo> devices = HelloApplication.getConnectedDevices();
                 updateDevicesList(devices);
-            }
-        }
-    }
-
-    @FXML
-    protected void onShowMeetingsClick() {
-        if (meetingsPanel != null) {
-            boolean isVisible = meetingsPanel.isVisible();
-            meetingsPanel.setVisible(!isVisible);
-            meetingsPanel.setManaged(!isVisible);
-
-            if (!isVisible) {
-                // Refresh meeting list when showing
-                Map<String, HelloApplication.MeetingInfo> meetings = HelloApplication.getActiveMeetings();
-                updateMeetingsList(meetings);
             }
         }
     }
