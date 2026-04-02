@@ -157,6 +157,51 @@ public class JoinController {
         }
     }
 
+    private boolean checkMeetingExists(String meetingId) {
+        // Don't check "global" as a meeting
+        if (meetingId == null || meetingId.isEmpty() || "global".equals(meetingId)) {
+            System.err.println("Invalid meeting ID: " + meetingId);
+            return false;
+        }
+
+        // Check in active meetings
+        if (HelloApplication.getActiveMeetings().containsKey(meetingId)) {
+            System.out.println("Meeting found in active meetings: " + meetingId);
+            return true;
+        }
+
+        // Check in database
+        if (Database.meetingExists(meetingId)) {
+            System.out.println("Meeting found in database: " + meetingId);
+            String host = Database.getMeetingHost(meetingId);
+            if (host != null) {
+                HelloApplication.syncMeetingFromServer(meetingId, host);
+            }
+            return true;
+        }
+
+        // Check via WebSocket if connected - but ONLY for valid meeting IDs
+        if (HelloApplication.isWebSocketConnected() && meetingId.matches("\\d{6}")) {
+            System.out.println("Checking with server for meeting: " + meetingId);
+            try {
+                // Send to the specific meeting channel, not "global"
+                HelloApplication.sendWebSocketMessage("VALIDATE_MEETING", meetingId,
+                        HelloApplication.getLoggedInUser(), meetingId);
+                Thread.sleep(1000);
+
+                // Check again after server response
+                if (Database.meetingExists(meetingId)) {
+                    System.out.println("Meeting found on server: " + meetingId);
+                    return true;
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        return false;
+    }
+
     private boolean validateMeetingWithServer(String meetingId) {
         if (!HelloApplication.isWebSocketConnected()) {
             return false;
@@ -165,9 +210,16 @@ public class JoinController {
         try {
             System.out.println("Validating meeting with server: " + meetingId);
 
+            // Don't validate if meetingId is "global" or invalid
+            if (meetingId == null || meetingId.isEmpty() || "global".equals(meetingId)) {
+                System.err.println("Invalid meeting ID for validation: " + meetingId);
+                return false;
+            }
+
             String loggedInUser = HelloApplication.getLoggedInUser();
             String sender = loggedInUser != null ? loggedInUser : "anonymous";
 
+            // Send validation request with proper meeting ID (not "global")
             HelloApplication.sendWebSocketMessage("VALIDATE_MEETING", meetingId, sender, meetingId);
 
             // Wait a bit for response
@@ -186,7 +238,6 @@ public class JoinController {
             return false;
         }
     }
-
     private void showAvailableMeetings() {
         List<Database.MeetingInfo> dbMeetings = Database.getAllMeetingsFromDB();
 

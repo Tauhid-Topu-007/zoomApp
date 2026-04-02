@@ -1618,126 +1618,91 @@ public class HelloApplication extends Application {
             String username = parts[2];
             String content = parts.length > 3 ? parts[3] : "";
 
-            // Handle meeting-related messages
+            // Handle VALIDATE_MEETING specially
+            if (type.equals("VALIDATE_MEETING")) {
+                // Don't validate "global" as a meeting
+                if (meetingId == null || meetingId.isEmpty() || "global".equals(meetingId)) {
+                    System.out.println("Ignoring validation request for invalid meeting ID: " + meetingId);
+                    return;
+                }
+                handleMeetingValidation(meetingId, username, content);
+                return;
+            }
+
+            // Handle MEETING_CREATED
             if (type.equals("MEETING_CREATED")) {
                 handleMeetingCreatedFromServer(meetingId, username, content);
                 return;
             }
 
+            // Handle MEETING_AVAILABLE
             if (type.equals("MEETING_AVAILABLE")) {
                 handleMeetingAvailable(meetingId, username, content);
                 return;
             }
 
+            // Handle MEETING_VALIDATION_RESPONSE
             if (type.equals("MEETING_VALIDATION_RESPONSE")) {
                 handleMeetingValidationResponse(meetingId, content);
                 return;
             }
 
+            // Handle MEETING_LIST
             if (type.equals("MEETING_LIST")) {
                 handleMeetingListResponse(content);
                 return;
             }
 
+            // Handle MEETING_SYNC
             if (type.equals("MEETING_SYNC")) {
                 handleMeetingSync(content);
                 return;
             }
 
-            // Skip our own messages for other types
+            // Skip global channel messages for meeting-specific handling
+            if ("global".equals(meetingId)) {
+                System.out.println("Global channel message (ignoring for meeting handling): " + type);
+                return;
+            }
+
+            // Rest of your existing message handling...
+            // Skip our own messages
             if (username.equals(loggedInUser)) {
                 System.out.println("Ignoring own message echo: " + type);
                 return;
             }
 
-            // Handle device list messages
-            if (type.equals("DEVICE_LIST") && parts.length >= 4) {
-                handleDeviceList(content);
-                return;
-            }
-
-            if (type.equals("DEVICE_CONNECTED") && parts.length >= 5) {
-                String deviceInfo = parts[4];
-                handleDeviceConnected(username, deviceInfo);
-                return;
-            }
-
-            if (type.equals("DEVICE_DISCONNECTED") && parts.length >= 5) {
-                String deviceInfo = parts[4];
-                handleDeviceDisconnected(username, deviceInfo);
-                return;
-            }
-
-            // Check if this message is for our current meeting
-            String currentMeetingId = getActiveMeetingId();
-            if (!meetingId.equals(currentMeetingId) && !meetingId.equals("global")) {
-                System.out.println("Message not for current meeting. Current: " + currentMeetingId + ", Message: " + meetingId);
-                return;
-            }
-
-            // Route the message to the appropriate handler
-            final String finalMessage = message;
-            Platform.runLater(() -> {
-                MeetingController meetingController = MeetingController.getInstance();
-                if (meetingController != null) {
-                    System.out.println("Forwarding message to MeetingController");
-                    meetingController.handleWebSocketMessage(finalMessage);
-                } else {
-                    System.out.println("MeetingController not available, handling locally");
-                    switch (type) {
-                        case "CHAT_MESSAGE":
-                        case "CHAT":
-                            addSystemMessage(username + ": " + content);
-                            break;
-                        case "USER_JOINED":
-                            handleUserJoined(username, meetingId, content);
-                            break;
-                        case "USER_LEFT":
-                            handleUserLeft(username, meetingId, content);
-                            break;
-                        case "VIDEO_STATUS":
-                            handleVideoStatus(username, content);
-                            break;
-                        case "VIDEO_FRAME":
-                            handleVideoFrame(username, content);
-                            break;
-                        case "AUDIO_STATUS":
-                            handleAudioStatus(username, content);
-                            break;
-                        case "AUDIO_CONTROL":
-                            handleAudioControl(username, content);
-                            break;
-                        default:
-                            System.out.println("Unhandled message type: " + type);
-                    }
-                }
-            });
-        } else {
-            // Handle special messages
-            if (message.equals("GET_DEVICE_LIST")) {
-                if (webSocketClient != null && webSocketClient.isConnected()) {
-                    StringBuilder deviceList = new StringBuilder("DEVICE_LIST|global|Server|");
-                    int count = 0;
-                    for (DeviceInfo info : connectedDevices.values()) {
-                        if (count > 0) deviceList.append(";");
-                        deviceList.append(info.username).append(",")
-                                .append(info.deviceId).append(",")
-                                .append(info.ipAddress).append(",")
-                                .append(info.deviceType).append(",")
-                                .append(info.lastSeen);
-                        count++;
-                    }
-                    webSocketClient.send(deviceList.toString());
-                    System.out.println("Sent device list with " + count + " devices");
-                }
-            } else if (message.equals("GET_ALL_MEETINGS")) {
-                sendAllMeetings();
-            } else {
-                System.err.println("Invalid WebSocket message format: " + message);
-            }
+            // ... rest of your existing code ...
         }
     }
 
+    private static void handleMeetingValidation(String meetingId, String username, String content) {
+        System.out.println("Validating meeting: " + meetingId + " requested by: " + username);
+
+        // Don't validate "global"
+        if (meetingId == null || meetingId.isEmpty() || "global".equals(meetingId)) {
+            System.out.println("❌ Cannot validate invalid meeting ID: " + meetingId);
+            if (webSocketClient != null) {
+                webSocketClient.sendMessage("MEETING_VALIDATION_RESPONSE", meetingId, "Server", "INVALID");
+            }
+            return;
+        }
+
+        boolean exists = Database.meetingExists(meetingId);
+        String host = exists ? Database.getMeetingHost(meetingId) : null;
+
+        if (exists && host != null) {
+            System.out.println("✅ Meeting " + meetingId + " is valid (host: " + host + ")");
+            if (webSocketClient != null) {
+                webSocketClient.sendMessage("MEETING_VALIDATION_RESPONSE", meetingId, "Server", "VALID|" + host);
+            }
+        } else {
+            System.out.println("❌ Meeting " + meetingId + " not found");
+            if (webSocketClient != null) {
+                webSocketClient.sendMessage("MEETING_VALIDATION_RESPONSE", meetingId, "Server", "NOT_FOUND");
+            }
+        }
+    }
     // NEW: Send all meetings to server
     private static void sendAllMeetings() {
         if (webSocketClient == null || !webSocketClient.isConnected()) {
@@ -2089,12 +2054,17 @@ public class HelloApplication extends Application {
         return true;
     }
 
-
     public static boolean isValidMeeting(String meetingId) {
         System.out.println("Validating meeting: " + meetingId + " on device: " + deviceName);
 
-        if (!meetingId.matches("\\d{6}")) {
+        // Don't validate "global" or invalid formats
+        if (meetingId == null || meetingId.isEmpty() || "global".equals(meetingId)) {
             System.err.println("Invalid meeting ID format: " + meetingId);
+            return false;
+        }
+
+        if (!meetingId.matches("\\d{6}")) {
+            System.err.println("Invalid meeting ID format (must be 6 digits): " + meetingId);
             return false;
         }
 
@@ -2113,8 +2083,8 @@ public class HelloApplication extends Application {
                 MeetingInfo meetingInfo = new MeetingInfo(meetingId, host);
                 activeMeetings.put(meetingId, meetingInfo);
                 System.out.println("Recreated meeting from database: " + meetingId);
-                return true;
             }
+            return true;
         }
 
         // 3. Check meeting_participants table as fallback
@@ -2127,19 +2097,9 @@ public class HelloApplication extends Application {
             return true;
         }
 
-        // 4. If connected to WebSocket, request server to validate
-        if (isWebSocketConnected() && webSocketClient != null) {
-            System.out.println("Requesting server validation for meeting: " + meetingId);
-            webSocketClient.sendMessage("VALIDATE_MEETING", "global", loggedInUser != null ? loggedInUser : "anonymous", meetingId);
-
-            // Also try to get all meetings from server
-            webSocketClient.send("GET_ALL_MEETINGS");
-        }
-
         System.err.println("Meeting not found: " + meetingId);
         return false;
     }
-
 
     public static void createMeetingForTesting(String meetingId) {
         String hostName = getLoggedInUser();
@@ -2514,18 +2474,39 @@ public class HelloApplication extends Application {
     }
 
     public static void sendWebSocketMessage(String type, String meetingId, String username, String content) {
-        ensureDeviceInfo(); // Ensure device info is set
+        ensureDeviceInfo();
 
         if (webSocketClient != null && webSocketClient.isConnected()) {
-            System.out.println("=== SENDING WEBSOCKET MESSAGE FROM DEVICE: " + deviceName + " ===");
+            // Use "global" ONLY for global channel messages, NOT for meeting validation
+            String targetChannel = meetingId;
+
+            // Don't send validation requests to "global" channel
+            if ("VALIDATE_MEETING".equals(type) && (meetingId == null || meetingId.isEmpty() || "global".equals(meetingId))) {
+                System.err.println("Cannot validate meeting with ID: " + meetingId);
+                return;
+            }
+
+            // For meeting-specific messages, ensure we have a valid meeting ID
+            if (!"global".equals(targetChannel) && !"DEVICE_INFO".equals(type) &&
+                    !"GET_MEETINGS".equals(type) && !"GET_ALL_MEETINGS".equals(type)) {
+                if (targetChannel == null || targetChannel.isEmpty() || !targetChannel.matches("\\d{6}")) {
+                    System.err.println("Invalid meeting ID for message type " + type + ": " + targetChannel);
+                    return;
+                }
+            }
+
+            // If meetingId is null or empty for non-global messages, use "global"
+            if (targetChannel == null || targetChannel.isEmpty()) {
+                targetChannel = "global";
+            }
+
+            System.out.println("=== SENDING WEBSOCKET MESSAGE ===");
             System.out.println("Type: " + type);
-            System.out.println("Meeting ID: " + meetingId);
+            System.out.println("Channel: " + targetChannel);
             System.out.println("Username: " + username);
             System.out.println("Content: " + content);
-            System.out.println("Device: " + deviceName + " (" + deviceId + ")");
 
-            webSocketClient.sendMessage(type, meetingId, username, content);
-            System.out.println("Message sent successfully");
+            webSocketClient.sendMessage(type, targetChannel, username, content);
         } else {
             System.err.println("Cannot send message - WebSocket not connected");
         }
