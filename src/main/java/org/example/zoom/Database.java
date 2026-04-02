@@ -3,6 +3,7 @@ package org.example.zoom;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.sql.Timestamp;
 
 public class Database {
 
@@ -93,6 +94,58 @@ public class Database {
             System.err.println("❌ getAllUserDetails error: " + e.getMessage());
         }
         return users;
+    }
+
+    // Add these methods to the Database class
+
+    // Get meeting by ID with full details
+    public static MeetingDetails getMeetingByMeetingId(String meetingId) {
+        String sql = "SELECT meeting_id, username as host, title, description, date, time, created_at " +
+                "FROM meetings WHERE meeting_id = ? LIMIT 1";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, meetingId);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                return new MeetingDetails(
+                        rs.getString("meeting_id"),
+                        rs.getString("host"),
+                        rs.getString("title"),
+                        rs.getString("description"),
+                        rs.getString("date"),
+                        rs.getString("time"),
+                        rs.getTimestamp("created_at"),
+                        0
+                );
+            }
+        } catch (SQLException e) {
+            System.err.println("getMeetingByMeetingId error: " + e.getMessage());
+        }
+        return null;
+    }
+
+    // Get all meetings from database (including all columns)
+    public static List<MeetingInfo> getAllMeetingsFromDB() {
+        List<MeetingInfo> meetings = new ArrayList<>();
+        String sql = "SELECT DISTINCT meeting_id, username as host, " +
+                "(SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = m.meeting_id) as participant_count, " +
+                "created_at FROM meetings m WHERE meeting_id IS NOT NULL ORDER BY created_at DESC";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                MeetingInfo info = new MeetingInfo(
+                        rs.getString("meeting_id"),
+                        rs.getString("host"),
+                        rs.getInt("participant_count"),
+                        rs.getTimestamp("created_at")
+                );
+                meetings.add(info);
+            }
+        } catch (SQLException e) {
+            System.err.println("getAllMeetingsFromDB error: " + e.getMessage());
+        }
+        return meetings;
     }
 
     // NEW: Get user count for statistics
@@ -1361,7 +1414,6 @@ public class Database {
         }
     }
 
-    // NEW: Meeting Info class for list display
     public static class MeetingInfo {
         private String meetingId;
         private String host;
@@ -1383,11 +1435,6 @@ public class Database {
         public String getFormattedTime() {
             if (createdAt == null) return "Unknown";
             return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(createdAt);
-        }
-
-        @Override
-        public String toString() {
-            return meetingId + " | Host: " + host + " | Participants: " + participantCount + " | Created: " + getFormattedTime();
         }
     }
 

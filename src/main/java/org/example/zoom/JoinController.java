@@ -11,8 +11,6 @@ import javafx.scene.control.ButtonType;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 public class JoinController {
 
@@ -22,76 +20,62 @@ public class JoinController {
 
     @FXML
     public void initialize() {
-        // Check if there's a meeting ID in clipboard or from previous session
         checkForMeetingId();
-
-        // Set up proper key event handlers
         setupKeyHandlers();
 
-        System.out.println("🔍 Join Controller initialized - checking for available meetings...");
+        System.out.println("Join Controller initialized");
         System.out.println("Current user: " + HelloApplication.getLoggedInUser());
         System.out.println("WebSocket connected: " + HelloApplication.isWebSocketConnected());
 
-        // Request meeting list from server to sync
+        // Request meeting list from server
         if (HelloApplication.isWebSocketConnected()) {
-            System.out.println("📋 Requesting meeting list from server...");
+            System.out.println("Requesting meeting list from server...");
             HelloApplication.refreshMeetingsFromServer();
 
-            // Also request all meetings
             if (HelloApplication.getWebSocketClient() != null) {
                 HelloApplication.getWebSocketClient().send("GET_ALL_MEETINGS");
             }
         }
 
-        // List all active meetings for debugging
+        // List all active meetings
         System.out.println("Active meetings in system: " + HelloApplication.getActiveMeetings().keySet());
 
-        // Also check database for meetings
+        // Check database for meetings
         System.out.println("Checking database for meetings...");
-        List<Database.MeetingInfo> dbMeetings = Database.getAllMeetings();
+        List<Database.MeetingInfo> dbMeetings = Database.getAllMeetingsFromDB();
         for (Database.MeetingInfo meeting : dbMeetings) {
-            System.out.println("📅 Database meeting: " + meeting.getMeetingId() + " hosted by " + meeting.getHost());
+            System.out.println("Database meeting: " + meeting.getMeetingId() + " hosted by " + meeting.getHost());
         }
 
-        if (HelloApplication.getActiveMeetingId() != null) {
-            boolean exists = Database.meetingExists(HelloApplication.getActiveMeetingId());
-            System.out.println("Meeting " + HelloApplication.getActiveMeetingId() + " exists in DB: " + exists);
-        }
-
-        // If no active meetings, show helpful message
+        // Update status
         if (HelloApplication.getActiveMeetings().isEmpty() && dbMeetings.isEmpty()) {
-            statusLabel.setText("ℹ️ No meetings found. Please enter a valid Meeting ID or create one.");
+            statusLabel.setText("No meetings found. Please enter a valid Meeting ID or create one.");
         } else {
-            statusLabel.setText("📋 Enter Meeting ID and Name to join");
+            statusLabel.setText("Enter Meeting ID and Name to join");
         }
     }
 
     private void checkForMeetingId() {
-        // Check if there's an active meeting ID set from NewMeetingController
         String activeMeetingId = HelloApplication.getActiveMeetingId();
         if (activeMeetingId != null && !activeMeetingId.isEmpty()) {
             meetingIdField.setText(activeMeetingId);
-            statusLabel.setText("📋 Meeting ID detected! Enter your name to join.");
-            System.out.println("✅ Auto-filled meeting ID from NewMeeting: " + activeMeetingId);
-        } else {
-            System.out.println("ℹ️ No active meeting ID detected from NewMeetingController");
+            statusLabel.setText("Meeting ID detected! Enter your name to join.");
+            System.out.println("Auto-filled meeting ID: " + activeMeetingId);
         }
     }
 
     private void setupKeyHandlers() {
-        // Add key pressed listeners to both text fields
         meetingIdField.setOnKeyPressed(this::handleKeyPress);
         nameField.setOnKeyPressed(this::handleKeyPress);
     }
 
     private void handleKeyPress(KeyEvent event) {
-        // Only trigger join when Enter key is pressed
         if (event.getCode() == KeyCode.ENTER) {
             try {
                 onJoinMeetingClick();
             } catch (Exception e) {
                 e.printStackTrace();
-                statusLabel.setText("❌ Error joining meeting: " + e.getMessage());
+                statusLabel.setText("Error joining meeting: " + e.getMessage());
             }
         }
     }
@@ -102,34 +86,30 @@ public class JoinController {
         String name = nameField.getText().trim();
 
         if (meetingId.isEmpty() || name.isEmpty()) {
-            statusLabel.setText("⚠ Please enter both Meeting ID and Name!");
+            statusLabel.setText("Please enter both Meeting ID and Name!");
             return;
         }
 
-        // Validate meeting ID format (should be 6 digits)
         if (!meetingId.matches("\\d{6}")) {
-            statusLabel.setText("❌ Meeting ID must be 6 digits!");
+            statusLabel.setText("Meeting ID must be 6 digits!");
             return;
         }
 
-        statusLabel.setText("🔄 Validating meeting...");
+        statusLabel.setText("Validating meeting...");
 
-        // Get the current logged in user
         String loggedInUser = HelloApplication.getLoggedInUser();
         String participantName = loggedInUser != null ? loggedInUser : name;
 
         System.out.println("Attempting to join meeting: " + meetingId + " as: " + participantName);
         System.out.println("WebSocket connected: " + HelloApplication.isWebSocketConnected());
 
-        // First check if meeting exists locally
+        // Check if meeting exists
         boolean meetingExists = HelloApplication.isValidMeeting(meetingId);
 
         // If not found locally but WebSocket is connected, try server validation
         if (!meetingExists && HelloApplication.isWebSocketConnected()) {
-            statusLabel.setText("🔄 Checking with server for meeting...");
+            statusLabel.setText("Checking with server for meeting...");
             System.out.println("Meeting not found locally, requesting server validation");
-
-            // Try server validation
             meetingExists = validateMeetingWithServer(meetingId);
         }
 
@@ -139,7 +119,7 @@ public class JoinController {
             meetingExists = Database.meetingExists(meetingId);
 
             if (meetingExists) {
-                System.out.println("✅ Meeting found in database!");
+                System.out.println("Meeting found in database!");
                 String host = Database.getMeetingHost(meetingId);
                 if (host != null) {
                     HelloApplication.syncMeetingFromServer(meetingId, host);
@@ -147,67 +127,55 @@ public class JoinController {
             }
         }
 
-        // Check if meeting exists
         if (!meetingExists) {
-            statusLabel.setText("❌ Meeting not found! Check the ID or create a new meeting.");
-
-            // Show available meetings for debugging
+            statusLabel.setText("Meeting not found! Check the ID or create a new meeting.");
             showAvailableMeetings();
-
-            // Ask if user wants to create a new meeting
             askToCreateNewMeeting();
             return;
         }
 
-        System.out.println("✅ Meeting validated successfully: " + meetingId);
+        System.out.println("Meeting validated successfully: " + meetingId);
 
         // Join the meeting
         boolean joined = HelloApplication.joinMeeting(meetingId, participantName);
 
         if (joined) {
-            statusLabel.setText("✅ Successfully joined meeting! Loading...");
+            statusLabel.setText("Successfully joined meeting! Loading...");
 
             // Send WebSocket notification
             if (HelloApplication.isWebSocketConnected()) {
                 String deviceId = HelloApplication.getDeviceId();
                 String deviceName = HelloApplication.getDeviceName();
                 String content = participantName + " joined the meeting|" + deviceId + "|" + deviceName;
-
                 HelloApplication.sendWebSocketMessage("USER_JOINED", meetingId, participantName, content);
                 System.out.println("Sent USER_JOINED notification for meeting: " + meetingId);
-            } else {
-                System.out.println("WebSocket not connected - will work in offline mode");
             }
 
-            // Navigate to meeting view
             navigateToMeeting();
         } else {
-            statusLabel.setText("❌ Failed to join meeting. Please try again.");
+            statusLabel.setText("Failed to join meeting. Please try again.");
         }
     }
 
-    /**
-     * Validate meeting with server
-     */
     private boolean validateMeetingWithServer(String meetingId) {
         if (!HelloApplication.isWebSocketConnected()) {
             return false;
         }
 
         try {
-            System.out.println("🔄 Validating meeting with server: " + meetingId);
+            System.out.println("Validating meeting with server: " + meetingId);
 
-            // Send validation request
-            HelloApplication.sendWebSocketMessage("VALIDATE_MEETING", meetingId,
-                    HelloApplication.getLoggedInUser(), meetingId);
+            String loggedInUser = HelloApplication.getLoggedInUser();
+            String sender = loggedInUser != null ? loggedInUser : "anonymous";
 
-            // Wait for response (simplified - in production use CompletableFuture)
-            Thread.sleep(1500);
+            HelloApplication.sendWebSocketMessage("VALIDATE_MEETING", meetingId, sender, meetingId);
+
+            // Wait a bit for response
+            Thread.sleep(2000);
 
             // Check again
             boolean exists = HelloApplication.isValidMeeting(meetingId);
             if (!exists) {
-                // Try database one more time
                 exists = Database.meetingExists(meetingId);
             }
 
@@ -219,16 +187,13 @@ public class JoinController {
         }
     }
 
-    /**
-     * Show available meetings
-     */
     private void showAvailableMeetings() {
-        List<Database.MeetingInfo> dbMeetings = Database.getAllMeetings();
+        List<Database.MeetingInfo> dbMeetings = Database.getAllMeetingsFromDB();
 
         if (!dbMeetings.isEmpty()) {
             StringBuilder msg = new StringBuilder("Available meetings in database:\n");
             for (Database.MeetingInfo meeting : dbMeetings) {
-                msg.append("• ").append(meeting.getMeetingId())
+                msg.append("- ").append(meeting.getMeetingId())
                         .append(" (Host: ").append(meeting.getHost())
                         .append(", Participants: ").append(meeting.getParticipantCount())
                         .append(")\n");
@@ -239,19 +204,12 @@ public class JoinController {
         if (!HelloApplication.getActiveMeetings().isEmpty()) {
             StringBuilder msg = new StringBuilder("Active meetings in memory:\n");
             for (String id : HelloApplication.getActiveMeetings().keySet()) {
-                msg.append("• ").append(id).append("\n");
+                msg.append("- ").append(id).append("\n");
             }
             System.out.println(msg.toString());
         }
-
-        if (dbMeetings.isEmpty() && HelloApplication.getActiveMeetings().isEmpty()) {
-            System.out.println("No meetings found in database or memory");
-        }
     }
 
-    /**
-     * Ask user if they want to create a new meeting
-     */
     private void askToCreateNewMeeting() {
         Platform.runLater(() -> {
             Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
@@ -272,7 +230,7 @@ public class JoinController {
                         HelloApplication.setRoot("new-meeting-view.fxml");
                     } catch (Exception e) {
                         e.printStackTrace();
-                        statusLabel.setText("❌ Error creating meeting: " + e.getMessage());
+                        statusLabel.setText("Error creating meeting: " + e.getMessage());
                     }
                 } else if (result.get() == tryAgainButton) {
                     statusLabel.setText("Please check the Meeting ID and try again");
@@ -282,9 +240,6 @@ public class JoinController {
         });
     }
 
-    /**
-     * Navigate to meeting view
-     */
     private void navigateToMeeting() {
         new Thread(() -> {
             try {
@@ -295,12 +250,12 @@ public class JoinController {
                         System.out.println("Navigated to meeting view");
                     } catch (Exception e) {
                         e.printStackTrace();
-                        statusLabel.setText("❌ Error navigating to meeting: " + e.getMessage());
+                        statusLabel.setText("Error navigating to meeting: " + e.getMessage());
                     }
                 });
             } catch (InterruptedException e) {
                 e.printStackTrace();
-                statusLabel.setText("❌ Join process interrupted");
+                statusLabel.setText("Join process interrupted");
             }
         }).start();
     }
@@ -312,26 +267,21 @@ public class JoinController {
 
     @FXML
     protected void onQuickJoinClick() {
-        // Generate a random 6-digit meeting ID for quick testing
         String randomMeetingId = String.valueOf((int) (Math.random() * 900000) + 100000);
         meetingIdField.setText(randomMeetingId);
 
-        // Register this as a valid meeting for testing
         HelloApplication.createMeetingForTesting(randomMeetingId);
         Database.saveMeetingWithId(randomMeetingId, HelloApplication.getLoggedInUser(),
                 "Test Meeting " + randomMeetingId, "Quick join test meeting");
 
-        statusLabel.setText("🎯 Quick Join ID: " + randomMeetingId + " - Enter your name!");
-
-        // Focus on name field for better UX
+        statusLabel.setText("Quick Join ID: " + randomMeetingId + " - Enter your name!");
         nameField.requestFocus();
     }
 
     @FXML
     protected void onRefreshMeetingsClick() {
-        statusLabel.setText("🔄 Refreshing meeting list...");
+        statusLabel.setText("Refreshing meeting list...");
 
-        // Request meetings from server
         if (HelloApplication.isWebSocketConnected()) {
             HelloApplication.refreshMeetingsFromServer();
             if (HelloApplication.getWebSocketClient() != null) {
@@ -339,12 +289,11 @@ public class JoinController {
             }
         }
 
-        // Check database
-        List<Database.MeetingInfo> meetings = Database.getAllMeetings();
+        List<Database.MeetingInfo> meetings = Database.getAllMeetingsFromDB();
         if (!meetings.isEmpty()) {
-            StringBuilder msg = new StringBuilder("📋 Available meetings:\n");
+            StringBuilder msg = new StringBuilder("Available meetings:\n");
             for (Database.MeetingInfo m : meetings) {
-                msg.append("• ").append(m.getMeetingId())
+                msg.append("- ").append(m.getMeetingId())
                         .append(" (Host: ").append(m.getHost())
                         .append(")\n");
             }
@@ -357,6 +306,6 @@ public class JoinController {
 
     @FXML
     protected void onPasteMeetingId() {
-        statusLabel.setText("📋 Paste your meeting ID in the field above");
+        statusLabel.setText("Paste your meeting ID in the field above");
     }
 }
