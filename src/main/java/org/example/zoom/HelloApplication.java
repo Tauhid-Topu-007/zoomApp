@@ -1976,36 +1976,18 @@ public class HelloApplication extends Application {
         setActiveMeetingId(meetingId);
         setMeetingHost(true);
 
-        // Save to database with explicit meeting ID
+        // Save to database
         boolean dbSaved = Database.saveMeetingWithId(meetingId, hostName, "Meeting " + meetingId,
                 "Meeting created by " + hostName + " on device: " + deviceName);
 
         if (dbSaved) {
             System.out.println("Meeting saved to database: " + meetingId);
-        } else {
-            System.err.println("Database save failed, trying alternative method");
-            Database.addParticipant(meetingId, hostName);
         }
 
         addParticipantToMeeting(meetingId, hostName);
 
-        // Broadcast to ALL devices via WebSocket
-        if (isWebSocketConnected()) {
-            String content = meetingId + "|" + hostName + "|" + deviceId + "|" + deviceName;
-
-            // Send multiple messages to ensure delivery
-            sendWebSocketMessage("MEETING_CREATED", meetingId, hostName, content);
-            sendWebSocketMessage("MEETING_AVAILABLE", meetingId, hostName, meetingId + "|" + hostName);
-
-            System.out.println("Broadcast MEETING_CREATED and MEETING_AVAILABLE for meeting: " + meetingId);
-
-            // Also send to global channel for discovery
-            if (webSocketClient != null) {
-                webSocketClient.sendMessage("MEETING_AVAILABLE", "global", hostName, meetingId + "|" + hostName + "|" + deviceName);
-            }
-        } else {
-            System.out.println("WebSocket not connected - meeting only available locally");
-        }
+        // Broadcast to ALL devices - THIS IS THE KEY FIX
+        broadcastMeetingCreation(meetingId, hostName);
 
         if (webRTCEnabled && webRTCManager != null) {
             startWebRTCSession();
@@ -2013,10 +1995,10 @@ public class HelloApplication extends Application {
 
         notifyControllersMeetingStateChanged(true);
 
-        System.out.println("MEETING CREATION SUCCESS: " + meetingId + " - Ready for participants to join!");
+        System.out.println("MEETING CREATION SUCCESS: " + meetingId);
         return meetingId;
     }
-
+    
     public static boolean joinMeeting(String meetingId, String participantName) {
         ensureDeviceInfo();
 
@@ -2439,6 +2421,52 @@ public class HelloApplication extends Application {
             return "Connected";
         } else {
             return "Disconnected";
+        }
+    }
+
+    /**
+     * Send all meetings to server for broadcasting to other devices
+     */
+    public static void sendAllMeetingsToServer() {
+        if (webSocketClient == null || !webSocketClient.isConnected()) {
+            return;
+        }
+
+        List<Database.MeetingInfo> meetings = Database.getAllMeetingsFromDB();
+        if (meetings.isEmpty()) {
+            return;
+        }
+
+        StringBuilder meetingList = new StringBuilder("MEETING_LIST|global|Server|");
+        for (int i = 0; i < meetings.size(); i++) {
+            Database.MeetingInfo meeting = meetings.get(i);
+            if (i > 0) meetingList.append(";");
+            meetingList.append(meeting.getMeetingId()).append(",")
+                    .append(meeting.getHost()).append(",")
+                    .append(meeting.getParticipantCount()).append(",")
+                    .append(meeting.getCreatedAt() != null ? meeting.getCreatedAt().getTime() : System.currentTimeMillis());
+        }
+
+        webSocketClient.send(meetingList.toString());
+        System.out.println("Sent " + meetings.size() + " meetings to server for broadcasting");
+    }
+
+    /**
+     * Broadcast meeting creation to all devices
+     */
+    public static void broadcastMeetingCreation(String meetingId, String host) {
+        if (webSocketClient != null && webSocketClient.isConnected()) {
+            String deviceInfo = deviceId + "|" + deviceName;
+            String content = meetingId + "|" + host + "|" + deviceInfo;
+
+            // Send multiple message types to ensure all clients receive
+            webSocketClient.sendMessage("MEETING_CREATED", meetingId, host, content);
+            webSocketClient.sendMessage("MEETING_AVAILABLE", "global", host, meetingId + "|" + host);
+
+            System.out.println("Broadcast meeting creation: " + meetingId);
+
+            // Also send the full meeting list
+            sendAllMeetingsToServer();
         }
     }
 
