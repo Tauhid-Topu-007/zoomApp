@@ -96,24 +96,18 @@ public class Database {
         return users;
     }
 
-    // FIXED: Get meeting by ID with full details - ENHANCED FOR CROSS-DEVICE ACCESS
+    // Add these methods to the Database class
+
+    // Get meeting by ID with full details
     public static MeetingDetails getMeetingByMeetingId(String meetingId) {
-        System.out.println("🔍 Database lookup for meeting ID: " + meetingId);
-
-        if (meetingId == null || meetingId.trim().isEmpty()) {
-            System.err.println("❌ Invalid meeting ID (null or empty)");
-            return null;
-        }
-
-        String sql = "SELECT meeting_id, username as host, title, description, date, time, created_at, " +
-                "(SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = meetings.meeting_id) as participant_count " +
+        String sql = "SELECT meeting_id, username as host, title, description, date, time, created_at " +
                 "FROM meetings WHERE meeting_id = ? LIMIT 1";
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, meetingId);
             ResultSet rs = stmt.executeQuery();
             if (rs.next()) {
-                MeetingDetails details = new MeetingDetails(
+                return new MeetingDetails(
                         rs.getString("meeting_id"),
                         rs.getString("host"),
                         rs.getString("title"),
@@ -121,41 +115,33 @@ public class Database {
                         rs.getString("date"),
                         rs.getString("time"),
                         rs.getTimestamp("created_at"),
-                        rs.getInt("participant_count")
+                        0
                 );
-                System.out.println("✅ Found meeting: " + meetingId + " hosted by: " + details.getHost());
-                return details;
             }
         } catch (SQLException e) {
             System.err.println("getMeetingByMeetingId error: " + e.getMessage());
         }
-
-        System.out.println("❌ Meeting not found in database: " + meetingId);
         return null;
     }
 
-    // FIXED: Get all meetings from database - NOW INCLUDES ALL VALID MEETING IDs
+    // Get all meetings from database (including all columns)
     public static List<MeetingInfo> getAllMeetingsFromDB() {
         List<MeetingInfo> meetings = new ArrayList<>();
         String sql = "SELECT DISTINCT meeting_id, username as host, " +
-                "COALESCE((SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = m.meeting_id), 0) as participant_count, " +
-                "created_at FROM meetings m WHERE meeting_id IS NOT NULL AND meeting_id != '' ORDER BY created_at DESC";
+                "(SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = m.meeting_id) as participant_count, " +
+                "created_at FROM meetings m WHERE meeting_id IS NOT NULL ORDER BY created_at DESC";
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             ResultSet rs = stmt.executeQuery();
             while (rs.next()) {
-                String meetingId = rs.getString("meeting_id");
-                if (meetingId != null && !meetingId.trim().isEmpty()) {
-                    MeetingInfo info = new MeetingInfo(
-                            meetingId,
-                            rs.getString("host"),
-                            rs.getInt("participant_count"),
-                            rs.getTimestamp("created_at")
-                    );
-                    meetings.add(info);
-                }
+                MeetingInfo info = new MeetingInfo(
+                        rs.getString("meeting_id"),
+                        rs.getString("host"),
+                        rs.getInt("participant_count"),
+                        rs.getTimestamp("created_at")
+                );
+                meetings.add(info);
             }
-            System.out.println("✅ Loaded " + meetings.size() + " meetings from database");
         } catch (SQLException e) {
             System.err.println("getAllMeetingsFromDB error: " + e.getMessage());
         }
@@ -552,7 +538,7 @@ public class Database {
                 String createSql = "CREATE TABLE meetings (" +
                         "id INT AUTO_INCREMENT PRIMARY KEY, " +
                         "username VARCHAR(50) NOT NULL, " +
-                        "meeting_id VARCHAR(50), " +
+                        "meeting_id VARCHAR(20), " +
                         "title VARCHAR(255), " +
                         "description TEXT, " +
                         "date DATE, " +
@@ -569,7 +555,7 @@ public class Database {
                 if (!columns.next()) {
                     // Add meeting_id column if it doesn't exist
                     try (Statement stmt = conn.createStatement()) {
-                        stmt.execute("ALTER TABLE meetings ADD COLUMN meeting_id VARCHAR(50)");
+                        stmt.execute("ALTER TABLE meetings ADD COLUMN meeting_id VARCHAR(20)");
                         System.out.println("✅ Added meeting_id column to meetings table");
                     }
                 }
@@ -589,7 +575,7 @@ public class Database {
     }
 
     /**
-     * FIXED: Store meeting with proper meeting ID - ensures cross-device visibility
+     * ENHANCED: Store meeting with proper meeting ID - ensures cross-device visibility
      */
     public static boolean saveMeetingWithId(String meetingId, String hostUsername, String title, String description) {
         System.out.println("📝 Saving meeting with ID: " + meetingId + " host: " + hostUsername);
@@ -619,12 +605,8 @@ public class Database {
                 stmt.setString(2, hostUsername);
                 stmt.setString(3, title != null ? title : "Meeting " + meetingId);
                 stmt.setString(4, description != null ? description : "Meeting created by " + hostUsername);
-                int rowsAffected = stmt.executeUpdate();
-                if (rowsAffected > 0) {
-                    System.out.println("✅ Meeting saved with ID: " + meetingId + " by host: " + hostUsername);
-                } else {
-                    System.err.println("⚠️ No rows affected when saving meeting: " + meetingId);
-                }
+                stmt.executeUpdate();
+                System.out.println("✅ Meeting saved with ID: " + meetingId + " by host: " + hostUsername);
             }
 
             // Also add host as participant
@@ -669,15 +651,15 @@ public class Database {
     }
 
     /**
-     * FIXED: Get all active meetings from database (for cross-device sync)
+     * NEW: Get all active meetings from database (for cross-device sync)
      */
     public static List<MeetingInfo> getAllMeetings() {
         List<MeetingInfo> meetings = new ArrayList<>();
         String sql = "SELECT DISTINCT m.meeting_id, m.username as host, " +
-                "COALESCE((SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = m.meeting_id), 0) as participant_count, " +
+                "(SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = m.meeting_id) as participant_count, " +
                 "m.created_at " +
                 "FROM meetings m " +
-                "WHERE m.meeting_id IS NOT NULL AND m.meeting_id != '' " +
+                "WHERE m.meeting_id IS NOT NULL " +
                 "ORDER BY m.created_at DESC";
 
         try (Connection conn = getConnection();
@@ -689,9 +671,7 @@ public class Database {
                 int participantCount = rs.getInt("participant_count");
                 Timestamp createdAt = rs.getTimestamp("created_at");
 
-                if (meetingId != null && !meetingId.trim().isEmpty()) {
-                    meetings.add(new MeetingInfo(meetingId, host, participantCount, createdAt));
-                }
+                meetings.add(new MeetingInfo(meetingId, host, participantCount, createdAt));
             }
             System.out.println("✅ Loaded " + meetings.size() + " meetings from database");
         } catch (SQLException e) {
@@ -701,15 +681,15 @@ public class Database {
     }
 
     /**
-     * FIXED: Get meetings created in last N hours (for active meetings)
+     * NEW: Get meetings created in last N hours (for active meetings)
      */
     public static List<MeetingInfo> getRecentMeetings(int hours) {
         List<MeetingInfo> meetings = new ArrayList<>();
         String sql = "SELECT DISTINCT m.meeting_id, m.username as host, " +
-                "COALESCE((SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = m.meeting_id), 0) as participant_count, " +
+                "(SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = m.meeting_id) as participant_count, " +
                 "m.created_at " +
                 "FROM meetings m " +
-                "WHERE m.meeting_id IS NOT NULL AND m.meeting_id != '' " +
+                "WHERE m.meeting_id IS NOT NULL " +
                 "AND m.created_at > DATE_SUB(NOW(), INTERVAL ? HOUR) " +
                 "ORDER BY m.created_at DESC";
 
@@ -733,7 +713,7 @@ public class Database {
     }
 
     /**
-     * FIXED: Check if meeting exists across all possible tables
+     * ENHANCED: Check if meeting exists across all possible tables
      */
     public static boolean meetingExists(String meetingId) {
         System.out.println("🔍 Database checking if meeting exists: " + meetingId);
@@ -743,21 +723,7 @@ public class Database {
             return false;
         }
 
-        // Check meetings table with meeting_id column (MOST IMPORTANT)
-        String sqlMeetings = "SELECT COUNT(*) FROM meetings WHERE meeting_id = ?";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sqlMeetings)) {
-            stmt.setString(1, meetingId);
-            ResultSet rs = stmt.executeQuery();
-            if (rs.next() && rs.getInt(1) > 0) {
-                System.out.println("✅ Meeting found in meetings table: " + meetingId);
-                return true;
-            }
-        } catch (SQLException e) {
-            System.err.println("❌ meetingExists (meetings) error: " + e.getMessage());
-        }
-
-        // Check meeting_participants table as backup
+        // First check meeting_participants table (most reliable)
         String sqlParticipants = "SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = ?";
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sqlParticipants)) {
@@ -769,6 +735,20 @@ public class Database {
             }
         } catch (SQLException e) {
             System.err.println("❌ meetingExists (participants) error: " + e.getMessage());
+        }
+
+        // Check meetings table with meeting_id column
+        String sqlMeetings = "SELECT COUNT(*) FROM meetings WHERE meeting_id = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sqlMeetings)) {
+            stmt.setString(1, meetingId);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next() && rs.getInt(1) > 0) {
+                System.out.println("✅ Meeting found in meetings table: " + meetingId);
+                return true;
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ meetingExists (meetings) error: " + e.getMessage());
         }
 
         // Check by title (for backward compatibility)
@@ -791,25 +771,10 @@ public class Database {
     }
 
     /**
-     * FIXED: Get meeting host from database with multiple fallbacks
+     * ENHANCED: Get meeting host from database with multiple fallbacks
      */
     public static String getMeetingHost(String meetingId) {
         System.out.println("🔍 Getting host for meeting: " + meetingId);
-
-        // Check meetings table with meeting_id (MOST IMPORTANT)
-        String sqlMeetings = "SELECT username FROM meetings WHERE meeting_id = ? LIMIT 1";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sqlMeetings)) {
-            stmt.setString(1, meetingId);
-            ResultSet rs = stmt.executeQuery();
-            if (rs.next()) {
-                String host = rs.getString("username");
-                System.out.println("✅ Found meeting host in meetings: " + host);
-                return host;
-            }
-        } catch (SQLException e) {
-            System.err.println("❌ getMeetingHost (meetings) error: " + e.getMessage());
-        }
 
         // Try to get host from meeting_participants (first participant is usually host)
         String sqlParticipants = "SELECT username FROM meeting_participants WHERE meeting_id = ? ORDER BY joined_at ASC LIMIT 1";
@@ -824,6 +789,21 @@ public class Database {
             }
         } catch (SQLException e) {
             System.err.println("❌ getMeetingHost (participants) error: " + e.getMessage());
+        }
+
+        // Check meetings table with meeting_id
+        String sqlMeetings = "SELECT username FROM meetings WHERE meeting_id = ? LIMIT 1";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sqlMeetings)) {
+            stmt.setString(1, meetingId);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                String host = rs.getString("username");
+                System.out.println("✅ Found meeting host in meetings: " + host);
+                return host;
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ getMeetingHost (meetings) error: " + e.getMessage());
         }
 
         // Try to get from meetings table by title
@@ -847,11 +827,11 @@ public class Database {
     }
 
     /**
-     * FIXED: Get meeting details with all information
+     * ENHANCED: Get meeting details with all information
      */
     public static MeetingDetails getMeetingDetails(String meetingId) {
         String sql = "SELECT m.meeting_id, m.username as host, m.title, m.description, m.date, m.time, m.created_at, " +
-                "COALESCE((SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = m.meeting_id), 0) as participant_count " +
+                "(SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = m.meeting_id) as participant_count " +
                 "FROM meetings m WHERE m.meeting_id = ?";
 
         try (Connection conn = getConnection();
@@ -919,7 +899,7 @@ public class Database {
     }
 
     /**
-     * FIXED: Update meeting last active time
+     * NEW: Update meeting last active time
      */
     public static boolean updateMeetingActivity(String meetingId) {
         String sql = "UPDATE meetings SET last_active = CURRENT_TIMESTAMP WHERE meeting_id = ?";
@@ -927,9 +907,6 @@ public class Database {
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, meetingId);
             int updated = stmt.executeUpdate();
-            if (updated > 0) {
-                System.out.println("✅ Updated meeting activity for: " + meetingId);
-            }
             return updated > 0;
         } catch (SQLException e) {
             System.err.println("❌ updateMeetingActivity error: " + e.getMessage());
@@ -1606,7 +1583,7 @@ public class Database {
                 // Meetings table with enhanced schema
                 "CREATE TABLE IF NOT EXISTS meetings (" +
                         "id INT AUTO_INCREMENT PRIMARY KEY, " +
-                        "meeting_id VARCHAR(50), " +
+                        "meeting_id VARCHAR(20), " +
                         "username VARCHAR(50) NOT NULL, " +
                         "title VARCHAR(255), " +
                         "description TEXT, " +
@@ -1684,7 +1661,7 @@ public class Database {
             ResultSet idColumns = metaData.getColumns(null, null, "meetings", "meeting_id");
             if (!idColumns.next()) {
                 try (Statement stmt = conn.createStatement()) {
-                    stmt.execute("ALTER TABLE meetings ADD COLUMN meeting_id VARCHAR(50)");
+                    stmt.execute("ALTER TABLE meetings ADD COLUMN meeting_id VARCHAR(20)");
                     System.out.println("✅ Added meeting_id column to meetings table");
                 }
             }
