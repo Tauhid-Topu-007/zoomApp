@@ -32,7 +32,7 @@
                 </StackPane>
 
                 <VBox alignment="CENTER" spacing="8">
-                    <Label text="HSTU Classroom"
+                    <Label text="Meetlink"
                            style="-fx-text-fill: white; -fx-font-size: 32px; -fx-font-weight: bold; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 5, 0, 2, 2);"/>
                     <Label text="Connect and collaborate seamlessly across devices"
                            style="-fx-text-fill: #a0a0c0; -fx-font-size: 14px; -fx-font-style: italic;"/>

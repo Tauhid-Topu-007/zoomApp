@@ -18,7 +18,7 @@
 
             <!-- Header Section -->
             <VBox spacing="15" alignment="CENTER">
-                <Label text="Classroom Dashboard" style="-fx-text-fill: white; -fx-font-size: 36px; -fx-font-weight: bold;"/>
+                <Label text="Meetlink" style="-fx-text-fill: white; -fx-font-size: 36px; -fx-font-weight: bold;"/>
                 <Label fx:id="welcomeLabel" text="Welcome, User!" style="-fx-text-fill: #ecf0f1; -fx-font-size: 20px;"/>
 
                 <!-- Connection Status Banner -->

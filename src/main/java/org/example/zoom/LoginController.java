@@ -392,7 +392,7 @@ public class LoginController {
 
         switch (deviceName.toLowerCase()) {
             case "host-device-1":
-                return "HostUser";
+                return "Host";
             case "client-device-2":
                 return "ClientUser2";
             case "client-device-3":
